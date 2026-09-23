@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "id": "local-lab",
+    "name": "本机能力实验室",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "description": "第三方示例：读取笔记数量，在插件数据目录写入文件并读回，运行 node --version。",
+    "dependencies": [
+      "layout",
+      "notes"
+    ],
+    "server": "server.js",
+    "client": "client.js"
+  },
+  "files": {
+    "client.js": "export default function(ctx, sdk) {\n  const panel = sdk.el('section', { class: 'extension-panel', id: 'local-lab-panel' })\n  const button = sdk.el('button', {}, '运行本机能力验证'), result = sdk.el('pre', {}, '尚未运行。测试仅写入本插件的数据目录。')\n  panel.append(sdk.el('h3', {}, '本机能力实验室'), sdk.el('p', {}, '这是安装包带来的前端面板，后端在独立进程中运行。'), button, result)\n  sdk.mount('panels', panel)\n  sdk.listen(button, 'click', async () => {\n    button.disabled = true; result.textContent = '正在调用独立后端…'\n    try { const data = await sdk.rpc('inspect'); result.textContent = `文件：${data.file}\\n读回：${data.text}\\n命令结果：${data.command}\\n笔记数量：${data.noteCount}\\n独立进程 PID：${data.pid}` }\n    catch (error) { result.textContent = error.message } finally { button.disabled = false }\n  })\n}\n",
+    "server.js": "import { writeFile, readFile } from 'node:fs/promises'\nimport { join } from 'node:path'\n\nexport default function(ctx, api) {\n  api.handle('inspect', async () => {\n    const file = join(api.dataDir, 'hello.txt')\n    await writeFile(file, '你好，Cordis！这是第三方插件写入的文件。', 'utf8')\n    const text = await readFile(file, 'utf8')\n    const command = await api.exec(process.execPath, ['--version'])\n    const notes = await api.host('notes.list')\n    return { file, text, command: command.stdout.trim(), noteCount: notes.length, pid: process.pid }\n  })\n  console.log('本机能力实验室后端已启动')\n  ctx.effect(() => () => console.log('本机能力实验室后端已清理'))\n}\n"
+  }
+}

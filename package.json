@@ -1,0 +1,17 @@
+{
+  "name": "cordis-notebook",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "dev": "pnpm build && node --watch src/server.js",
+    "start": "pnpm build && node src/server.js",
+    "test": "pnpm build && node --test test/*.test.js"
+  },
+  "dependencies": {
+    "cordis": "4.0.0-rc.10"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

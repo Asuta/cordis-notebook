@@ -1,0 +1,10 @@
+{
+  "id": "local-lab",
+  "name": "本机能力实验室",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "第三方示例：读取笔记数量，在插件数据目录写入文件并读回，运行 node --version。",
+  "dependencies": ["layout", "notes"],
+  "server": "server.js",
+  "client": "client.js"
+}
