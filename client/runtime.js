@@ -1,5 +1,8 @@
 import { Context, Service } from 'cordis'
-const $ = s => document.querySelector(s), root = new Context(), mounted = new Map(), failures = new Map(), slots = new Map(), guards = new Set()
+import { ClientPlugins } from './plugin-host.js'
+import { serviceRelations } from './plugin-relations.js'
+import { createDependencyView } from './dependency-view.js'
+const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), slots = new Map(), guards = new Set()
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false, installPackage = null
 async function request(path, method = 'GET', data, signal) {
   const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
@@ -22,68 +25,121 @@ function sdkFor(ctx, plugin) {
     listen(target, event, handler) { target.addEventListener(event, handler); ctx.effect(() => () => target.removeEventListener(event, handler)) },
     guard(callback) { guards.add(callback); ctx.effect(() => () => guards.delete(callback)) },
     slot(name, node) { if (slots.has(name)) throw new Error(`插槽已被占用：${name}`); slots.set(name, node); ctx.effect(() => () => slots.delete(name)) },
-    mount(name, node) { const slot = name === 'app' ? $('#app') : slots.get(name); if (!slot) throw new Error(`缺少界面插槽：${name}`); slot.append(node); ctx.effect(() => () => node.remove()); return node },
+    mount(name, node) {
+      if (name === 'app') { ctx.effect(() => { $('#app').append(node); return () => node.remove() }); return node }
+      const services = plugin.builtin ? ctx : root
+      const service = name === 'list-filters' ? services.noteListUI : services.shell
+      if (service && (plugin.builtin || !slots.has(name))) return service.mount(ctx, name === 'list-filters' ? 'filters' : name, node)
+      const slot = slots.get(name); if (!slot) throw new Error('缺少界面扩展服务：' + name)
+      ctx.effect(() => { slot.append(node); return () => node.remove() }); return node
+    },
     watch(service, handler) { service.addEventListener('change', handler); ctx.effect(() => () => service.removeEventListener('change', handler)); handler() },
     button(slot, label, handler) { const button = el('button', {}, label); sdk.listen(button, 'click', () => Promise.resolve().then(handler).catch(error => toast(error.message))); return sdk.mount(slot, button) },
   }; return sdk
 }
 async function saveDrafts() { for (const guard of guards) await guard() }
-const labels = { enabled: '运行中', disabled: '已停用', starting: '启动中', stopping: '停止中', failed: '运行失败' }
+const host = new ClientPlugins(root, {
+  sdkFor, load: plugin => import((plugin.builtin ? '/builtin/' + plugin.client : '/plugins/' + plugin.id + '/' + plugin.client) + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt),
+  onChange: () => queueMicrotask(renderManager),
+})
+const labels = { waiting: '等待服务', 'not-applicable': '无需运行', enabled: '运行中', disabled: '已停用', starting: '启动中', stopping: '停止中', failed: '运行失败' }
+let managerView = 'cards'
+try { if (localStorage.getItem('cordis-manager-view') === 'tree') managerView = 'tree' } catch {}
+const viewBar = el('div', { class: 'manager-viewbar', 'aria-label': '插件显示方式' }), viewButtons = el('div', { class: 'manager-view-switch' })
+const cardsButton = el('button', { 'aria-pressed': 'true' }, '▦ 卡片视图'), treeButton = el('button', { 'aria-pressed': 'false' }, '⑂ 依赖树')
+viewButtons.append(cardsButton, treeButton); viewBar.append(el('span', {}, '浏览插件'), viewButtons)
+const dependencyView = createDependencyView({ el, card: pluginCard, labels, failures })
+$('#plugin-list').before(viewBar, dependencyView.host)
+function setManagerView(view) { managerView = view; try { localStorage.setItem('cordis-manager-view', view) } catch {}; renderManager() }
+cardsButton.onclick = () => setManagerView('cards'); treeButton.onclick = () => setManagerView('tree')
 function renderManager() {
+  const visiblePlugins = snapshot.plugins.map(p => host.describe(p))
+  failures.clear()
+  for (const p of visiblePlugins) if (p.clientState === 'failed') failures.set(p.id, { message: p.error })
   $('#plugin-list').replaceChildren()
-  $('#plugin-summary').textContent = `${snapshot.plugins.filter(p => p.state === 'enabled').length} 个运行中 / ${snapshot.plugins.length} 个已安装 · Cordis 双端插件运行时`
-  for (const plugin of snapshot.plugins) {
-    const card = el('article', { class: 'plugin-card', id: 'plugin-' + plugin.id }), top = el('div', { class: 'plugin-heading' })
+  $('#plugin-summary').textContent = `${visiblePlugins.filter(p => p.state === 'enabled').length} 个运行中 / ${snapshot.plugins.length} 个已安装 · Cordis 双端插件运行时`
+  const tree = managerView === 'tree'
+  $('#plugin-list').hidden = tree; dependencyView.host.hidden = !tree
+  cardsButton.setAttribute('aria-pressed', String(!tree)); treeButton.setAttribute('aria-pressed', String(tree))
+  if (tree) dependencyView.render(visiblePlugins)
+  else for (const plugin of visiblePlugins) $('#plugin-list').append(pluginCard(plugin))
+  $('#app-placeholder').hidden = host.state('layout') === 'enabled'
+}
+function pluginCard(plugin, id = 'plugin-' + plugin.id) {
+    const exclusive = plugin.builtin && plugin.exclusiveGroup
+    const busy = working || !!snapshot.pendingSwitch
+    const card = el('article', { class: 'plugin-card', id }), top = el('div', { class: 'plugin-heading' })
     top.append(el('strong', {}, plugin.name), el('span', { class: 'plugin-status ' + (failures.has(plugin.id) ? 'failed' : plugin.state) }, failures.has(plugin.id) ? '前端失败' : labels[plugin.state]))
     card.append(top, el('p', {}, plugin.description), el('small', {}, `${plugin.id} · v${plugin.version} · ${plugin.builtin ? '内置插件' : '第三方 · 完全信任'}${plugin.pid ? ' · PID ' + plugin.pid : ''}`))
-    if (plugin.dependencies.length) card.append(el('small', {}, '依赖：' + plugin.dependencies.join('、')))
+    if (plugin.dependencies.length) card.append(el('small', {}, (plugin.builtin ? '插件包依赖：' : '兼容插件依赖：') + plugin.dependencies.join('、')))
+    if (exclusive) {
+      const group = el('div', { class: 'theme-group' }), swatch = el('i', { class: 'theme-swatch', 'aria-hidden': 'true' })
+      swatch.style.background = plugin.swatch
+      const current = snapshot.plugins.find(p => p.exclusiveGroup === exclusive && p.state === 'enabled')
+      group.append(swatch, document.createTextNode(`${plugin.groupLabel} · 单选组${current?.id === plugin.id ? ' · 当前主题' : current ? ' · 使用后替换' + current.name : ' · 当前为默认样式'}`)); card.append(group)
+      if (snapshot.pendingSwitch?.group === exclusive) card.append(el('small', { role: 'status' }, '正在确认主题切换…'))
+    }
+    for (const scope of ['server', 'client']) {
+      if (plugin.provides?.[scope]?.length) card.append(el('small', {}, (scope === 'server' ? '后端提供：' : '前端提供：') + plugin.provides[scope].join('、')))
+    }
+    for (const relation of serviceRelations(plugin, snapshot.plugins.map(p => host.describe(p)))) {
+      const provider = snapshot.plugins.find(p => p.id === relation.provider)
+      card.append(el('small', {}, (relation.scope === 'server' ? '后端需要：' : '前端需要：') + relation.name + ' → ' + (relation.host ? '宿主' : provider ? provider.name + (relation.bound ? '' : '（候选，未绑定）') : '暂无绑定')))
+    }
+    card.append(el('small', {}, '启用选择：' + (plugin.enabled ? '已开启' : '已关闭')))
+    card.append(el('small', {}, '后端：' + labels[plugin.serverState] + ' · 本页前端：' + labels[plugin.clientState]))
+    if (plugin.waitingFor?.length) card.append(el('small', { class: 'plugin-waiting' }, '等待：' + plugin.waitingFor.join('、')))
     const error = failures.get(plugin.id)?.message || plugin.error
     if (error) card.append(el('pre', { class: 'plugin-error' }, error))
     if (plugin.logs?.length) { const details = el('details'); details.append(el('summary', {}, '后端日志'), el('pre', {}, plugin.logs.join(''))); card.append(details) }
-    const actions = el('div', { class: 'plugin-actions' }), on = plugin.state === 'enabled'
-    const toggle = el('button', { disabled: working || ['starting', 'stopping'].includes(plugin.state), 'aria-label': `${on ? '停用' : '启用'}${plugin.name}` }, on ? '停用' : plugin.state === 'failed' ? '重新启动' : '启用')
-    toggle.onclick = () => operate(async () => { await saveDrafts(); await request(`/api/plugins/${plugin.id}/toggle`, 'POST', { enabled: !on }); failures.delete(plugin.id) }); actions.append(toggle)
-    if (plugin.state === 'failed') { const stop = el('button', {}, '停用'); stop.onclick = () => operate(() => request(`/api/plugins/${plugin.id}/toggle`, 'POST', { enabled: false })); actions.append(stop) }
-    if (failures.has(plugin.id) && on) { const retry = el('button', {}, '重载前端'); retry.onclick = () => { failures.clear(); scheduleSync() }; actions.append(retry) }
+    const actions = el('div', { class: 'plugin-actions' }), on = plugin.enabled && plugin.state !== 'failed'
+    const toggle = el('button', { disabled: busy || ['starting', 'stopping'].includes(plugin.state), 'aria-label': `${on ? '停用' : exclusive ? '使用' : '启用'}${plugin.name}` }, exclusive ? on ? '恢复默认样式' : '使用此主题' : on ? '停用' : plugin.state === 'failed' ? '重新启动' : '启用')
+    toggle.onclick = () => operate(() => failures.has(plugin.id) && plugin.enabled ? host.retry(plugin.id) : changePlugin(plugin, !on)); actions.append(toggle)
+    if (plugin.state === 'failed' && !exclusive) { const stop = el('button', { disabled: busy }, '停用'); stop.onclick = () => operate(() => changePlugin(plugin, false)); actions.append(stop) }
+    if (plugin.enabled && ['failed', 'disabled'].includes(plugin.clientState)) { const retry = el('button', { disabled: busy }, '重载前端'); retry.onclick = () => operate(() => host.retry(plugin.id)); actions.append(retry) }
     if (!plugin.builtin) {
       const remove = el('button', { disabled: working || plugin.state !== 'disabled', 'aria-label': `卸载${plugin.name}` }, '卸载（保留数据）')
       remove.onclick = () => operate(() => request(`/api/plugins/${plugin.id}`, 'DELETE')); actions.append(remove)
       const clear = el('button', { disabled: working || plugin.state !== 'disabled' }, '清理数据')
       clear.onclick = () => { const confirmation = window.prompt(`将永久删除 ${plugin.name} 在专属数据目录内的文件。输入插件 ID ${plugin.id} 确认：`); if (confirmation === plugin.id) operate(async () => { await request(`/api/plugins/${plugin.id}/clear-data`, 'POST', { confirmation }); toast('插件专属数据已清理') }) }; actions.append(clear)
     }
-    card.append(actions); $('#plugin-list').append(card)
+    card.append(actions); return card
+}
+async function changePlugin(plugin, enabled) {
+  await saveDrafts()
+  const result = await request(`/api/plugins/${plugin.id}/toggle`, 'POST', { enabled })
+  failures.delete(plugin.id)
+  const pending = result.pendingSwitch
+  if (!pending) return
+  let loadError
+  try {
+    await scheduleSync()
+    if (snapshot.pendingSwitch?.token !== pending.token) throw new Error('切换已取消，请重新选择主题')
+    if (pending.target) {
+      const target = snapshot.plugins.find(p => p.id === pending.target)
+      if (host.state(pending.target) !== 'enabled' || host.entries.get(pending.target)?.generation !== target.generation) throw new Error(failures.get(pending.target)?.message || '主题前端未成功挂载')
+    } else if (snapshot.plugins.some(p => p.exclusiveGroup === pending.group && host.state(p.id) === 'enabled')) throw new Error('旧主题尚未完成卸载')
+  } catch (error) { loadError = error }
+  const confirmed = await request('/api/plugins/exclusive/confirm', 'POST', { token: pending.token, success: !loadError, error: loadError?.message })
+  await scheduleSync()
+  if (loadError) {
+    const restoreFailed = pending.previous.some(id => host.state(id) !== 'enabled')
+    throw new Error(restoreFailed ? `${confirmed.message}；原主题页面恢复失败，请重载前端。` : confirmed.message)
   }
-  $('#app-placeholder').hidden = mounted.has('layout')
+  toast(pending.target ? `已切换为${plugin.name}` : '已恢复默认样式')
 }
 async function operate(fn) {
   if (working) return; working = true; renderManager()
   try { await fn() } catch (error) { toast(error.message) } finally { working = false; await scheduleSync() }
 }
 async function synchronize() {
-  snapshot = await request('/api/plugins')
-  const wanted = new Map(snapshot.plugins.filter(p => p.state === 'enabled' && p.client).map(p => [p.id, p]))
-  for (const [id, item] of [...mounted].reverse()) if (!wanted.has(id) || wanted.get(id).generation !== item.generation) {
-    if (id === 'notebook' || id === 'editor') { try { await saveDrafts() } catch { toast('服务已停用，未保存草稿保留在此浏览器，重新启用后可恢复。') } }
-    await item.fiber.dispose(); mounted.delete(id)
-  }
-  const visiting = new Set()
-  async function mount(plugin) {
-    if (mounted.has(plugin.id) || failures.get(plugin.id)?.generation === plugin.generation) return
-    if (visiting.has(plugin.id)) throw new Error('前端插件存在循环依赖')
-    visiting.add(plugin.id); let fiber
-    try {
-      for (const dependency of plugin.dependencies) if (wanted.has(dependency)) { await mount(wanted.get(dependency)); if (!mounted.has(dependency)) throw new Error(`前端依赖 ${dependency} 加载失败`) }
-      const url = plugin.builtin ? '/builtin/' + plugin.client : `/plugins/${plugin.id}/${plugin.client}`
-      const module = await deadline(import(url + '?generation=' + plugin.generation))
-      if (typeof module.default !== 'function') throw new Error('前端入口需要导出 default 函数')
-      fiber = root.plugin({ inject: module.inject || [], async apply(ctx) { const cleanup = await deadline(Promise.resolve(module.default(ctx, sdkFor(ctx, plugin)))); if (typeof cleanup === 'function') ctx.effect(() => cleanup) } })
-      await deadline(fiber); mounted.set(plugin.id, { fiber, generation: plugin.generation }); failures.delete(plugin.id)
-    } catch (error) { if (fiber) await fiber.dispose(); failures.set(plugin.id, { generation: plugin.generation, message: error.message }) } finally { visiting.delete(plugin.id) }
-  }
-  for (const plugin of wanted.values()) await mount(plugin)
+  const next = await request('/api/plugins')
+  const removed = snapshot.plugins.some(p => p.enabled && p.client && !next.plugins.some(n => n.id === p.id && n.enabled))
+  if (removed) { try { await saveDrafts() } catch { toast('服务已停用，未保存草稿保留在此浏览器。') } }
+  snapshot = next
+  await host.sync(snapshot.plugins)
   renderManager()
 }
-async function deadline(promise) { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('前端插件加载超过 10 秒')), 10000) })]) } finally { clearTimeout(timer) } }
 function scheduleSync() { const task = syncQueue.then(synchronize); syncQueue = task.catch(error => { $('#connection').textContent = '连接中断'; toast(error.message) }); return syncQueue }
 $('#manage-plugins').onclick = () => { $('#plugin-manager').showModal(); scheduleSync() }
 $('#close-manager').onclick = () => $('#plugin-manager').close()

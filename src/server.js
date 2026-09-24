@@ -15,6 +15,7 @@ export async function createApp({ port = 3210, file = resolve(rootDir, 'data/not
     route('GET', /^\/api\/plugins$/, () => manager.serialize())
     route('POST', /^\/api\/plugins\/install$/, async ({ req }) => { const input = await body(req); return manager.install(input.package, input.trust) })
     route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/toggle$/, async ({ req, match }) => manager.toggle(match[1], (await body(req)).enabled))
+    route('POST', /^\/api\/plugins\/exclusive\/confirm$/, async ({ req }) => { const input = await body(req); return manager.finishExclusive(input.token, input.success, input.error) })
     route('DELETE', /^\/api\/plugins\/([a-z0-9-]+)$/, ({ match }) => manager.uninstall(match[1]))
     route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/clear-data$/, async ({ req, match }) => manager.clearData(match[1], (await body(req)).confirmation))
     route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/rpc$/, async ({ req, match }) => {

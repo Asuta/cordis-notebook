@@ -1,4 +1,3 @@
-export const inject = ['notebook']
 export default function(ctx, sdk) {
   const model = ctx.notebook, filters = sdk.el('div', { class: 'filters' }), all = sdk.el('button', { class: 'active' }, '全部笔记'), pinned = sdk.el('button', {}, '已置顶'); filters.append(all, pinned); sdk.mount('list-filters', filters)
   sdk.listen(all, 'click', () => { model.filters.delete('pin'); all.classList.add('active'); pinned.classList.remove('active'); model.notify() })

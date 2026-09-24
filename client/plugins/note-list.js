@@ -1,8 +1,9 @@
-export const inject = ['notebook']
+import { provideMounts } from './ui-slots.js'
 export default function(ctx, sdk) {
   const model = ctx.notebook, heading = sdk.el('div', { class: 'section-heading' }), title = sdk.el('h2'), add = sdk.el('button', { class: 'new' }, '＋ 新建')
   heading.append(title, add); sdk.mount('sidebar', heading)
-  const filters = sdk.el('div', { class: 'list-filters' }); sdk.mount('sidebar', filters); sdk.slot('list-filters', filters)
+  const filters = sdk.el('div', { class: 'list-filters' }); sdk.mount('sidebar', filters)
+  provideMounts(sdk, 'noteListUI', { filters })
   const list = sdk.el('div', { class: 'note-list' }); sdk.mount('sidebar', list); sdk.mount('sidebar', sdk.el('div', { class: 'sidebar-footer' }, '每一个想法，都值得被留下。'))
   sdk.listen(add, 'click', () => model.create().catch(error => sdk.toast(error.message)))
   sdk.watch(model, () => {

@@ -1,4 +1,3 @@
-export const inject = ['notebook']
 export default function(ctx, sdk) {
   const model = ctx.notebook, writing = sdk.el('div', { class: 'writing' }), title = sdk.el('input', { id: 'title', placeholder: '无标题笔记', maxLength: 200, 'aria-label': '笔记标题' }), content = sdk.el('textarea', { id: 'content', placeholder: '写下此刻的想法…', maxLength: 200000, 'aria-label': '笔记正文' })
   const empty = sdk.el('div', { class: 'empty' }); empty.append(sdk.el('h2', {}, '给想法，一点留白。'), sdk.el('p', {}, '点击左侧「新建」，留下第一篇笔记。'))

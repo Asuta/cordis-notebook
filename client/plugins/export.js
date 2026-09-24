@@ -1,4 +1,3 @@
-export const inject = ['notebook']
 export default function(ctx, sdk) {
   const model = ctx.notebook, button = sdk.button('toolbar', '↗ 导出', () => {
     const note = model.current(); if (!note) return
