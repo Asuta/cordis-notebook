@@ -1,7 +1,7 @@
 import { readFile, writeFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { normalizeConfig } from '../client/config-schema.js'
+import { normalizeConfig } from '../../shared/config-schema.js'
 import { fail } from './http.js'
 
 // Only the initiating page previews uncommitted settings. SSE carries committed values.

@@ -3,6 +3,7 @@ data/
 work/
 *.log
 public/runtime.js
+shared/formats/markdown-parser.js
 .env
 .env.*
 !.env.example

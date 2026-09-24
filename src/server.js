@@ -2,8 +2,8 @@ import { Context } from 'cordis'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname, extname, sep } from 'node:path'
-import { Http, body, fail } from './http.js'
-import { Plugins } from './plugins.js'
+import { Http, body, fail } from './host/http.js'
+import { Plugins } from './host/plugins.js'
 
 const rootDir = fileURLToPath(new URL('../', import.meta.url))
 export async function createApp({ port = 3210, file = resolve(rootDir, 'data/notes.json'), dataDir = dirname(file) } = {}) {
@@ -35,7 +35,11 @@ export async function createApp({ port = 3210, file = resolve(rootDir, 'data/not
     }
     route('GET', /^\/$/, ({ res }) => serve(res, resolve(rootDir, 'public/index.html')))
     route('GET', /^\/(runtime\.js|style\.css)$/, ({ res, match }) => serve(res, resolve(rootDir, 'public', match[1])))
-    route('GET', /^\/builtin\/([a-z-]+\.(?:js|css))$/, ({ res, match }) => serve(res, resolve(rootDir, 'client/plugins', match[1])))
+    // Browser-facing format modules only; other host helpers remain private.
+    route('GET', /^\/shared\/((?:note-format|format-registry)\.js)$/, ({ res, match }) => serve(res, resolve(rootDir, 'shared', match[1])))
+    route('GET', /^\/shared\/formats\/([a-z][a-z0-9-]*\.js)$/, ({ res, match }) => serve(res, resolve(rootDir, 'shared/formats', match[1])))
+    route('GET', /^\/builtin\/([a-z-]+\.(?:js|css))$/, ({ res, match }) => serve(res, match[1] === 'note-format.js'
+      ? resolve(rootDir, 'shared/note-format.js') : resolve(rootDir, 'client/plugins', match[1])))
     route('GET', /^\/plugins\/([a-z0-9-]+)\/([a-zA-Z0-9_./-]+)$/, ({ res, match }) => {
       const record = manager.records.get(match[1]); if (!record || record.state !== 'enabled' || !record.root) throw fail(404, '插件没有启用')
       if (match[2].split('/').some(part => part === '..' || part.startsWith('.'))) throw fail(400, '路径无效')

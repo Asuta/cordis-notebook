@@ -2,7 +2,7 @@
 export class StopCoordinator {
   constructor(ctx, report = console.error) { this.ctx = ctx; this.report = report; this.running = false }
 
-  /** @param {import('./contracts').StopChange} change */
+  /** @param {import('../contracts/index.d.ts').StopChange} change */
   async run(change, action) {
     if (this.running) throw new Error('已有插件变更正在准备，请稍后重试')
     this.running = true

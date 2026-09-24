@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Service } from 'cordis'
 import { createApp } from '../src/server.js'
-import { ClientPlugins } from '../client/plugin-host.js'
-import { normalizeConfig } from '../client/config-schema.js'
-import { applyConfiguration } from '../client/config-transaction.js'
+import { ClientPlugins } from '../client/host/plugin-host.js'
+import { normalizeConfig } from '../shared/config-schema.js'
+import { applyConfiguration } from '../client/host/config-transaction.js'
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-config-')), file = join(dir, 'notes.json')

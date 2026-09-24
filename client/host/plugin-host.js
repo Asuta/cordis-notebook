@@ -1,11 +1,12 @@
 import { Service } from 'cordis'
-import { runtimeState, actualFiber, bindingsFor } from './lifecycle.js'
+import { runtimeState, actualFiber, bindingsFor } from '../../shared/lifecycle.js'
 import { configBinding } from './config-binding.js'
 
 export class ClientPlugins {
-  constructor(root, { sdkFor, load, onChange = () => {} }) {
+  constructor(root, { sdkFor, load, onChange = () => {}, startupTimeoutMs = 10000 }) {
     this.root = root; this.sdkFor = sdkFor; this.load = load; this.onChange = onChange
     this.entries = new Map(); this.gates = new Map(); this.plugins = []; this.attempt = 0
+    this.startupTimeoutMs = startupTimeoutMs
     root.on('internal/status', fiber => {
       const entry = [...this.entries.values()].find(item => actualFiber(item.fiber) === fiber)
       if (!entry) return
@@ -86,12 +87,11 @@ export class ClientPlugins {
           const binding = entry.config
           Object.defineProperty(sdk, 'config', { get: () => binding.value })
           sdk.onConfig = callback => binding.onChange(callback)
-          const cleanup = await deadline(Promise.resolve(module.default(ctx, sdk)))
-          if (typeof cleanup === 'function') ctx.effect(() => cleanup)
+          await activate(ctx, sdk, module.default, this.startupTimeoutMs)
           new Service(ctx, 'plugin:' + plugin.id)
         } })
         entry.loading = false
-        await deadline(entry.fiber)
+        await entry.fiber
       } catch (error) { entry.loading = false; entry.error = error.message }
     }))
     // Pure backend dependencies of API v1 packages also expose a compatibility gate.
@@ -113,8 +113,28 @@ export class ClientPlugins {
     await this.sync(this.plugins)
   }
 }
-async function deadline(promise) {
+async function activate(ctx, sdk, apply, timeoutMs) {
+  const controller = new AbortController()
+  let closed = false, cleanup
+  const close = () => {
+    closed = true; controller.abort()
+    const release = cleanup; cleanup = undefined
+    return release?.()
+  }
+  // Own the activation before calling user code, including failed startup.
+  ctx.effect(() => close)
+  Object.defineProperty(sdk, 'signal', { value: controller.signal })
+  const pending = Promise.resolve().then(() => apply(ctx, sdk)).then(async release => {
+    if (typeof release !== 'function') return
+    if (!closed) { cleanup = release; return }
+    // A timed-out activation may finish after a replacement has started.
+    try { await release() } catch (error) { ctx.logger.error(error) }
+  })
+  try { await deadline(pending, timeoutMs) }
+  catch (error) { await close(); throw error }
+}
+async function deadline(promise, timeoutMs = 10000) {
   let timer
-  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('前端插件加载超过 10 秒')), 10000) })]) }
+  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`前端插件加载超过 ${timeoutMs / 1000} 秒`)), timeoutMs) })]) }
   finally { clearTimeout(timer) }
 }

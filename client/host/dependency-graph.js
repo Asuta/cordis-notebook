@@ -1,6 +1,6 @@
 // A spanning forest keeps the view compact. Additional dependency edges are
 // rendered as reference leaves, so a shared plugin is never silently omitted.
-import { dependencyIds } from './plugin-relations.js'
+import { dependencyIds } from '../../shared/plugin-relations.js'
 export function dependencyGraph(plugins) {
   const byId = new Map(plugins.map(plugin => [plugin.id, plugin]))
   const dependencies = new Map(), dependents = new Map(plugins.map(p => [p.id, []]))

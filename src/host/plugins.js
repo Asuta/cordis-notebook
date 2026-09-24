@@ -1,12 +1,12 @@
 import { Service } from 'cordis'
 import { mkdir, readFile, writeFile, rename, readdir, rm } from 'node:fs/promises'
 import { join, resolve, sep, dirname } from 'node:path'
-import { builtins } from './builtins.js'
+import { builtins } from '../builtins.js'
 import { fail } from './http.js'
 import { Remote } from './remote.js'
 import { randomUUID } from 'node:crypto'
-import { runtimeState, actualFiber, bindingsFor } from '../client/lifecycle.js'
-import { dependencyIds } from '../client/plugin-relations.js'
+import { runtimeState, actualFiber, bindingsFor } from '../../shared/lifecycle.js'
+import { dependencyIds } from '../../shared/plugin-relations.js'
 import { PluginSettings } from './plugin-settings.js'
 
 const safePath = value => typeof value === 'string' && /^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)*\.(js|css|json|txt|html|svg)$/.test(value) && !value.split('/').some(part => part === '..' || /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(part))

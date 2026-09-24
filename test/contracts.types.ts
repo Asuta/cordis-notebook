@@ -1,8 +1,16 @@
 import { Context } from 'cordis'
-import type { Note, NotebookService, ClientSDK, ConfigSchema } from '../client/contracts'
+import type { Note, NotebookService, ClientSDK, ConfigSchema } from '../client/contracts/index.d.ts'
 
 declare const ctx: Context
 const notebook: NotebookService = ctx.notebook
+const editable: boolean = notebook.editable
+// @ts-expect-error Editability is a read-only service property.
+notebook.editable = editable
+ctx.on('notebook/changed', change => {
+  // @ts-expect-error Read editability from the service, not the change event.
+  console.log(change.editable)
+})
+ctx.parallel('notebook/changed', { reason: 'status', selectedId: null, dirty: false, busy: false })
 const filter = notebook.registerFilter(ctx, 'sample', note => note.pinned)
 filter.update(note => note.title.includes('hello'))
 notebook.observe(ctx, change => { if (change) console.log(change.reason) })
@@ -10,13 +18,13 @@ ctx.on('notebook/before-save', async note => note.title ? undefined : '请填写
 ctx.on('notebook/saved', note => { console.log(note.content) })
 ctx.on('plugins/before-stop', request => { request.hold(() => {}); console.log(request.targets) })
 declare const saved: Note
-ctx.emit('notebook/saved', saved)
+ctx.parallel('notebook/saved', saved)
 // @ts-expect-error Saved snapshots cannot be mutated.
 saved.content = 'changed'
 // @ts-expect-error Filter storage is not a public service API.
 notebook.filters.set('sample', () => true)
 // @ts-expect-error Invalid business event payload.
-ctx.emit('notebook/saved', { title: 'missing fields' })
+ctx.parallel('notebook/saved', { title: 'missing fields' })
 // @ts-expect-error Filter callbacks must return a boolean.
 filter.update(note => note.title)
 // @ts-expect-error Validation returns a message, not an arbitrary object.

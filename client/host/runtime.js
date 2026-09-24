@@ -1,6 +1,6 @@
 import { Context, Service } from 'cordis'
 import { ClientPlugins } from './plugin-host.js'
-import { serviceRelations } from './plugin-relations.js'
+import { serviceRelations } from '../../shared/plugin-relations.js'
 import { createDependencyView } from './dependency-view.js'
 import { StopCoordinator } from './stop-coordinator.js'
 import { createSettingsView } from './settings-view.js'

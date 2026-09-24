@@ -1,4 +1,4 @@
-import { normalizeConfig } from './config-schema.js'
+import { normalizeConfig } from '../../shared/config-schema.js'
 
 /** A separate dialog keeps unfinished edits intact while plugin cards rerender. */
 export function createSettingsView({ el, save, getSnapshot }) {

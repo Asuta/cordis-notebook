@@ -2,15 +2,22 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context, Service } from 'cordis'
 import { createNotebook } from '../client/plugins/notebook-model.js'
-import { StopCoordinator } from '../client/stop-coordinator.js'
+import { StopCoordinator } from '../client/host/stop-coordinator.js'
 import summary from '../client/plugins/note-summary.js'
+import { noteFormats } from '../src/plugins/note-formats.js'
+import { formatPlain } from '../src/plugins/format-plain.js'
+import { formatFreeform } from '../src/plugins/format-freeform.js'
+import { markdownFormat } from '../shared/formats/markdown.js'
 
 const note = (id, title, pinned = false) => ({ id, title, content: '正文 ' + title, pinned, createdAt: '2026-01-01', updatedAt: '2026-01-01' })
 const turn = () => new Promise(resolve => setImmediate(resolve))
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
-async function fixture(t) {
+async function fixture(t, initialNotes, extraFormats = []) {
   const root = new Context(), backup = new Map(), writes = [], messages = []
-  const notes = [note('a', 'alpha'), note('b', 'beta', true)]
+  await root.plugin(noteFormats); await root.plugin(formatPlain)
+  const freeform = root.plugin(formatFreeform); await freeform
+  for (const format of extraFormats) await root.plugin(ctx => { root.noteFormats.register(ctx, format) })
+  const notes = initialNotes || [note('a', 'alpha'), note('b', 'beta', true)]
   let patch = async saved => saved
   const sdk = ctx => ({
     provide(name, value) { const service = new Service(ctx, name); Object.defineProperties(service, Object.getOwnPropertyDescriptors(value)); return service },
@@ -20,7 +27,7 @@ async function fixture(t) {
     new Service(ctx, 'notesApi').request = async (path, method, data) => {
       if (!method || method === 'GET') return structuredClone(notes)
       if (method === 'PATCH') {
-        const saved = await patch({ ...notes.find(n => path === '/' + n.id), ...data })
+        const saved = await patch(root.noteFormats.update(notes.find(n => path === '/' + n.id), data))
         writes.push(saved); return saved
       }
       throw new Error('unexpected request')
@@ -28,7 +35,7 @@ async function fixture(t) {
   })
   await api
   let model
-  const startNotebook = () => root.plugin({ inject: ['notesApi'], async apply(ctx) {
+  const startNotebook = () => root.plugin({ inject: ['notesApi', 'noteFormats'], async apply(ctx) {
     model = await createNotebook(ctx, sdk(ctx), {
       storage: { getItem: key => backup.get(key) || null, setItem: (key, value) => backup.set(key, value), removeItem: key => backup.delete(key) },
       draftKey: 'draft', autosaveMs: 60000,
@@ -37,7 +44,7 @@ async function fixture(t) {
   const notebook = startNotebook()
   await notebook
   t.after(() => root.fiber.dispose())
-  return { root, notebook, get model() { return model }, startNotebook, backup, writes, messages, api, setPatch(fn) { patch = fn }, stopping: new StopCoordinator(root) }
+  return { root, notebook, freeform, get model() { return model }, startNotebook, backup, writes, messages, api, setPatch(fn) { patch = fn }, stopping: new StopCoordinator(root) }
 }
 
 test('公开过滤器接口按消费插件清理，相同名称互不覆盖，旧句柄不能影响新注册', async t => {
@@ -159,4 +166,98 @@ test('保存后摘要仅监听成功保存，重复启停自动清理界面与�
   plugin = start(); await plugin
   model.edit({ content: '再次启用' }); await model.flush(); assert.equal(updates, 6); assert.equal(panels.size, 1)
   await plugin.dispose(); assert.equal(panels.size, 0)
+})
+
+test('自由页面草稿保留布局，保存期间继续编辑且失败卸载后可恢复', async t => {
+  const original = { ...note('page', '自由页面'), type: 'freeform', content: '初始', blocks: [{ id: 'b', x: 10, y: 20, width: 320, text: '初始' }] }
+  const f = await fixture(t, [original])
+  const first = [{ id: 'b', x: 600, y: 900, width: 400, text: '第一版' }]
+  f.model.edit({ blocks: first })
+  first[0].text = '外部变化'
+  assert.equal(f.model.current().content, '第一版')
+  assert.equal(JSON.parse(f.backup.get('draft')).blocks[0].y, 900)
+  const gate = deferred(); let calls = 0
+  f.setPatch(async saved => { if (++calls === 1) await gate.promise; return saved })
+  const saving = f.model.flush(); await turn()
+  const second = [{ ...f.model.current().blocks[0], text: '第二版', x: 800 }]
+  f.model.edit({ blocks: second }); gate.resolve(); await saving
+  assert.equal(f.writes.at(-1).blocks[0].x, 800)
+  assert.equal(f.writes.at(-1).content, '第二版')
+  f.setPatch(async () => { throw new Error('保存失败') })
+  f.model.edit({ blocks: [{ ...second[0], text: '未保存草稿' }] })
+  await assert.rejects(f.model.flush(), /保存失败/)
+  await f.notebook.dispose()
+  const restored = f.startNotebook(); await restored
+  assert.equal(f.model.current().blocks[0].text, '未保存草稿')
+  assert.equal(f.model.current().blocks[0].x, 800)
+  assert.equal(f.model.dirty, true)
+})
+
+test('格式缺失时保留草稿并防止覆盖，重新注册后自动恢复', async t => {
+  const original = { ...note('page', '页面'), type: 'freeform', content: '', blocks: [] }
+  const f = await fixture(t, [original])
+  f.model.edit({ blocks: [{ id: 'kept', x: 100, y: 200, width: 320, text: '不能丢失的草稿' }] })
+  await f.notebook.dispose(); await f.freeform.dispose()
+  await f.startNotebook()
+  assert.equal(f.model.editable, false)
+  assert.throws(() => f.model.edit({ title: '不能覆盖草稿' }), /草稿/)
+  assert.match(f.backup.get('draft'), /不能丢失的草稿/)
+  await f.root.plugin(formatFreeform); await turn()
+  assert.equal(f.model.editable, true)
+  assert.equal(f.model.current().blocks[0].text, '不能丢失的草稿')
+  await f.model.flush()
+  assert.equal(f.writes.at(-1).content, '不能丢失的草稿')
+  assert.equal(f.backup.size, 0)
+})
+
+test('格式在停止准备锁内恢复后，解锁自动恢复草稿并允许保存', async t => {
+  const original = { ...note('page', '页面'), type: 'freeform', content: '', blocks: [] }
+  const f = await fixture(t, [original])
+  f.model.edit({ blocks: [{ id: 'kept', x: 100, y: 200, width: 320, text: '重载后恢复的草稿' }] })
+  await f.notebook.dispose(); await f.freeform.dispose(); await f.startNotebook()
+  assert.equal(f.model.editable, false)
+  await f.stopping.run({ reason: 'reload', targets: ['format-freeform'] }, async () => {
+    await f.root.plugin(formatFreeform)
+    assert.equal(f.model.busy, true)
+    assert.equal(f.model.dirty, false)
+    assert.equal(f.model.current().content, '')
+    assert.match(f.backup.get('draft'), /重载后恢复的草稿/)
+  })
+  assert.equal(f.model.busy, false)
+  assert.equal(f.model.editable, true)
+  assert.equal(f.model.dirty, true)
+  assert.equal(f.model.current().blocks[0].text, '重载后恢复的草稿')
+  await f.model.flush()
+  assert.equal(f.writes.at(-1).content, '重载后恢复的草稿')
+  assert.equal(f.backup.size, 0)
+})
+
+test('前端通用编辑、保存及草稿恢复支持新增格式的嵌套数据', async t => {
+  const format = {
+    type: 'cards', label: '测试卡片', editor: 'cards', fields: ['cards'],
+    defaults: () => ({ cards: [] }),
+    normalize: data => ({ cards: structuredClone(data.cards) }),
+    toText: data => data.cards.map(card => card.body.text).join('\n'),
+  }
+  const f = await fixture(t, [{ ...note('cards', '卡片'), type: 'cards', content: '', cards: [] }], [format])
+  f.model.edit({ cards: [{ body: { text: '嵌套格式正文' } }] })
+  assert.equal(f.model.current().content, '嵌套格式正文')
+  assert.throws(() => { f.model.current().cards[0].body.text = '不可改写快照' })
+  await f.notebook.dispose(); await f.startNotebook()
+  assert.equal(f.model.current().cards[0].body.text, '嵌套格式正文')
+  await f.model.flush()
+  assert.equal(f.writes.at(-1).cards[0].body.text, '嵌套格式正文')
+  assert.equal(f.backup.size, 0)
+})
+
+test('Markdown 草稿保存源码并恢复，编辑期间继续保存不会丢失语法', async t => {
+  const f = await fixture(t, [{ ...note('md', 'Markdown'), type: 'markdown', markdown: '# 初稿', content: '初稿' }], [markdownFormat])
+  f.model.edit({ markdown: '# 新标题\n\n**重要内容**' })
+  assert.equal(f.model.current().content, '新标题\n重要内容')
+  assert.equal(JSON.parse(f.backup.get('draft')).markdown, '# 新标题\n\n**重要内容**')
+  await f.notebook.dispose(); await f.startNotebook()
+  assert.equal(f.model.current().markdown, '# 新标题\n\n**重要内容**')
+  await f.model.flush()
+  assert.equal(f.writes.at(-1).markdown, '# 新标题\n\n**重要内容**')
+  assert.equal(f.backup.size, 0)
 })

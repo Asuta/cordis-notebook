@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context, Service } from 'cordis'
-import { Plugins } from '../src/plugins.js'
-import { ClientPlugins } from '../client/plugin-host.js'
+import { Plugins } from '../src/host/plugins.js'
+import { ClientPlugins } from '../client/host/plugin-host.js'
 import { provideMounts } from '../client/plugins/ui-slots.js'
-import { dependencyGraph } from '../client/dependency-graph.js'
+import { dependencyGraph } from '../client/host/dependency-graph.js'
 import { createApp } from '../src/server.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -132,5 +132,56 @@ test('模块仍在加载时显示启动中，不提前报告运行中', async ()
     await host.entries.get(plugin.id).fiber.dispose()
     assert.equal(host.describe(plugin).state, 'disabled')
     assert.equal(host.describe(plugin).enabled, true)
+  } finally { await root.fiber.dispose() }
+})
+
+test('启动超时取消本次激活，迟到的清理只执行一次且不影响重试实例', async () => {
+  const root = new Context(), releases = [], signals = [], cleaned = []
+  let started = 0
+  const host = new ClientPlugins(root, { sdkFor, startupTimeoutMs: 30, load: async () => ({
+    default(ctx, sdk) {
+      const activation = started++; signals.push(sdk.signal)
+      if (activation) return () => { cleaned.push(activation) }
+      return new Promise(resolve => releases.push(() => resolve(async () => {
+        await Promise.resolve(); cleaned.push(activation)
+      })))
+    },
+  }) })
+  try {
+    await host.sync([spec('slow')])
+    assert.equal(host.state('slow'), 'failed')
+    assert.equal(signals[0].aborted, true)
+    await host.retry('slow')
+    assert.equal(host.state('slow'), 'enabled')
+    assert.equal(signals[1].aborted, false)
+    releases[0]()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(cleaned, [0])
+    assert.equal(host.state('slow'), 'enabled')
+    await host.sync([])
+    assert.equal(signals[1].aborted, true)
+    assert.deepEqual(cleaned, [0, 1])
+    await root.fiber.dispose()
+    assert.deepEqual(cleaned, [0, 1])
+  } finally { await root.fiber.dispose() }
+})
+
+test('宿主释放后仍处理迟到清理，并捕获异步清理失败', async () => {
+  const root = new Context(), errors = []
+  let finish, cleaned = 0
+  const host = new ClientPlugins(root, { sdkFor, startupTimeoutMs: 30, load: async () => ({
+    default(ctx) {
+      ctx.logger.error = error => errors.push(error.message)
+      return new Promise(resolve => { finish = resolve })
+    },
+  }) })
+  try {
+    await host.sync([spec('late-error')])
+    await host.sync([])
+    await root.fiber.dispose()
+    finish(async () => { cleaned++; throw new Error('迟到清理失败') })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(cleaned, 1)
+    assert.ok(errors.includes('迟到清理失败'))
   } finally { await root.fiber.dispose() }
 })

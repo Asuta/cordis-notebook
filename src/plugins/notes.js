@@ -23,10 +23,10 @@ export class Notes extends Service {
     this.queue = task.catch(() => {})
     return task
   }
-  create() {
+  create(input = {}) {
     return this.mutate(items => {
       const now = new Date().toISOString()
-      const note = { id: randomUUID(), title: '', content: '', pinned: false, createdAt: now, updatedAt: now }
+      const note = { ...this.ctx.noteFormats.create(input?.type), id: randomUUID(), createdAt: now, updatedAt: now }
       items.push(note)
       return note
     })
@@ -36,16 +36,7 @@ export class Notes extends Service {
     return this.mutate(items => {
       const note = items.find(item => item.id === id)
       if (!note) throw Object.assign(new Error('笔记不存在'), { status: 404 })
-      for (const key of ['title', 'content']) {
-        if (key in patch) {
-          if (typeof patch[key] !== 'string' || patch[key].length > (key === 'title' ? 200 : 200000)) throw Object.assign(new Error('笔记内容过长或格式错误'), { status: 400 })
-          note[key] = patch[key]
-        }
-      }
-      if ('pinned' in patch) {
-        if (typeof patch.pinned !== 'boolean') throw Object.assign(new Error('置顶格式错误'), { status: 400 })
-        note.pinned = patch.pinned
-      }
+      Object.assign(note, this.ctx.noteFormats.update(note, patch))
       note.updatedAt = new Date().toISOString()
       return note
     })
@@ -59,3 +50,5 @@ export class Notes extends Service {
     })
   }
 }
+
+export const notes = { inject: ['storage', 'noteFormats'], async apply(ctx) { const service = new Notes(ctx); await service.load(); ctx.effect(() => () => service.queue) } }

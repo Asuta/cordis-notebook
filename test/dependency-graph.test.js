@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { dependencyGraph } from '../client/dependency-graph.js'
+import { dependencyGraph } from '../client/host/dependency-graph.js'
 
 const plugin = (id, dependencies = []) => ({ id, dependencies })
 test('共享依赖保留所有边，间接影响只计数一次', () => {
