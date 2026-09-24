@@ -39,7 +39,7 @@ export interface NotebookService {
   flush(): Promise<void>
 }
 export interface StopChange {
-  readonly reason: 'disable' | 'reload' | 'switch'
+  readonly reason: 'disable' | 'reload' | 'switch' | 'configure'
   /** Direct operation targets. All preparation listeners may protect their state. */
   readonly targets: readonly string[]
 }
@@ -48,10 +48,25 @@ export interface StopRequest extends StopChange {
   hold(release: () => void | Promise<void>): void
 }
 export interface ClientSDK {
+  readonly config: Readonly<Record<string, string | number | boolean>>
+  onConfig(callback: (config: Readonly<Record<string, string | number | boolean>>, signal: AbortSignal) => void | Promise<void>): () => unknown
   provide<T extends object>(name: string, value: T): T
   toast(message: string): void
   el<K extends keyof HTMLElementTagNameMap>(tag: K, props?: Record<string, unknown>, text?: string): HTMLElementTagNameMap[K]
 }
+export interface ConfigField {
+  type: 'string' | 'number' | 'boolean'
+  label: string
+  description?: string
+  default: string | number | boolean
+  min?: number
+  max?: number
+  step?: number
+  integer?: boolean
+  maxLength?: number
+  options?: readonly { label: string; value: string | number | boolean }[]
+}
+export interface ConfigSchema { mode: 'live' | 'restart'; fields: Record<string, ConfigField> }
 declare module 'cordis' {
   interface Context {
     notebook: NotebookService

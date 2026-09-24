@@ -28,6 +28,9 @@ const entry = (id, name, description, clientRequires, client, server, serverProv
 class Theme extends Service {
   constructor(ctx, id) { super(ctx, 'theme'); this.id = id }
 }
+const settings = (item, mode, fields) => {
+  item.manifest.settings = { mode, fields }; return item
+}
 const theme = (id, name, description, client, swatch, defaultEnabled = false) => {
   const item = entry(id, name, description, ['shell'], client, { apply(ctx) { new Theme(ctx, id) } }, ['theme'], ['theme'])
   Object.assign(item.manifest, { exclusiveGroup: 'appearance.theme', groupLabel: '主题', swatch })
@@ -38,14 +41,21 @@ export const builtins = [
   entry('notes', '笔记业务', '笔记增删改查与数据校验。', [], null, notes, ['notes']),
   entry('notes-api', '笔记 API', '通过 HTTP 提供笔记服务，并向页面提供 notesApi 服务。', [], 'notes-api.js', api, [], ['notesApi']),
   entry('layout', '留白布局', '提供侧栏、编辑区、工具栏和扩展面板服务。', [], 'layout.js', null, [], ['shell']),
-  entry('notebook', '前端笔记服务', '共享选择、草稿、自动保存与恢复。', ['notesApi', 'shell'], 'notebook.js', null, [], ['notebook']),
+  settings(entry('notebook', '前端笔记服务', '共享选择、草稿、自动保存与恢复。', ['notesApi', 'shell'], 'notebook.js', null, [], ['notebook']), 'restart', {
+    autosaveMs: { type: 'number', label: '自动保存间隔（毫秒）', description: '停止输入后等待多久保存。保存设置会先保存草稿，再重新加载笔记服务及其界面。', default: 600, min: 100, max: 10000, step: 100, integer: true },
+  }),
   entry('note-list', '笔记列表', '显示笔记、选择与新建，提供列表扩展服务。', ['notebook', 'shell'], 'note-list.js', null, [], ['noteListUI']),
   entry('editor', '纯文本编辑器', '编辑标题和正文，删除笔记。', ['notebook', 'shell'], 'editor.js'),
   entry('search', '全文搜索', '按标题和正文即时过滤。', ['notebook', 'noteListUI'], 'search.js'),
   entry('pin', '置顶', '置顶笔记与筛选收藏。', ['notebook', 'noteListUI', 'shell'], 'pin.js'),
   entry('export', '文本导出', '把当前笔记导出为 TXT。', ['notebook', 'shell'], 'export.js'),
-  entry('stats', '字数统计', '实时显示正文字符数。', ['notebook', 'shell'], 'stats.js'),
-  { ...entry('note-summary', '保存后摘要', '监听保存成功事件，在页面下方显示最近保存的正文摘要。', ['notebook', 'shell'], 'note-summary.js'), defaultEnabled: false },
+  settings(entry('stats', '字数统计', '实时显示正文字符数。', ['notebook', 'shell'], 'stats.js'), 'live', {
+    includeWhitespace: { type: 'boolean', label: '统计空格与换行', default: false },
+  }),
+  { ...settings(entry('note-summary', '保存后摘要', '监听保存成功事件，在页面下方显示最近保存的正文摘要。', ['notebook', 'shell'], 'note-summary.js'), 'live', {
+    length: { type: 'number', label: '摘要长度', default: 120, options: [{ label: '80 字', value: 80 }, { label: '120 字', value: 120 }, { label: '200 字', value: 200 }] },
+    showCount: { type: 'boolean', label: '显示字符数', default: true },
+  }), defaultEnabled: false },
   theme('theme', '苔绿主题', '柔和的苔绿与温暖纸张，同组主题只能启用一个。', 'theme.js', '#68845a', true),
   theme('theme-blue', '晴蓝主题', '清透的雾蓝配色，搭配干净明亮的编辑空间。', 'theme-blue.js', '#547dae'),
   theme('theme-night', '墨夜主题', '深色背景与柔和蓝灰文字，适合夜间书写。', 'theme-night.js', '#263145'),

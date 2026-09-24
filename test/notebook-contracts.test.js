@@ -145,7 +145,7 @@ test('保存后摘要仅监听成功保存，重复启停自动清理界面与�
   await root.plugin(ctx => {
     new Service(ctx, 'shell').mount = (owner, name, node) => owner.effect(() => { assert.equal(name, 'panels'); panels.add(node); return () => panels.delete(node) })
   })
-  const sdk = { el(tag, props, text) {
+  const sdk = { config: { length: 120, showCount: true }, onConfig() {}, el(tag, props, text) {
     const node = { text, children: [], append(...items) { this.children.push(...items) }, set textContent(value) { this.text = value; updates++ }, get textContent() { return this.text } }
     if (tag === 'section') rendered.push(node)
     return node

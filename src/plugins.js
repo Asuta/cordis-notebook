@@ -7,6 +7,7 @@ import { Remote } from './remote.js'
 import { randomUUID } from 'node:crypto'
 import { runtimeState, actualFiber, bindingsFor } from '../client/lifecycle.js'
 import { dependencyIds } from '../client/plugin-relations.js'
+import { PluginSettings } from './plugin-settings.js'
 
 const safePath = value => typeof value === 'string' && /^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)*\.(js|css|json|txt|html|svg)$/.test(value) && !value.split('/').some(part => part === '..' || /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(part))
 export function validatePackage(pkg) {
@@ -30,6 +31,7 @@ export class Plugins extends Service {
   constructor(ctx, { dataDir, file }) {
     super(ctx, 'plugins'); this.dataDir = resolve(dataDir); this.file = file; this.records = new Map(); this.queue = Promise.resolve(); this.revision = 0
     this.pendingSwitch = null
+    this.settings = new PluginSettings(this)
     for (const item of builtins) this.records.set(item.manifest.id, { ...item, state: 'disabled', enabled: item.defaultEnabled !== false, error: '', logs: [] })
     ctx.on('internal/status', fiber => {
       const record = [...this.records.values()].find(r => actualFiber(r.fiber) === fiber)
@@ -37,13 +39,13 @@ export class Plugins extends Service {
     })
   }
   describe(record) {
-    return { ...record.manifest, state: record.state, serverState: record.server || record.manifest.server ? record.state : 'not-applicable',
+    return { ...record.manifest, ...this.settings.describe(record), state: record.state, serverState: record.server || record.manifest.server ? record.state : 'not-applicable',
       enabled: record.enabled, error: record.error, logs: record.logs.slice(-12), generation: record.generation || 0, pid: record.remote?.child.pid || null,
       bindings: { server: bindingsFor(record.fiber, this.records) },
       waitingFor: record.state === 'waiting' ? (record.manifest.requires?.server || record.server?.inject || []).filter(name => !this.ctx.get(name)) : [],
     }
   }
-  serialize() { return { revision: this.revision, pendingSwitch: this.pendingSwitch ? { token: this.pendingSwitch.token, group: this.pendingSwitch.group, target: this.pendingSwitch.target, previous: this.pendingSwitch.previous, phase: this.pendingSwitch.phase } : null, plugins: [...this.records.values()].map(r => this.describe(r)) } }
+  serialize() { return { revision: this.revision, pendingConfig: this.settings.pending ? { id: this.settings.pending.id, token: this.settings.pending.token } : null, pendingSwitch: this.pendingSwitch ? { token: this.pendingSwitch.token, group: this.pendingSwitch.group, target: this.pendingSwitch.target, previous: this.pendingSwitch.previous, phase: this.pendingSwitch.phase } : null, plugins: [...this.records.values()].map(r => this.describe(r)) } }
   refreshState(record) {
     if (!record.fiber || record.remoteFailed) return
     const state = runtimeState(record.fiber)
@@ -78,6 +80,7 @@ export class Plugins extends Service {
         this.records.set(manifest.id, { manifest, root, enabled: false, state: 'disabled', error: '', logs: [] })
       } catch (error) { console.error(`忽略无效插件 ${directory.name}: ${error.message}`) }
     }
+    await this.settings.load()
     for (const [id, record] of this.records) if (typeof state[id] === 'boolean') record.enabled = state[id]
     // Repair conflicting saved choices deterministically; newly added themes default off.
     const groups = new Set([...this.records.values()].map(r => r.manifest.exclusiveGroup).filter(Boolean))
@@ -148,6 +151,7 @@ export class Plugins extends Service {
   }
   toggle(id, enabled) {
     return this.locked(async () => {
+      this.settings.assertIdle()
       const record = this.records.get(id); if (!record) throw fail(404, '插件不存在')
       if (typeof enabled !== 'boolean') throw fail(400, 'enabled 必须是布尔值')
       if (this.pendingSwitch) throw fail(409, '正在确认主题切换，请稍后再试')
@@ -249,5 +253,5 @@ export class Plugins extends Service {
       await rm(target, { recursive: true, force: true }); return { ok: true }
     })
   }
-  async close() { await this.queue; if (this.pendingSwitch) await this.rollbackExclusive(this.pendingSwitch.token, '应用正在退出'); for (const id of [...this.records.keys()].reverse()) await this.stop(id) }
+  async close() { await this.queue; if (this.settings.pending) this.settings.cancel(this.settings.pending.token, '应用正在退出'); if (this.pendingSwitch) await this.rollbackExclusive(this.pendingSwitch.token, '应用正在退出'); for (const id of [...this.records.keys()].reverse()) await this.stop(id) }
 }

@@ -1,5 +1,5 @@
 import { Context } from 'cordis'
-import type { Note, NotebookService } from '../client/contracts'
+import type { Note, NotebookService, ClientSDK, ConfigSchema } from '../client/contracts'
 
 declare const ctx: Context
 const notebook: NotebookService = ctx.notebook
@@ -21,3 +21,11 @@ ctx.emit('notebook/saved', { title: 'missing fields' })
 filter.update(note => note.title)
 // @ts-expect-error Validation returns a message, not an arbitrary object.
 ctx.on('notebook/before-save', () => ({ error: 'wrong' }))
+
+declare const sdk: ClientSDK
+const settings: ConfigSchema = { mode: 'live', fields: { length: { type: 'number', label: '长度', default: 120, min: 1 } } }
+sdk.onConfig((config, signal) => { if (!signal.aborted) console.log(config.length, settings.mode) })
+// @ts-expect-error Configuration is immutable; changes must use the manager.
+sdk.config.length = 200
+// @ts-expect-error Only declared application modes are supported.
+const invalid: ConfigSchema = { mode: 'silently-replace', fields: {} }

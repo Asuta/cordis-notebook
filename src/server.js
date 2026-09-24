@@ -13,6 +13,8 @@ export async function createApp({ port = 3210, file = resolve(rootDir, 'data/not
     await ctx.plugin(Plugins, { file, dataDir }); const manager = ctx.plugins
     const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
     route('GET', /^\/api\/plugins$/, () => manager.serialize())
+    route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/config$/, async ({ req, match }) => { const input = await body(req); return manager.settings.begin(match[1], input.config, input.expectedRevision) })
+    route('POST', /^\/api\/plugins\/config\/confirm$/, async ({ req }) => { const input = await body(req); return manager.settings.finish(input.token, input.success, input.error) })
     route('POST', /^\/api\/plugins\/install$/, async ({ req }) => { const input = await body(req); return manager.install(input.package, input.trust) })
     route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/toggle$/, async ({ req, match }) => manager.toggle(match[1], (await body(req)).enabled))
     route('POST', /^\/api\/plugins\/exclusive\/confirm$/, async ({ req }) => { const input = await body(req); return manager.finishExclusive(input.token, input.success, input.error) })

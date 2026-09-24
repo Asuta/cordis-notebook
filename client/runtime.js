@@ -3,6 +3,8 @@ import { ClientPlugins } from './plugin-host.js'
 import { serviceRelations } from './plugin-relations.js'
 import { createDependencyView } from './dependency-view.js'
 import { StopCoordinator } from './stop-coordinator.js'
+import { createSettingsView } from './settings-view.js'
+import { applyConfiguration } from './config-transaction.js'
 const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), slots = new Map()
 const stopping = new StopCoordinator(root, error => toast(error.message))
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false, installPackage = null
@@ -43,6 +45,7 @@ const host = new ClientPlugins(root, {
   sdkFor, load: plugin => import((plugin.builtin ? '/builtin/' + plugin.client : '/plugins/' + plugin.id + '/' + plugin.client) + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt),
   onChange: () => queueMicrotask(renderManager),
 })
+const settingsView = createSettingsView({ el, getSnapshot: () => snapshot, save: (plugin, config) => operate(() => saveConfig(plugin, config), true) })
 const labels = { waiting: '等待服务', 'not-applicable': '无需运行', enabled: '运行中', disabled: '已停用', starting: '启动中', stopping: '停止中', failed: '运行失败' }
 let managerView = 'cards'
 try { if (localStorage.getItem('cordis-manager-view') === 'tree') managerView = 'tree' } catch {}
@@ -54,6 +57,8 @@ $('#plugin-list').before(viewBar, dependencyView.host)
 function setManagerView(view) { managerView = view; try { localStorage.setItem('cordis-manager-view', view) } catch {}; renderManager() }
 cardsButton.onclick = () => setManagerView('cards'); treeButton.onclick = () => setManagerView('tree')
 function renderManager() {
+  settingsView.update(snapshot, working)
+  $('#close-manager').disabled = working
   const visiblePlugins = snapshot.plugins.map(p => host.describe(p))
   failures.clear()
   for (const p of visiblePlugins) if (p.clientState === 'failed') failures.set(p.id, { message: p.error })
@@ -68,7 +73,7 @@ function renderManager() {
 }
 function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     const exclusive = plugin.builtin && plugin.exclusiveGroup
-    const busy = working || !!snapshot.pendingSwitch
+    const busy = working || !!snapshot.pendingSwitch || !!snapshot.pendingConfig
     const card = el('article', { class: 'plugin-card', id }), top = el('div', { class: 'plugin-heading' })
     top.append(el('strong', {}, plugin.name), el('span', { class: 'plugin-status ' + (failures.has(plugin.id) ? 'failed' : plugin.state) }, failures.has(plugin.id) ? '前端失败' : labels[plugin.state]))
     card.append(top, el('p', {}, plugin.description), el('small', {}, `${plugin.id} · v${plugin.version} · ${plugin.builtin ? '内置插件' : '第三方 · 完全信任'}${plugin.pid ? ' · PID ' + plugin.pid : ''}`))
@@ -92,10 +97,15 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     if (plugin.waitingFor?.length) card.append(el('small', { class: 'plugin-waiting' }, '等待：' + plugin.waitingFor.join('、')))
     const error = failures.get(plugin.id)?.message || plugin.error
     if (error) card.append(el('pre', { class: 'plugin-error' }, error))
+    if (plugin.configError) card.append(el('p', { class: 'plugin-error' }, plugin.configError))
     if (plugin.logs?.length) { const details = el('details'); details.append(el('summary', {}, '后端日志'), el('pre', {}, plugin.logs.join(''))); card.append(details) }
     const actions = el('div', { class: 'plugin-actions' }), on = plugin.enabled && plugin.state !== 'failed'
     const toggle = el('button', { disabled: busy || ['starting', 'stopping'].includes(plugin.state), 'aria-label': `${on ? '停用' : exclusive ? '使用' : '启用'}${plugin.name}` }, exclusive ? on ? '恢复默认样式' : '使用此主题' : on ? '停用' : plugin.state === 'failed' ? '重新启动' : '启用')
     toggle.onclick = () => operate(() => failures.has(plugin.id) && plugin.enabled ? retryPlugin(plugin) : changePlugin(plugin, !on)); actions.append(toggle)
+    if (plugin.settings) {
+      const settings = el('button', { disabled: busy, 'aria-label': `设置${plugin.name}` }, '设置…')
+      settings.onclick = () => settingsView.open(plugin); actions.append(settings)
+    }
     if (plugin.state === 'failed' && !exclusive) { const stop = el('button', { disabled: busy }, '停用'); stop.onclick = () => operate(() => changePlugin(plugin, false)); actions.append(stop) }
     if (plugin.enabled && ['failed', 'disabled'].includes(plugin.clientState)) { const retry = el('button', { disabled: busy }, '重载前端'); retry.onclick = () => operate(() => retryPlugin(plugin)); actions.append(retry) }
     if (!plugin.builtin) {
@@ -138,9 +148,19 @@ async function applyPluginChange(plugin, enabled) {
   }
   toast(pending.target ? `已切换为${plugin.name}` : '已恢复默认样式')
 }
-async function operate(fn) {
+async function saveConfig(plugin, config) {
+  plugin = { ...snapshot.plugins.find(p => p.id === plugin.id), configRevision: plugin.configRevision }
+  const action = () => {
+    const task = syncQueue.then(() => applyConfiguration({ plugin, config, host, request, synchronize, getSnapshot: () => snapshot }))
+    syncQueue = task.catch(() => {}); return task
+  }
+  if (plugin.enabled && plugin.settings.mode === 'restart') await stopping.run({ reason: 'configure', targets: [plugin.id] }, action)
+  else await action()
+  toast(plugin.enabled ? '设置已保存并生效' : '设置已保存，下次启用时生效')
+}
+async function operate(fn, propagate = false) {
   if (working) return; working = true; renderManager()
-  try { await fn() } catch (error) { toast(error.message) } finally { working = false; await scheduleSync() }
+  try { await fn() } catch (error) { toast(error.message); if (propagate) throw error } finally { working = false; await scheduleSync() }
 }
 async function synchronize() {
   const next = await request('/api/plugins')
@@ -155,6 +175,7 @@ async function synchronize() {
 function scheduleSync() { const task = syncQueue.then(synchronize); syncQueue = task.catch(error => { $('#connection').textContent = '连接中断'; toast(error.message) }); return syncQueue }
 $('#manage-plugins').onclick = () => { $('#plugin-manager').showModal(); scheduleSync() }
 $('#close-manager').onclick = () => $('#plugin-manager').close()
+$('#plugin-manager').addEventListener('cancel', event => { if (working) event.preventDefault() })
 $('#plugin-manager').addEventListener('close', () => { document.body.append($('#toast')); $('#toast').hidden = true })
 $('#plugin-file').onchange = async event => {
   installPackage = null; $('#install-preview').hidden = true; $('#trust-plugin').checked = false; $('#install-plugin').disabled = true
