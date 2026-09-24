@@ -31,6 +31,7 @@ export class Http extends Service {
       await new Promise(resolve => this.server.close(resolve))
     })
   }
+  body(req) { return body(req) }
   route(ctx, method, pattern, handler) {
     const entry = { method, pattern, handler }; this.routes.push(entry)
     ctx.effect(() => () => { this.routes = this.routes.filter(item => item !== entry) })

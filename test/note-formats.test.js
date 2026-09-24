@@ -5,7 +5,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/server.js'
-import { noteFormats } from '../src/plugins/note-formats.js'
+import { noteFormats } from '../plugins/note-formats/server.js'
 
 export const checklist = {
   type: 'checklist', label: '测试清单', editor: 'checklist', fields: ['items'],

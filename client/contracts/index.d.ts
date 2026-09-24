@@ -31,6 +31,8 @@ export interface NoteFormat {
   toText(data: Readonly<Record<string, unknown>>): string
 }
 export interface NoteFormats {
+  typeOf(note?: { readonly type?: string }): string
+  snapshot<T>(value: T): DeepReadonly<T>
   register(owner: Context, format: NoteFormat): () => unknown
   get(type: string): Readonly<NoteFormat> | undefined
   list(): Readonly<NoteFormat>[]
@@ -38,6 +40,21 @@ export interface NoteFormats {
   create(type?: string): NotePatch & { type: string }
   update(note: Note, patch: NotePatch): Note
   patch(note: Note): NotePatch
+}
+export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T
+export interface MarkdownService {
+  render(source: string): string
+  toText(source: string): string
+}
+export interface ThemePreset {
+  readonly id: string
+  readonly name: string
+  readonly colors: readonly [string, string, string, string, string, string, string, string]
+  readonly dark?: boolean
+}
+export interface ThemeEngine {
+  /** Styles are owned by the consuming theme context. */
+  apply(owner: Context, preset: ThemePreset): () => unknown
 }
 export type Validation = void | string | false | null
 export interface NotebookChange {
@@ -102,6 +119,8 @@ export interface ConfigField {
 export interface ConfigSchema { mode: 'live' | 'restart'; fields: Record<string, ConfigField> }
 declare module 'cordis' {
   interface Context {
+    markdown: MarkdownService
+    themeEngine: ThemeEngine
     notebook: NotebookService
     noteFormats: NoteFormats
     notesApi: {

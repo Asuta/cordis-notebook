@@ -2,6 +2,17 @@ import { Context } from 'cordis'
 import type { Note, NotebookService, ClientSDK, ConfigSchema } from '../client/contracts/index.d.ts'
 
 declare const ctx: Context
+const html: string = ctx.markdown.render('# 标题')
+const plain: string = ctx.markdown.toText(html)
+const kind: string = ctx.noteFormats.typeOf()
+const snapshot = ctx.noteFormats.snapshot({ nested: { text: plain }, kind })
+// @ts-expect-error Snapshots are deeply read-only.
+snapshot.nested.text = 'changed'
+// @ts-expect-error Markdown accepts source strings only.
+ctx.markdown.render({ source: '' })
+ctx.themeEngine.apply(ctx, { id: 'sample', name: '示例', colors: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] })
+// @ts-expect-error Theme palettes must supply all eight colors.
+ctx.themeEngine.apply(ctx, { id: 'sample', name: '示例', colors: ['red'] })
 const notebook: NotebookService = ctx.notebook
 const editable: boolean = notebook.editable
 // @ts-expect-error Editability is a read-only service property.

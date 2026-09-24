@@ -4,8 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/server.js'
-import { markdownFormat } from '../shared/formats/markdown.js'
-import { renderMarkdown, markdownText } from '../shared/formats/markdown-parser.js'
+import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
+import { createMarkdown } from '../plugins/markdown/parser.bundle.js'
+const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
+const { render: renderMarkdown, toText: markdownText } = markdown
 
 const source = '# 标题\n\n**重点** 和 *斜体*，~~删除~~。\n\n> 引用\n\n- 列表\n- [x] 已完成\n- [ ] 待办\n\n```js\nconst value = 1\n```\n\n| 名称 | 值 |\n| --- | --- |\n| 测试 | 42 |\n\n[链接](https://example.com)\n\n![图片说明](https://example.com/a.png)'
 test('Markdown 渲染常用语法，提取纯文本供搜索统计使用', () => {
@@ -45,7 +47,7 @@ test('Markdown 插件通过通用 API 保存原始源码，格式停用保留数
     const saved = await response.json(); assert.equal(saved.markdown, source); assert.equal(saved.content, markdownText(source))
     assert.equal((await request('/' + note.id, 'PATCH', { markdown: {} })).status, 400)
     assert.equal((await request('/' + note.id, 'PATCH', { content: '不能覆盖派生正文' })).status, 400)
-    for (const url of ['/builtin/markdown-editor.js', '/builtin/markdown.css', '/shared/formats/markdown.js', '/shared/formats/markdown-parser.js']) assert.equal((await fetch(base() + url)).status, 200)
+    for (const url of ['/builtin/markdown-editor/client.js', '/builtin/markdown-editor/style.css', '/builtin/format-markdown/format.js', '/builtin/markdown/parser.bundle.js']) assert.equal((await fetch(base() + url)).status, 200)
     await app.manager.toggle('format-markdown', false)
     assert.equal(app.ctx.noteFormats.get('markdown'), undefined)
     assert.equal((await request('/' + note.id, 'PATCH', { title: '被拒绝' })).status, 409)

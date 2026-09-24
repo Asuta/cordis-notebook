@@ -28,7 +28,7 @@ test('业务事件声明分发模式，源码调用与契约一致', async () =>
     const source = await readFile(`client/${file}`, 'utf8')
     assert.deepEqual(violations(source, modes), [], file)
   }
-  const model = await readFile('client/plugins/notebook-model.js', 'utf8')
+  const model = await readFile('plugins/notebook/model.js', 'utf8')
   assert.match(model, /const publish = \(name, value\) => \{ void ctx\.parallel\(name, value\)/)
   assert.deepEqual(violations(await readFile('test/contracts.types.ts', 'utf8'), modes), [])
   // Prove the check catches loss of awaiting for validation and notification drift.

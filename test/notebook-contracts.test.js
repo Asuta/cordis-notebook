@@ -1,13 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context, Service } from 'cordis'
-import { createNotebook } from '../client/plugins/notebook-model.js'
+import { createNotebook } from '../plugins/notebook/model.js'
 import { StopCoordinator } from '../client/host/stop-coordinator.js'
-import summary from '../client/plugins/note-summary.js'
-import { noteFormats } from '../src/plugins/note-formats.js'
-import { formatPlain } from '../src/plugins/format-plain.js'
-import { formatFreeform } from '../src/plugins/format-freeform.js'
-import { markdownFormat } from '../shared/formats/markdown.js'
+import summary from '../plugins/note-summary/client.js'
+import { noteFormats } from '../plugins/note-formats/server.js'
+import { formatPlain } from '../plugins/format-plain/server.js'
+import { formatFreeform } from '../plugins/format-freeform/server.js'
+import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
+import { createMarkdown } from '../plugins/markdown/parser.bundle.js'
+const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
 
 const note = (id, title, pinned = false) => ({ id, title, content: '正文 ' + title, pinned, createdAt: '2026-01-01', updatedAt: '2026-01-01' })
 const turn = () => new Promise(resolve => setImmediate(resolve))

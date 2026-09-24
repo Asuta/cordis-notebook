@@ -34,7 +34,7 @@ pnpm start
 
 - 页面右上角「插件管理」可实时启停插件，不需要刷新。
 - 管理页面支持「卡片视图 / 依赖树」切换并记住偏好。依赖树从基础插件向依赖方展开，共享依赖以引用节点表示；选中节点可查看直接依赖、间接影响并执行原有启停操作。
-- 自带 22 个内置插件：18 个基础笔记功能插件、可选的「保存后摘要」，以及苔绿、晴蓝、墨夜三套主题。默认启用基础功能和苔绿主题；摘要可在管理器中手动开启。
+- 自带 24 个内置插件：20 个基础笔记功能插件、可选的「保存后摘要」，以及苔绿、晴蓝、墨夜三套主题。默认启用基础功能和苔绿主题；摘要可在管理器中手动开启。
 - 三套内置主题属于同一个单选组，点击「使用此主题」自动停用旧主题并立即切换界面；「恢复默认样式」停用当前主题。卡片显示当前选择，依赖树详情显示同组候选。
 - 主题切换在后端和发起操作的页面均成功后才保存选择；启动失败、页面加载失败或 20 秒内未确认会恢复旧主题。切换期间串行处理，重启恢复已确认的选择。
 - 前端通过 SSE 获取插件状态变化，只挂载或卸载变化的部分。
@@ -76,22 +76,23 @@ node scripts/pack-plugin.js examples/local-lab outputs/local-lab.cordis-plugin.j
 
 ## 架构
 
-`src/server.js` 创建根 Context，安装 HTTP 与插件管理服务。`src/builtins.js` 只定义内置清单；后端功能实现在 `src/plugins/`：Storage 提供 ctx.storage，Notes 提供 ctx.notes，API 通过 inject 声明服务依赖。每个功能记录对应 Cordis Fiber，停用实际调用 fiber.dispose()。
+`src/server.js` 创建根 Context，安装 HTTP 与插件管理服务。`src/builtins.js` 只定义内置清单；每个内置插件的代码聚合在 `plugins/<插件 ID>/`，前端入口为 `client.js`，后端入口为 `server.js`，只存在一侧能力的插件不必提供另一侧文件。每个功能记录对应 Cordis Fiber，停用实际调用 fiber.dispose()。
 
 ```text
 client/host/          前端宿主、插件加载与管理界面
 client/contracts/     公共服务和事件类型
-client/plugins/       前端功能插件及辅助模块
+plugins/<id>/         一个插件的前后端入口、样式和专属辅助模块
 src/server.js         应用入口
 src/builtins.js       内置插件注册清单
 src/host/             后端常驻服务、插件管理及子进程设施
-src/plugins/          后端存储、笔记、笔记 API、主题插件
-shared/               两端共用的格式校验、配置校验和生命周期/依赖映射
+shared/               宿主共用的配置校验、生命周期与依赖关系代码
 ```
 
-目录表示职责，不表示每个文件都是一个插件。浏览器公开格式相关的 `/shared/note-format.js`、`/shared/format-registry.js` 与 `/shared/formats/*.js`，其他共享逻辑随宿主构建打包；保留 `/builtin/note-format.js` 作为原地址的兼容入口。用户数据目录和 HTTP 业务接口保持不变。
+例如 `plugins/format-markdown/` 包含 `client.js`、`server.js`、`format.js`，依赖 markdown 服务；`plugins/markdown/` 封装解析实现及解析器构建产物 `parser.bundle.js`（不提交）。`plugins/markdown-editor/` 包含 `client.js` 和 `style.css`。同一插件前后端共用的逻辑留在插件目录；跨插件能力通过声明依赖并调用服务使用；`shared/` 只放宿主共用的配置校验、生命周期与依赖关系代码。
 
-`client/host/runtime.js` 将 Cordis 打包进浏览器，创建独立 Context。插件通过公开 SDK 注册服务、插槽、DOM、事件和卸载清理。`client/plugins/` 是各个前端功能模块；布局样式跟随布局插件加载和卸载。
+浏览器通过 `/builtin/<插件 ID>/<文件名>` 加载内置资源，只允许读取 `src/builtins.js` 中明确列出的 `clientAssets`，不公开 `server.js` 等后端代码。不再开放旧 `/shared/*.js` 和 `/builtin/note-format.js` 业务模块地址；内置插件已改为通过服务调用公共能力。插件 ID、用户数据目录、启停配置和 HTTP 业务接口保持不变。
+
+`client/host/runtime.js` 将 Cordis 打包进浏览器，创建独立 Context。插件通过公开 SDK 注册服务、插槽、DOM、事件和卸载清理；各插件的样式跟随插件加载和卸载。
 
 内置主题使用 `exclusiveGroup: appearance.theme` 描述互斥关系，并在前后端分别提供同名 Cordis `theme` 服务。宿主负责先停旧插件、再启动新插件和失败恢复；Cordis 负责服务唯一性与生命周期。样式在插件卸载时清理，笔记编辑器无需重建。互斥组不属于依赖边。此协议本次只用于内置主题，第三方插件包和运行机制保持原样。
 

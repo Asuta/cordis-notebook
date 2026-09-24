@@ -42,7 +42,7 @@ function sdkFor(ctx, plugin) {
   }; return sdk
 }
 const host = new ClientPlugins(root, {
-  sdkFor, load: plugin => import((plugin.builtin ? '/builtin/' + plugin.client : '/plugins/' + plugin.id + '/' + plugin.client) + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt),
+  sdkFor, load: plugin => import((plugin.builtin ? '/builtin/' : '/plugins/') + plugin.id + '/' + plugin.client + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt),
   onChange: () => queueMicrotask(renderManager),
 })
 const settingsView = createSettingsView({ el, getSnapshot: () => snapshot, save: (plugin, config) => operate(() => saveConfig(plugin, config), true) })

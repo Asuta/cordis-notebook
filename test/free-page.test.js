@@ -4,9 +4,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/server.js'
-import { snapshotNote } from '../shared/note-format.js'
-import { normalizeBlocks, blocksText } from '../shared/formats/freeform.js'
-import { createHistory } from '../client/plugins/free-page-history.js'
+import { snapshotNote } from '../plugins/note-formats/note.js'
+import { normalizeBlocks, blocksText } from '../plugins/format-freeform/format.js'
+import { createHistory } from '../plugins/free-page-editor/history.js'
 
 const block = (id = 'one', x = 80, y = 120, text = '自由页面正文') => ({ id, x, y, width: 320, text })
 test('自由页面 API 保存位置、提取正文并兼容无格式旧笔记，重启不丢布局', async () => {
