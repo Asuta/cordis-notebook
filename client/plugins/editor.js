@@ -7,7 +7,7 @@ export default function(ctx, sdk) {
   const remove = sdk.button('toolbar', '删除', () => dialog.showModal()); remove.setAttribute('aria-label', '删除笔记')
   sdk.listen(no, 'click', () => dialog.close()); sdk.listen(yes, 'click', async () => { yes.disabled = true; try { await model.remove(); dialog.close() } catch (error) { sdk.toast(error.message) } finally { yes.disabled = false } })
   sdk.listen(title, 'input', () => model.edit({ title: title.value })); sdk.listen(content, 'input', () => model.edit({ content: content.value }))
-  sdk.watch(model, () => {
+  model.observe(ctx, () => {
     const note = model.current(); writing.hidden = !note; empty.hidden = !!note; remove.disabled = !note || model.busy; title.disabled = content.disabled = model.busy
     if (title.value !== (note?.title || '')) title.value = note?.title || ''
     if (content.value !== (note?.content || '')) content.value = note?.content || ''

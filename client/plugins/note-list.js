@@ -6,7 +6,7 @@ export default function(ctx, sdk) {
   provideMounts(sdk, 'noteListUI', { filters })
   const list = sdk.el('div', { class: 'note-list' }); sdk.mount('sidebar', list); sdk.mount('sidebar', sdk.el('div', { class: 'sidebar-footer' }, '每一个想法，都值得被留下。'))
   sdk.listen(add, 'click', () => model.create().catch(error => sdk.toast(error.message)))
-  sdk.watch(model, () => {
+  model.observe(ctx, () => {
     title.textContent = `我的笔记 ${model.notes.length}`; add.disabled = model.busy; list.replaceChildren()
     for (const note of model.visible()) {
       const button = sdk.el('button', { class: 'note-card' + (note.id === model.selected ? ' selected' : '') })

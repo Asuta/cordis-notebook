@@ -45,6 +45,7 @@ export const builtins = [
   entry('pin', '置顶', '置顶笔记与筛选收藏。', ['notebook', 'noteListUI', 'shell'], 'pin.js'),
   entry('export', '文本导出', '把当前笔记导出为 TXT。', ['notebook', 'shell'], 'export.js'),
   entry('stats', '字数统计', '实时显示正文字符数。', ['notebook', 'shell'], 'stats.js'),
+  { ...entry('note-summary', '保存后摘要', '监听保存成功事件，在页面下方显示最近保存的正文摘要。', ['notebook', 'shell'], 'note-summary.js'), defaultEnabled: false },
   theme('theme', '苔绿主题', '柔和的苔绿与温暖纸张，同组主题只能启用一个。', 'theme.js', '#68845a', true),
   theme('theme-blue', '晴蓝主题', '清透的雾蓝配色，搭配干净明亮的编辑空间。', 'theme-blue.js', '#547dae'),
   theme('theme-night', '墨夜主题', '深色背景与柔和蓝灰文字，适合夜间书写。', 'theme-night.js', '#263145'),

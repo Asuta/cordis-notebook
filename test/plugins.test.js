@@ -15,7 +15,8 @@ test('实时启停、依赖保护、外部文件与命令、重启恢复、数�
   const dir = await mkdtemp(join(tmpdir(), 'cordis-plugin-')); let app
   try {
     const file = join(dir, 'notes.json'); app = await createApp({ port: 0, file })
-    assert.ok(app.manager.serialize().plugins.filter(p => !p.exclusiveGroup).every(p => p.state === 'enabled'))
+    assert.ok(app.manager.serialize().plugins.filter(p => p.enabled).every(p => p.state === 'enabled'))
+    assert.equal(app.manager.records.get('note-summary').enabled, false)
     await assert.rejects(app.manager.toggle('storage', false), /请先停用/)
     await app.manager.toggle('search', false); assert.equal(app.manager.records.get('search').state, 'disabled')
     await app.manager.toggle('search', true)

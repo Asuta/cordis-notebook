@@ -2,7 +2,9 @@ import { Context, Service } from 'cordis'
 import { ClientPlugins } from './plugin-host.js'
 import { serviceRelations } from './plugin-relations.js'
 import { createDependencyView } from './dependency-view.js'
-const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), slots = new Map(), guards = new Set()
+import { StopCoordinator } from './stop-coordinator.js'
+const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), slots = new Map()
+const stopping = new StopCoordinator(root, error => toast(error.message))
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false, installPackage = null
 async function request(path, method = 'GET', data, signal) {
   const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
@@ -20,10 +22,10 @@ function sdkFor(ctx, plugin) {
     id: plugin.id, el, toast,
     request: (path, method, data) => request(path, method, data, controller.signal),
     rpc: (method, args) => request(`/api/plugins/${plugin.id}/rpc`, 'POST', { method, args }, controller.signal),
-    provide(name, value) { return new class extends Service { constructor() { super(ctx, name); Object.assign(this, value) } }() },
+    provide(name, value) { return new class extends Service { constructor() { super(ctx, name); Object.defineProperties(this, Object.getOwnPropertyDescriptors(value)) } }() },
     service: name => ctx[name], effect: callback => ctx.effect(callback),
     listen(target, event, handler) { target.addEventListener(event, handler); ctx.effect(() => () => target.removeEventListener(event, handler)) },
-    guard(callback) { guards.add(callback); ctx.effect(() => () => guards.delete(callback)) },
+    guard(callback) { return ctx.on('plugins/before-stop', async () => { await callback() }) },
     slot(name, node) { if (slots.has(name)) throw new Error(`插槽已被占用：${name}`); slots.set(name, node); ctx.effect(() => () => slots.delete(name)) },
     mount(name, node) {
       if (name === 'app') { ctx.effect(() => { $('#app').append(node); return () => node.remove() }); return node }
@@ -33,11 +35,10 @@ function sdkFor(ctx, plugin) {
       const slot = slots.get(name); if (!slot) throw new Error('缺少界面扩展服务：' + name)
       ctx.effect(() => { slot.append(node); return () => node.remove() }); return node
     },
-    watch(service, handler) { service.addEventListener('change', handler); ctx.effect(() => () => service.removeEventListener('change', handler)); handler() },
+    watch(service, handler) { if (service.observe) return service.observe(ctx, handler); service.addEventListener('change', handler); ctx.effect(() => () => service.removeEventListener('change', handler)); handler() },
     button(slot, label, handler) { const button = el('button', {}, label); sdk.listen(button, 'click', () => Promise.resolve().then(handler).catch(error => toast(error.message))); return sdk.mount(slot, button) },
   }; return sdk
 }
-async function saveDrafts() { for (const guard of guards) await guard() }
 const host = new ClientPlugins(root, {
   sdkFor, load: plugin => import((plugin.builtin ? '/builtin/' + plugin.client : '/plugins/' + plugin.id + '/' + plugin.client) + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt),
   onChange: () => queueMicrotask(renderManager),
@@ -94,9 +95,9 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     if (plugin.logs?.length) { const details = el('details'); details.append(el('summary', {}, '后端日志'), el('pre', {}, plugin.logs.join(''))); card.append(details) }
     const actions = el('div', { class: 'plugin-actions' }), on = plugin.enabled && plugin.state !== 'failed'
     const toggle = el('button', { disabled: busy || ['starting', 'stopping'].includes(plugin.state), 'aria-label': `${on ? '停用' : exclusive ? '使用' : '启用'}${plugin.name}` }, exclusive ? on ? '恢复默认样式' : '使用此主题' : on ? '停用' : plugin.state === 'failed' ? '重新启动' : '启用')
-    toggle.onclick = () => operate(() => failures.has(plugin.id) && plugin.enabled ? host.retry(plugin.id) : changePlugin(plugin, !on)); actions.append(toggle)
+    toggle.onclick = () => operate(() => failures.has(plugin.id) && plugin.enabled ? retryPlugin(plugin) : changePlugin(plugin, !on)); actions.append(toggle)
     if (plugin.state === 'failed' && !exclusive) { const stop = el('button', { disabled: busy }, '停用'); stop.onclick = () => operate(() => changePlugin(plugin, false)); actions.append(stop) }
-    if (plugin.enabled && ['failed', 'disabled'].includes(plugin.clientState)) { const retry = el('button', { disabled: busy }, '重载前端'); retry.onclick = () => operate(() => host.retry(plugin.id)); actions.append(retry) }
+    if (plugin.enabled && ['failed', 'disabled'].includes(plugin.clientState)) { const retry = el('button', { disabled: busy }, '重载前端'); retry.onclick = () => operate(() => retryPlugin(plugin)); actions.append(retry) }
     if (!plugin.builtin) {
       const remove = el('button', { disabled: working || plugin.state !== 'disabled', 'aria-label': `卸载${plugin.name}` }, '卸载（保留数据）')
       remove.onclick = () => operate(() => request(`/api/plugins/${plugin.id}`, 'DELETE')); actions.append(remove)
@@ -106,7 +107,16 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     card.append(actions); return card
 }
 async function changePlugin(plugin, enabled) {
-  await saveDrafts()
+  const targets = !enabled || plugin.state === 'failed' ? [plugin.id] : []
+  if (plugin.exclusiveGroup) targets.push(...snapshot.plugins.filter(p => p.enabled && p.exclusiveGroup === plugin.exclusiveGroup).map(p => p.id))
+  const action = async () => { try { await applyPluginChange(plugin, enabled) } finally { await scheduleSync() } }
+  if (!targets.length) return action()
+  return stopping.run({ reason: plugin.exclusiveGroup ? 'switch' : 'disable', targets: [...new Set(targets)] }, action)
+}
+async function retryPlugin(plugin) {
+  return stopping.run({ reason: 'reload', targets: [plugin.id] }, () => host.retry(plugin.id))
+}
+async function applyPluginChange(plugin, enabled) {
   const result = await request(`/api/plugins/${plugin.id}/toggle`, 'POST', { enabled })
   failures.delete(plugin.id)
   const pending = result.pendingSwitch
@@ -134,8 +144,10 @@ async function operate(fn) {
 }
 async function synchronize() {
   const next = await request('/api/plugins')
+  // A remote stop is already committed: disposal must not start another save
+  // against disappearing services. Edits are backed up when they occur.
   const removed = snapshot.plugins.some(p => p.enabled && p.client && !next.plugins.some(n => n.id === p.id && n.enabled))
-  if (removed) { try { await saveDrafts() } catch { toast('服务已停用，未保存草稿保留在此浏览器。') } }
+  if (removed && !stopping.running && root.notebook?.dirty) toast('其他页面已停用插件，未保存草稿保留在此浏览器。')
   snapshot = next
   await host.sync(snapshot.plugins)
   renderManager()
