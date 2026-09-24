@@ -4,6 +4,9 @@ work/
 *.log
 public/runtime.js
 plugins/markdown/parser.bundle.js
+plugins/*/view.bundle.js
+plugins/ui/runtime.bundle.js
+plugins/ui/style.css
 .env
 .env.*
 !.env.example

@@ -9,7 +9,7 @@ export default async function (ctx, sdk) {
   if (!service.dirty && service.notes.some(note => note.id === selected)) await service.choose(selected)
   service.observe(ctx, () => { if (service.selected) sessionStorage.setItem(selectionKey, service.selected) })
   const status = sdk.el('button', { class: 'save-status' }); sdk.mount('status', status)
-  service.observe(ctx, () => { status.textContent = service.status })
+  service.observe(ctx, () => { status.textContent = service.status; status.dataset.error = String(service.status.includes('失败')); status.title = '点击立即保存或重试' })
   sdk.listen(status, 'click', () => service.flush().catch(error => sdk.toast(error.message)))
   sdk.listen(window, 'beforeunload', event => { if (service.dirty) { event.preventDefault(); event.returnValue = '' } })
   sdk.listen(document, 'keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 's') { event.preventDefault(); service.flush().catch(error => sdk.toast(error.message)) } })

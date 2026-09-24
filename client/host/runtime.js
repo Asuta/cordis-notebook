@@ -47,6 +47,32 @@ const host = new ClientPlugins(root, {
 })
 const settingsView = createSettingsView({ el, getSnapshot: () => snapshot, save: (plugin, config) => operate(() => saveConfig(plugin, config), true) })
 const labels = { waiting: '等待服务', 'not-applicable': '无需运行', enabled: '运行中', disabled: '已停用', starting: '启动中', stopping: '停止中', failed: '运行失败' }
+const managerListeners = new Set()
+const management = new Service(root, 'pluginManagement')
+Object.assign(management, {
+  labels,
+  current: () => ({ ...snapshot, plugins: snapshot.plugins.map(p => host.describe(p)), working }),
+  observe(owner, handler) { return owner.effect(() => { managerListeners.add(handler); handler(); return () => managerListeners.delete(handler) }) },
+  attach(owner, node) { return owner.effect(() => {
+    const dialog = $('#plugin-manager')
+    const recover = () => { node.hidden = true; dialog.classList.remove('enhanced'); toast('插件中心界面加载失败，已切换到宿主管理界面。') }
+    node.classList.add('manager-react'); node.addEventListener('cordis-ui-error', recover); dialog.append(node); dialog.classList.add('enhanced')
+    return () => { node.removeEventListener('cordis-ui-error', recover); node.remove(); dialog.classList.remove('enhanced') }
+  }) },
+  close() { if (!working) $('#plugin-manager').close() },
+  toggle(plugin, enabled) { return operate(() => changePlugin(plugin, enabled), true) },
+  retry(plugin) { return operate(() => retryPlugin(plugin), true) },
+  settings(plugin) { settingsView.open(plugin) },
+  relations(plugin) { return serviceRelations(plugin, snapshot.plugins.map(p => host.describe(p))) },
+  uninstall(plugin) { return operate(() => request(`/api/plugins/${plugin.id}`, 'DELETE'), true) },
+  clearData(plugin, confirmation) { return operate(() => request(`/api/plugins/${plugin.id}/clear-data`, 'POST', { confirmation }), true) },
+  install(pkg) { return operate(() => request('/api/plugins/install', 'POST', { package: pkg, trust: true }), true) },
+  dependencyTree(owner) {
+    const view = createDependencyView({ el, card: pluginCard, labels, failures }); view.host.id = 'react-dependency-view'; view.host.hidden = false
+    management.observe(owner, () => view.render(snapshot.plugins.map(p => host.describe(p))))
+    return view.host
+  },
+})
 let managerView = 'cards'
 try { if (localStorage.getItem('cordis-manager-view') === 'tree') managerView = 'tree' } catch {}
 const viewBar = el('div', { class: 'manager-viewbar', 'aria-label': '插件显示方式' }), viewButtons = el('div', { class: 'manager-view-switch' })
@@ -70,6 +96,7 @@ function renderManager() {
   if (tree) dependencyView.render(visiblePlugins)
   else for (const plugin of visiblePlugins) $('#plugin-list').append(pluginCard(plugin))
   $('#app-placeholder').hidden = host.state('layout') === 'enabled'
+  for (const handler of managerListeners) handler()
 }
 function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     const exclusive = plugin.builtin && plugin.exclusiveGroup

@@ -1,4 +1,17 @@
 import type { Context } from 'cordis'
+import type * as React from 'react'
+
+export interface UIService {
+  readonly React: typeof React
+  readonly h: typeof React.createElement
+  mount(owner: Context, container: HTMLElement, content: React.ReactNode): { render(content: React.ReactNode): void }
+  useObserve<T extends { observe(owner: Context, handler: () => void): () => unknown }>(owner: Context, service: T): T
+  readonly Button: React.ComponentType<any>
+  readonly Input: React.ComponentType<any>
+  readonly Icon: React.ComponentType<{ name: string; size?: number }>
+  readonly Slot: React.ComponentType<{ node: HTMLElement; className?: string }>
+  readonly [component: string]: unknown
+}
 
 export interface TextBlock {
   readonly id: string
@@ -119,6 +132,7 @@ export interface ConfigField {
 export interface ConfigSchema { mode: 'live' | 'restart'; fields: Record<string, ConfigField> }
 declare module 'cordis' {
   interface Context {
+    ui: UIService
     markdown: MarkdownService
     themeEngine: ThemeEngine
     notebook: NotebookService
@@ -129,7 +143,7 @@ declare module 'cordis' {
       request(path: string, method: 'PATCH', data?: NotePatch): Promise<Note>
       request(path: string, method: 'DELETE'): Promise<unknown>
     }
-    shell: { mount(owner: Context, name: string, node: HTMLElement): HTMLElement }
+    shell: { mount(owner: Context, name: string, node: HTMLElement): HTMLElement; showEditor?(): void }
     noteListUI: { mount(owner: Context, name: 'filters', node: HTMLElement): HTMLElement }
     editorHost: { register(owner: Context, type: string, node: HTMLElement): () => unknown }
   }

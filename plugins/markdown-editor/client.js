@@ -1,4 +1,5 @@
 
+import { mountToolbar } from './view.bundle.js'
 export default function(ctx, sdk) {
   const model = ctx.notebook
   const root = sdk.el('section', { class: 'markdown-editor', 'aria-label': 'Markdown 编辑器' })
@@ -13,6 +14,7 @@ export default function(ctx, sdk) {
   ctx.editorHost.register(ctx, 'markdown', root)
   let mode = 'split', selectedId, rendered, timer, composing = false, disposed = false
   const editableButtons = [], viewButtons = new Map(), urls = new Map()
+  let refreshToolbar = () => {}
   const isActive = () => ctx.noteFormats.typeOf(model.current()) === 'markdown'
   const canEdit = () => isActive() && !model.busy && model.editable && !composing
   const draw = () => {
@@ -28,6 +30,7 @@ export default function(ctx, sdk) {
     mode = value; root.dataset.mode = value
     source.hidden = value === 'preview'; preview.hidden = value === 'edit'
     for (const [key, button] of viewButtons) button.setAttribute('aria-pressed', String(key === value))
+    refreshToolbar()
     if (value !== 'edit') draw()
   }
   const insert = (before, after = '', placeholder = '') => {
@@ -70,7 +73,7 @@ export default function(ctx, sdk) {
     if (!isActive() || model.busy || !model.editable) return
     try { model.edit({ markdown: source.value }) } catch (error) { sdk.toast(error.message); source.value = model.current().markdown || '' }
   })
-  sdk.listen(source, 'compositionstart', () => { composing = true; for (const button of editableButtons) button.disabled = true })
+  sdk.listen(source, 'compositionstart', () => { composing = true; for (const button of editableButtons) button.disabled = true; refreshToolbar() })
   sdk.listen(source, 'compositionend', () => { composing = false; render() })
   sdk.listen(source, 'keydown', event => {
     if (event.isComposing || !canEdit()) return
@@ -84,9 +87,11 @@ export default function(ctx, sdk) {
     if (source.value !== note.markdown) source.value = note.markdown || ''
     source.disabled = model.busy || !model.editable
     for (const button of editableButtons) button.disabled = !canEdit()
+    refreshToolbar()
     if (selectedId !== note.id) { selectedId = note.id; rendered = undefined; source.scrollTop = preview.scrollTop = 0; draw() }
     else if (rendered !== note.markdown) { clearTimeout(timer); timer = setTimeout(draw, 100) }
   }
   ctx.effect(() => () => { disposed = true; clearTimeout(timer); for (const [url, timeout] of urls) { clearTimeout(timeout); URL.revokeObjectURL(url) }; urls.clear() })
+  refreshToolbar = mountToolbar(ctx, toolbar, editableButtons, [...viewButtons.values()], download)
   setMode('split'); model.observe(ctx, render)
 }

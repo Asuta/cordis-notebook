@@ -1,12 +1,14 @@
 import { createHistory } from './history.js'
+import { mountControls } from './view.bundle.js'
 
 export default function(ctx, sdk) {
   const model = ctx.notebook, states = new Map(), nodes = new Map()
-  let noteId = null, selected = null, gesture = null, frame = 0, composing = false
+  let noteId = null, selected = null, gesture = null, frame = 0, composing = false, pendingScroll = false
   const root = sdk.el('section', { class: 'free-page', 'aria-label': '自由页面编辑器' })
   const controls = sdk.el('div', { class: 'free-page-controls' })
   const add = sdk.el('button', {}, '＋ 文字块'), undo = sdk.el('button', { 'aria-label': '撤销文字块操作' }, '↶ 撤销'), redo = sdk.el('button', { 'aria-label': '重做文字块操作' }, '↷ 重做'), remove = sdk.el('button', {}, '删除文字块')
   controls.append(add, undo, redo, remove, sdk.el('span', {}, '双击空白处书写 · 拖动手柄移动'))
+  const refreshControls = mountControls(ctx, controls, [add, undo, redo, remove])
   const viewport = sdk.el('div', { class: 'free-page-viewport', tabIndex: 0, 'aria-label': '自由页面纸张' })
   const paper = sdk.el('div', { class: 'free-page-paper' })
   viewport.append(paper); root.append(controls, viewport)
@@ -23,7 +25,7 @@ export default function(ctx, sdk) {
     return states.get(noteId)
   }
   const saveScroll = () => {
-    if (!noteId || !viewport.isConnected || root.hidden) return
+    if (!noteId || pendingScroll || !viewport.isConnected || !viewport.clientWidth || !viewport.clientHeight) return
     state().scroll = [viewport.scrollLeft, viewport.scrollTop]
     try { sessionStorage.setItem('cordis-page-scroll-' + noteId, JSON.stringify(state().scroll)) } catch {}
   }
@@ -32,6 +34,7 @@ export default function(ctx, sdk) {
     const history = noteId && state().history, disabled = !noteId || model.busy || !model.editable
     add.disabled = disabled; undo.disabled = disabled || !history?.canUndo; redo.disabled = disabled || !history?.canRedo
     remove.disabled = disabled || !blocks().some(block => block.id === selected)
+    refreshControls()
   }
   const select = id => {
     selected = id
@@ -56,6 +59,25 @@ export default function(ctx, sdk) {
     // Keep the current scroll location stable when moving or deleting an edge block.
     paper.style.width = Math.max(width, viewport.scrollLeft + viewport.clientWidth) + 'px'
     paper.style.height = Math.max(height, viewport.scrollTop + viewport.clientHeight) + 'px'
+  }
+  const layout = () => {
+    // React may reveal this editor after the notebook notification. Measure and
+    // restore only once it has a viewport, including when a mobile pane opens.
+    if (!noteId || !viewport.isConnected || !viewport.clientWidth || !viewport.clientHeight) return
+    for (const item of nodes.values()) {
+      item.text.style.height = 'auto'
+      item.text.style.height = Math.max(44, item.text.scrollHeight) + 'px'
+    }
+    resizePaper()
+    if (pendingScroll) {
+      const [left, top] = state().scroll
+      paper.style.width = Math.max(paper.offsetWidth, left + viewport.clientWidth) + 'px'
+      paper.style.height = Math.max(paper.offsetHeight, top + viewport.clientHeight) + 'px'
+      viewport.scrollTo(left, top)
+      // A freshly mounted stylesheet may not have made the viewport scrollable
+      // yet. Keep the saved target until layout actually accepts it.
+      pendingScroll = Math.abs(viewport.scrollLeft - left) > 1 || Math.abs(viewport.scrollTop - top) > 1
+    }
   }
   const addBlock = (x, y) => {
     const block = { id: crypto.randomUUID(), x: Math.max(0, x), y: Math.max(0, y), width: 320, text: '' }
@@ -92,7 +114,7 @@ export default function(ctx, sdk) {
   function render() {
     const note = model.current(), nextId = note && ctx.noteFormats.typeOf(note) === 'freeform' ? note.id : null
     const changed = nextId !== noteId
-    if (changed) { saveScroll(); stopGesture(); noteId = nextId; selected = null; nodes.clear(); paper.replaceChildren(); composing = false }
+    if (changed) { saveScroll(); stopGesture(); noteId = nextId; pendingScroll = !!noteId; selected = null; nodes.clear(); paper.replaceChildren(); composing = false }
     if (!noteId) return
     if (model.busy) stopGesture()
     const current = note.blocks || [], ids = new Set(current.map(block => block.id))
@@ -127,16 +149,9 @@ export default function(ctx, sdk) {
       item.node.style.left = block.x + 'px'; item.node.style.top = block.y + 'px'; item.node.style.width = block.width + 'px'
       if (item.text.value !== block.text) item.text.value = block.text
       item.text.disabled = item.handle.disabled = item.grip.disabled = model.busy || !model.editable
-      item.text.style.height = 'auto'; item.text.style.height = Math.max(44, item.text.scrollHeight) + 'px'
       item.node.classList.toggle('selected', block.id === selected)
     }
-    resizePaper()
-    if (changed) {
-      const [left, top] = state().scroll
-      paper.style.width = Math.max(paper.offsetWidth, left + viewport.clientWidth) + 'px'
-      paper.style.height = Math.max(paper.offsetHeight, top + viewport.clientHeight) + 'px'
-      viewport.scrollTo(left, top)
-    }
+    layout()
     updateButtons()
   }
   sdk.listen(add, 'click', () => addBlock(viewport.scrollLeft + 32, viewport.scrollTop + 40))
@@ -154,7 +169,7 @@ export default function(ctx, sdk) {
     if (event.key === 'Delete' && event.target.tagName !== 'TEXTAREA' && selected) { event.preventDefault(); remove.click() }
   })
   sdk.listen(viewport, 'scroll', saveScroll)
-  const observer = new ResizeObserver(() => { if (noteId) { for (const item of nodes.values()) { item.text.style.height = 'auto'; item.text.style.height = Math.max(44, item.text.scrollHeight) + 'px' }; resizePaper() } })
+  const observer = new ResizeObserver(layout)
   observer.observe(viewport)
   ctx.effect(() => () => { saveScroll(); stopGesture(); observer.disconnect(); states.clear(); nodes.clear() })
   model.observe(ctx, render)

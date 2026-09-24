@@ -24,6 +24,8 @@ const theme = (id, name, description, server, swatch, defaultEnabled = false) =>
   return { ...item, defaultEnabled }
 }
 export const builtins = [
+  entry('ui', '界面组件与渲染', '统一 React、shadcn 组件与随插件清理的界面挂载。', [], ['client.js', 'runtime.bundle.js', 'style.css'], null, [], ['ui']),
+  entry('plugin-manager-ui', '插件中心界面', '分类浏览插件、外观预览和依赖详情；停用后保留宿主恢复入口。', ['ui', 'pluginManagement'], ['client.js', 'view.bundle.js']),
   entry('markdown', 'Markdown 解析能力', '提供安全渲染与正文提取，供格式和编辑器依赖。', [], ['client.js', 'parser.bundle.js'], markdown, ['markdown'], ['markdown']),
   entry('theme-engine', '主题引擎', '提供主题应用与清理能力，资源归属具体主题插件。', [], ['client.js', 'styles.js'], themeEngine, ['themeEngine'], ['themeEngine']),
   entry('note-formats', '笔记格式注册服务', '管理格式声明、校验与文本提取。', [], ['client.js', 'registry.js', 'note.js'], noteFormats, ['noteFormats'], ['noteFormats']),
@@ -33,16 +35,16 @@ export const builtins = [
   entry('storage', '本地文件存储', '兼容原有 notes.json，串行原子写入。', [], null, storage, ['storage']),
   entry('notes', '笔记业务', '笔记增删改查与数据校验。', [], null, notes, ['notes']),
   entry('notes-api', '笔记 API', '通过 HTTP 提供笔记服务，并向页面提供 notesApi 服务。', [], 'client.js', api, [], ['notesApi']),
-  entry('layout', '留白布局', '提供侧栏、编辑区、工具栏和扩展面板服务。', [], ['client.js', 'mounts.js', 'style.css'], null, [], ['shell']),
+  entry('layout', '留白布局', '提供侧栏、编辑区、工具栏和扩展面板服务。', ['ui'], ['client.js', 'mounts.js', 'view.bundle.js', 'style.css'], null, [], ['shell']),
   settings(entry('notebook', '前端笔记服务', '共享选择、草稿、自动保存与恢复。', ['notesApi', 'shell', 'noteFormats'], ['client.js', 'model.js'], null, [], ['notebook']), 'restart', {
     autosaveMs: { type: 'number', label: '自动保存间隔（毫秒）', description: '停止输入后等待多久保存。保存设置会先保存草稿，再重新加载笔记服务及其界面。', default: 600, min: 100, max: 10000, step: 100, integer: true },
   }),
-  entry('note-list', '笔记列表', '显示笔记、选择与新建，提供列表扩展服务。', ['notebook', 'shell', 'noteFormats'], 'client.js', null, [], ['noteListUI']),
-  entry('editor-host', '笔记编辑区', '标题、删除与按格式选择编辑器。', ['notebook', 'shell', 'noteFormats'], 'client.js', null, [], ['editorHost']),
-  entry('editor', '纯文本编辑器', '编辑普通笔记正文。', ['notebook', 'editorHost', 'noteFormats'], 'client.js'),
-  entry('free-page-editor', '自由页面编辑器', '向右和向下延伸的纸张，自由摆放文字块。', ['notebook', 'editorHost', 'noteFormats'], ['client.js', 'history.js', 'style.css']),
-  entry('markdown-editor', 'Markdown 编辑器', '源码编辑、实时预览、格式快捷操作和 Markdown 导出。', ['notebook', 'editorHost', 'noteFormats', 'markdown'], ['client.js', 'style.css']),
-  entry('search', '全文搜索', '按标题和正文即时过滤。', ['notebook', 'noteListUI'], 'client.js'),
+  entry('note-list', '笔记列表', '显示笔记、选择与新建，提供列表扩展服务。', ['ui', 'notebook', 'shell', 'noteFormats'], ['client.js', 'view.bundle.js'], null, [], ['noteListUI']),
+  entry('editor-host', '笔记编辑区', '标题、删除与按格式选择编辑器。', ['ui', 'notebook', 'shell', 'noteFormats'], ['client.js', 'view.bundle.js'], null, [], ['editorHost']),
+  entry('editor', '纯文本编辑器', '编辑普通笔记正文。', ['ui', 'notebook', 'editorHost', 'noteFormats'], ['client.js', 'view.bundle.js']),
+  entry('free-page-editor', '自由页面编辑器', '向右和向下延伸的纸张，自由摆放文字块。', ['ui', 'notebook', 'editorHost', 'noteFormats'], ['client.js', 'history.js', 'view.bundle.js', 'style.css']),
+  entry('markdown-editor', 'Markdown 编辑器', '源码编辑、实时预览、格式快捷操作和 Markdown 导出。', ['ui', 'notebook', 'editorHost', 'noteFormats', 'markdown'], ['client.js', 'view.bundle.js', 'style.css']),
+  entry('search', '全文搜索', '按标题和正文即时过滤。', ['ui', 'notebook', 'noteListUI'], ['client.js', 'view.bundle.js']),
   entry('pin', '置顶', '置顶笔记与筛选收藏。', ['notebook', 'noteListUI', 'shell'], 'client.js'),
   entry('export', '笔记导出', '导出 TXT；自由页面还可导出保留布局的 JSON。', ['notebook', 'shell'], 'client.js'),
   settings(entry('stats', '字数统计', '实时显示正文字符数。', ['notebook', 'shell'], 'client.js'), 'live', {
