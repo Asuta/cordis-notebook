@@ -4,7 +4,7 @@ import { Context } from 'cordis'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createApp } from '../src/server.js'
+import { createApp } from '../server/server.js'
 import { noteFormats } from '../plugins/note-formats/server.js'
 
 export const checklist = {

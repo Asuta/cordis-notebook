@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createApp } from '../src/server.js'
+import { createApp } from '../server/server.js'
 
 test('主题切换需要前端确认，互斥、持久化、停用和重启恢复', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-theme-')), file = join(dir, 'notes.json')

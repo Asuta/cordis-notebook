@@ -4,10 +4,10 @@
 
 ## 接手与开发文档
 
-第一次接手项目，先读 **[项目接手与维护指南](outputs/项目接手与维护指南.md)**。包含快速启动、架构图与源码地图、插件生命周期、配置与主题切换流程、可复制的内置插件示例、API、数据备份恢复、测试和故障排查。
+第一次接手项目，先读 **[项目接手与维护指南](docs/项目接手与维护指南.md)**。包含快速启动、架构图与源码地图、插件生命周期、配置与主题切换流程、可复制的内置插件示例、API、数据备份恢复、测试和故障排查。
 
-- [内置插件服务契约](outputs/内置插件服务契约.md)：查阅公开服务、业务事件、停止准备协议及配置 SDK。
-- [第三方插件开发指南](outputs/插件开发指南.md)：开发、打包和安装现有 API v1 插件。
+- [内置插件服务契约](docs/内置插件服务契约.md)：查阅公开服务、业务事件、停止准备协议及配置 SDK。
+- [第三方插件开发指南](docs/插件开发指南.md)：开发、打包和安装现有 API v1 插件。
 
 ## 启动
 
@@ -23,7 +23,7 @@ pnpm start
 ## 使用
 
 - 笔记格式由独立插件注册：「普通笔记格式」「自由页面格式」「Markdown 笔记格式」分别提供默认数据、校验、正文提取和编辑器关联。「新建」菜单自动显示已注册格式。停用某种格式会隐藏新建选项，保留已有笔记和数据；重新启用后恢复编辑。
-- 新增格式的步骤与接口见 [笔记格式插件开发指南](outputs/笔记格式插件开发指南.md)。本次协议面向内置插件，第三方 API v1 的后端格式注册尚未接入。
+- 新增格式的步骤与接口见 [笔记格式插件开发指南](docs/笔记格式插件开发指南.md)。本次协议面向内置插件，第三方 API v1 的后端格式注册尚未接入。
 
 - 「新建」可选择普通笔记、自由页面或 Markdown 笔记。自由页面标题固定，纸张向右、向下延伸，用滚动条浏览；双击空白处或点击「＋ 文字块」开始书写。
 - Markdown 编辑器支持源码与预览分栏、仅编辑、仅预览三种视图，提供标题、粗体、斜体、列表、引用、代码块和链接插入按钮；Ctrl/Cmd+B、I 插入粗体、斜体，Ctrl/Cmd+Z 撤销。支持表格、删除线和任务列表；任务状态在源码中修改，预览复选框只读。
@@ -60,9 +60,9 @@ pnpm start
 node scripts/pack-plugin.js examples/local-lab outputs/local-lab.cordis-plugin.json
 ```
 
-插件开发接口和完整示例见 [第三方插件开发指南](outputs/插件开发指南.md)。
+插件开发接口和完整示例见 [第三方插件开发指南](docs/插件开发指南.md)。
 
-内置插件的公开服务、业务事件、停止准备协议和类型声明用法见 [内置插件服务契约](outputs/内置插件服务契约.md)。`pnpm typecheck` 校验这些公共类型的使用示例；`pnpm test` 同时运行类型检查与运行时回归测试。
+内置插件的公开服务、业务事件、停止准备协议和类型声明用法见 [内置插件服务契约](docs/内置插件服务契约.md)。`pnpm typecheck` 校验这些公共类型的使用示例；`pnpm test` 同时运行类型检查与运行时回归测试。
 
 ## 数据与迁移
 
@@ -76,27 +76,29 @@ node scripts/pack-plugin.js examples/local-lab outputs/local-lab.cordis-plugin.j
 
 ## 架构
 
-`src/server.js` 创建根 Context，安装 HTTP 与插件管理服务。`src/builtins.js` 只定义内置清单；每个内置插件的代码聚合在 `plugins/<插件 ID>/`，前端入口为 `client.js`，后端入口为 `server.js`，只存在一侧能力的插件不必提供另一侧文件。每个功能记录对应 Cordis Fiber，停用实际调用 fiber.dispose()。
+`server/server.js` 创建根 Context，安装 HTTP 与插件管理服务。`server/builtins.js` 只定义内置清单；每个内置插件的代码聚合在 `plugins/<插件 ID>/`，前端入口为 `client.js`，后端入口为 `server.js`，只存在一侧能力的插件不必提供另一侧文件。每个功能记录对应 Cordis Fiber，停用实际调用 fiber.dispose()。
 
 ```text
 client/host/          前端宿主、插件加载与管理界面
 client/contracts/     公共服务和事件类型
 plugins/<id>/         一个插件的前后端入口、样式和专属辅助模块
-src/server.js         应用入口
-src/builtins.js       内置插件注册清单
-src/host/             后端常驻服务、插件管理及子进程设施
-shared/               宿主共用的配置校验、生命周期与依赖关系代码
+server/server.js      应用入口
+server/builtins.js    内置插件注册清单
+server/host/          后端常驻服务、插件管理及子进程设施
+shared/              宿主共用的配置校验、生命周期与依赖关系代码
+docs/                开发指南、服务契约与维护文档
+outputs/             可交付的示例插件安装包
 ```
 
 例如 `plugins/format-markdown/` 包含 `client.js`、`server.js`、`format.js`，依赖 markdown 服务；`plugins/markdown/` 封装解析实现及解析器构建产物 `parser.bundle.js`（不提交）。`plugins/markdown-editor/` 包含 `client.js` 和 `style.css`。同一插件前后端共用的逻辑留在插件目录；跨插件能力通过声明依赖并调用服务使用；`shared/` 只放宿主共用的配置校验、生命周期与依赖关系代码。
 
-浏览器通过 `/builtin/<插件 ID>/<文件名>` 加载内置资源，只允许读取 `src/builtins.js` 中明确列出的 `clientAssets`，不公开 `server.js` 等后端代码。不再开放旧 `/shared/*.js` 和 `/builtin/note-format.js` 业务模块地址；内置插件已改为通过服务调用公共能力。插件 ID、用户数据目录、启停配置和 HTTP 业务接口保持不变。
+浏览器通过 `/builtin/<插件 ID>/<文件名>` 加载内置资源，只允许读取 `server/builtins.js` 中明确列出的 `clientAssets`，不公开 `server.js` 等后端代码。不再开放旧 `/shared/*.js` 和 `/builtin/note-format.js` 业务模块地址；内置插件已改为通过服务调用公共能力。插件 ID、用户数据目录、启停配置和 HTTP 业务接口保持不变。
 
 `client/host/runtime.js` 将 Cordis 打包进浏览器，创建独立 Context。插件通过公开 SDK 注册服务、插槽、DOM、事件和卸载清理；各插件的样式跟随插件加载和卸载。
 
 内置主题使用 `exclusiveGroup: appearance.theme` 描述互斥关系，并在前后端分别提供同名 Cordis `theme` 服务。宿主负责先停旧插件、再启动新插件和失败恢复；Cordis 负责服务唯一性与生命周期。样式在插件卸载时清理，笔记编辑器无需重建。互斥组不属于依赖边。此协议本次只用于内置主题，第三方插件包和运行机制保持原样。
 
-第三方后端通过 `src/host/remote.js` 启动独立 Node 进程。`src/host/worker.js` 在进程内部创建 Cordis Context，调用插件入口，通过 IPC/RPC 连接浏览器与宿主。SDK 启动的命令进程会登记，退出时进行清理。后端异常退出会撤销依赖插件并显示错误，管理入口仍可使用。
+第三方后端通过 `server/host/remote.js` 启动独立 Node 进程。`server/host/worker.js` 在进程内部创建 Cordis Context，调用插件入口，通过 IPC/RPC 连接浏览器与宿主。SDK 启动的命令进程会登记，退出时进行清理。后端异常退出会撤销依赖插件并显示错误，管理入口仍可使用。
 
 ## 第一版边界
 

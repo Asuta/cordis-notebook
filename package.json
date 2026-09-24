@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.js",
-    "dev": "pnpm build && node --watch src/server.js",
-    "start": "pnpm build && node src/server.js",
+    "dev": "pnpm build && node --watch server/server.js",
+    "start": "pnpm build && node server/server.js",
     "typecheck": "tsc -p tsconfig.contracts.json",
     "test": "pnpm typecheck && pnpm build && node --test test/*.test.js"
   },

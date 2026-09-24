@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createApp } from '../src/server.js'
-import { validatePackage } from '../src/host/plugins.js'
+import { createApp } from '../server/server.js'
+import { validatePackage } from '../server/host/plugins.js'
 const pkg = (id, server = 'export default function() {}', dependencies = []) => ({ manifest: { id, name: id, version: '1.0.0', apiVersion: 1, dependencies, server: 'server.js' }, files: { 'server.js': server } })
 async function eventually(check) { const until = Date.now() + 6000; while (Date.now() < until) { if (await check()) return; await new Promise(r => setTimeout(r, 50)) }; assert.fail('状态没有按预期变化') }
 test('插件安装校验拒绝路径逃逸、不兼容接口及覆盖元数据', () => {

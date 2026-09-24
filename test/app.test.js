@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createApp } from '../src/server.js'
+import { createApp } from '../server/server.js'
 
 test('Cordis 笔记服务：增改查删、并发写入、持久化与生命周期', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-notes-'))
@@ -27,7 +27,7 @@ test('Cordis 笔记服务：增改查删、并发写入、持久化与生命周�
     assert.equal((await fetch(base + '/shared/config-schema.js')).status, 404)
     assert.equal((await fetch(base + '/builtin/format-plain/format.js')).status, 200)
     assert.equal((await fetch(base + '/builtin/note-formats/registry.js')).status, 200)
-    assert.equal((await fetch(base + '/src/host/worker.js')).status, 404)
+    assert.equal((await fetch(base + '/server/host/worker.js')).status, 404)
     await app.close(); assert.equal(app.server.listening, false)
     app = await createApp({ port: 0, file }); base = `http://127.0.0.1:${app.server.address().port}`
     const saved = await (await request()).json()

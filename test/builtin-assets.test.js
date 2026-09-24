@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, readdir, access, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname, sep } from 'node:path'
-import { createApp } from '../src/server.js'
-import { builtins } from '../src/builtins.js'
+import { createApp } from '../server/server.js'
+import { builtins } from '../server/builtins.js'
 
 test('每个内置插件聚合在同名目录，浏览器入口、相对依赖和样式均可加载，后端源码不公开', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-assets-'))

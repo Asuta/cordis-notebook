@@ -1,6 +1,6 @@
 import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises'
 import { resolve, join, relative } from 'node:path'
-import { validatePackage } from '../src/host/plugins.js'
+import { validatePackage } from '../server/host/plugins.js'
 const folder = resolve(process.argv[2] || 'examples/local-lab'), output = resolve(process.argv[3] || 'outputs/local-lab.cordis-plugin.json')
 const manifest = JSON.parse(await readFile(join(folder, 'manifest.json'), 'utf8')), files = {}
 async function collect(dir) {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createApp } from '../src/server.js'
+import { createApp } from '../server/server.js'
 import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
 import { createMarkdown } from '../plugins/markdown/parser.bundle.js'
 const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
