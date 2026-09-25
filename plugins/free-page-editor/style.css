@@ -478,3 +478,15 @@
     font-size: 10px;
   }
 }
+.is-freeform .note-heading {
+  max-width: none;
+  padding: 24px 30px 16px;
+}
+.is-freeform #title {
+  font-size: 27px;
+}
+@media (max-width: 620px) {
+.is-freeform .note-heading {
+    padding: 20px 20px 13px;
+  }
+}

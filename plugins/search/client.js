@@ -1,4 +1,4 @@
-import { mountSearch } from './view.bundle.js'
+import { mountSearch } from './view.jsx'
 export default function (ctx, sdk) {
   const root = sdk.el('div')
   sdk.mount('list-filters', root)

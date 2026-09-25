@@ -4,13 +4,15 @@ import { fileURLToPath } from 'node:url'
 import { resolve, dirname, extname, sep } from 'node:path'
 import { Http, body, fail } from './host/http.js'
 import { Plugins } from './host/plugins.js'
+import { discoverBuiltins, defaultPluginsDir, containedFile } from './plugin-discovery.js'
 
 const rootDir = fileURLToPath(new URL('../', import.meta.url))
-export async function createApp({ port = 3210, file = resolve(rootDir, 'data/notes.json'), dataDir = dirname(file) } = {}) {
+export async function createApp({ port = 3210, file, dataDir = file ? dirname(file) : resolve(rootDir, 'data'), pluginsDir = defaultPluginsDir } = {}) {
+  const builtinPlugins = await discoverBuiltins(pluginsDir, { mode: 'runtime' })
   const ctx = new Context()
   try {
     await ctx.plugin(Http, { port }); await ctx.http.ready
-    await ctx.plugin(Plugins, { file, dataDir }); const manager = ctx.plugins
+    await ctx.plugin(Plugins, { file, dataDir, builtinPlugins }); const manager = ctx.plugins
     const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
     route('GET', /^\/api\/plugins$/, () => manager.serialize())
     route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/config$/, async ({ req, match }) => { const input = await body(req); return manager.settings.begin(match[1], input.config, input.expectedRevision) })
@@ -31,15 +33,16 @@ export async function createApp({ port = 3210, file = resolve(rootDir, 'data/not
     })
     const serve = async (res, path) => {
       const content = await readFile(path).catch(() => { throw fail(404, '资源不存在') })
-      res.writeHead(200, { 'Content-Type': ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml' }[extname(path)] || 'text/plain') + '; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.end(content)
+      res.writeHead(200, { 'Content-Type': ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf' }[extname(path)] || 'application/octet-stream'), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.end(content)
     }
     route('GET', /^\/$/, ({ res }) => serve(res, resolve(rootDir, 'public/index.html')))
     route('GET', /^\/(runtime\.js|style\.css)$/, ({ res, match }) => serve(res, resolve(rootDir, 'public', match[1])))
     // Only explicitly public helpers/assets are served, never plugin server sources.
-    route('GET', /^\/builtin\/([a-z][a-z0-9-]*)\/([a-z][a-z0-9.-]*\.(?:js|css))$/, ({ res, match }) => {
+    route('GET', /^\/builtin\/([a-z][a-z0-9-]*)\/([a-zA-Z0-9_./-]+)$/, async ({ res, match }) => {
       const record = manager.records.get(match[1])
       if (!record?.manifest.builtin || !record.clientAssets.includes(match[2])) throw fail(404, '资源不存在')
-      return serve(res, resolve(rootDir, 'plugins', match[1], match[2]))
+      const path = await containedFile(record.assetRoot, match[2]).catch(() => { throw fail(404, '资源不存在') })
+      return serve(res, path)
     })
     route('GET', /^\/plugins\/([a-z0-9-]+)\/([a-zA-Z0-9_./-]+)$/, ({ res, match }) => {
       const record = manager.records.get(match[1]); if (!record || record.state !== 'enabled' || !record.root) throw fail(404, '插件没有启用')
@@ -52,7 +55,7 @@ export async function createApp({ port = 3210, file = resolve(rootDir, 'data/not
   } catch (error) { await ctx.fiber.dispose(); throw error }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const app = await createApp({ port: Number(process.env.PORT || 3210) })
+  const app = await createApp({ port: Number(process.env.PORT || 3210), pluginsDir: process.env.PLUGINS_DIR || defaultPluginsDir })
   console.log(`Cordis Notebook: http://127.0.0.1:${app.server.address().port}`)
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0) })
 }

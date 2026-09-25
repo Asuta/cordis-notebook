@@ -1,27 +1,5 @@
 @import "tailwindcss" source(none);
 @source "./components";
-@source "../**/*.jsx";
-@theme inline {
-  --color-background: var(--theme-surface, #fffefa);
-  --color-foreground: var(--theme-text, #303b33);
-  --color-card: var(--theme-surface, #fffefa);
-  --color-card-foreground: var(--theme-text, #303b33);
-  --color-popover: var(--theme-surface, #fffefa);
-  --color-popover-foreground: var(--theme-text, #303b33);
-  --color-primary: var(--theme-accent, #506b50);
-  --color-primary-foreground: #fff;
-  --color-secondary: var(--theme-panel, #f0f2ed);
-  --color-secondary-foreground: var(--theme-text, #303b33);
-  --color-muted: var(--theme-panel, #f0f2ed);
-  --color-muted-foreground: var(--theme-muted, #69736b);
-  --color-accent: var(--theme-selected, #e2eadf);
-  --color-accent-foreground: var(--theme-text, #303b33);
-  --color-destructive: #ae453f;
-  --color-destructive-foreground: #fff;
-  --color-border: var(--theme-border, #dfe3db);
-  --color-input: var(--theme-border, #dfe3db);
-  --color-ring: var(--theme-accent, #506b50);
-  --radius-lg: 0.65rem;
-  --radius-md: 0.45rem;
-  --radius-sm: 0.3rem;
-}
+@source "./runtime.jsx";
+@import "./theme.css";
+.ui-error { padding: 40px; text-align: center; color: var(--theme-muted); }

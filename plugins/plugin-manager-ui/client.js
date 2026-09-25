@@ -1,4 +1,4 @@
-import { mountManager } from './view.bundle.js'
+import { mountManager } from './view.jsx'
 export default function (ctx, sdk) {
   const root = sdk.el('div')
   ctx.pluginManagement.attach(ctx, root)

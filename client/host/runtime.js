@@ -5,7 +5,13 @@ import { createDependencyView } from './dependency-view.js'
 import { StopCoordinator } from './stop-coordinator.js'
 import { createSettingsView } from './settings-view.js'
 import { applyConfiguration } from './config-transaction.js'
-const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), slots = new Map()
+import { createMounts } from './mounts.js'
+import { mountStyles } from './styles.js'
+const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), mounts = createMounts()
+mounts.register(root, 'app', $('#app'), { provider: true })
+const updatePlaceholder = () => { $('#app-placeholder').hidden = $('#app').childElementCount > 0 }
+new MutationObserver(updatePlaceholder).observe($('#app'), { childList: true })
+updatePlaceholder()
 const stopping = new StopCoordinator(root, error => toast(error.message))
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false, installPackage = null
 async function request(path, method = 'GET', data, signal) {
@@ -28,20 +34,14 @@ function sdkFor(ctx, plugin) {
     service: name => ctx[name], effect: callback => ctx.effect(callback),
     listen(target, event, handler) { target.addEventListener(event, handler); ctx.effect(() => () => target.removeEventListener(event, handler)) },
     guard(callback) { return ctx.on('plugins/before-stop', async () => { await callback() }) },
-    slot(name, node) { if (slots.has(name)) throw new Error(`插槽已被占用：${name}`); slots.set(name, node); ctx.effect(() => () => slots.delete(name)) },
-    mount(name, node) {
-      if (name === 'app') { ctx.effect(() => { $('#app').append(node); return () => node.remove() }); return node }
-      const services = plugin.builtin ? ctx : root
-      const service = name === 'list-filters' ? services.noteListUI : services.shell
-      if (service && (plugin.builtin || !slots.has(name))) return service.mount(ctx, name === 'list-filters' ? 'filters' : name, node)
-      const slot = slots.get(name); if (!slot) throw new Error('缺少界面扩展服务：' + name)
-      ctx.effect(() => { slot.append(node); return () => node.remove() }); return node
-    },
+    slot(name, target) { mounts.register(ctx, name, target, { provider: plugin.builtin }) },
+    mount(name, node) { return mounts.mount(ctx, name, node, { provider: plugin.builtin }) },
     watch(service, handler) { if (service.observe) return service.observe(ctx, handler); service.addEventListener('change', handler); ctx.effect(() => () => service.removeEventListener('change', handler)); handler() },
     button(slot, label, handler) { const button = el('button', {}, label); sdk.listen(button, 'click', () => Promise.resolve().then(handler).catch(error => toast(error.message))); return sdk.mount(slot, button) },
   }; return sdk
 }
 const host = new ClientPlugins(root, {
+  stylesFor: mountStyles,
   sdkFor, load: plugin => import((plugin.builtin ? '/builtin/' : '/plugins/') + plugin.id + '/' + plugin.client + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt),
   onChange: () => queueMicrotask(renderManager),
 })
@@ -95,7 +95,6 @@ function renderManager() {
   cardsButton.setAttribute('aria-pressed', String(!tree)); treeButton.setAttribute('aria-pressed', String(tree))
   if (tree) dependencyView.render(visiblePlugins)
   else for (const plugin of visiblePlugins) $('#plugin-list').append(pluginCard(plugin))
-  $('#app-placeholder').hidden = host.state('layout') === 'enabled'
   for (const handler of managerListeners) handler()
 }
 function pluginCard(plugin, id = 'plugin-' + plugin.id) {
@@ -109,8 +108,8 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
       const group = el('div', { class: 'theme-group' }), swatch = el('i', { class: 'theme-swatch', 'aria-hidden': 'true' })
       swatch.style.background = plugin.swatch
       const current = snapshot.plugins.find(p => p.exclusiveGroup === exclusive && p.state === 'enabled')
-      group.append(swatch, document.createTextNode(`${plugin.groupLabel} · 单选组${current?.id === plugin.id ? ' · 当前主题' : current ? ' · 使用后替换' + current.name : ' · 当前为默认样式'}`)); card.append(group)
-      if (snapshot.pendingSwitch?.group === exclusive) card.append(el('small', { role: 'status' }, '正在确认主题切换…'))
+      group.append(swatch, document.createTextNode(`${plugin.groupLabel || plugin.exclusiveGroup} · 单选组${current?.id === plugin.id ? ' · 当前选择' : current ? ' · 使用后替换' + current.name : ' · 当前未选择'}`)); card.append(group)
+      if (snapshot.pendingSwitch?.group === exclusive) card.append(el('small', { role: 'status' }, '正在确认插件切换…'))
     }
     for (const scope of ['server', 'client']) {
       if (plugin.provides?.[scope]?.length) card.append(el('small', {}, (scope === 'server' ? '后端提供：' : '前端提供：') + plugin.provides[scope].join('、')))
@@ -127,7 +126,7 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     if (plugin.configError) card.append(el('p', { class: 'plugin-error' }, plugin.configError))
     if (plugin.logs?.length) { const details = el('details'); details.append(el('summary', {}, '后端日志'), el('pre', {}, plugin.logs.join(''))); card.append(details) }
     const actions = el('div', { class: 'plugin-actions' }), on = plugin.enabled && plugin.state !== 'failed'
-    const toggle = el('button', { disabled: busy || ['starting', 'stopping'].includes(plugin.state), 'aria-label': `${on ? '停用' : exclusive ? '使用' : '启用'}${plugin.name}` }, exclusive ? on ? '恢复默认样式' : '使用此主题' : on ? '停用' : plugin.state === 'failed' ? '重新启动' : '启用')
+    const toggle = el('button', { disabled: busy || ['starting', 'stopping'].includes(plugin.state), 'aria-label': `${on ? '停用' : exclusive ? '使用' : '启用'}${plugin.name}` }, exclusive ? on ? '停用此插件' : '使用此插件' : on ? '停用' : plugin.state === 'failed' ? '重新启动' : '启用')
     toggle.onclick = () => operate(() => failures.has(plugin.id) && plugin.enabled ? retryPlugin(plugin) : changePlugin(plugin, !on)); actions.append(toggle)
     if (plugin.settings) {
       const settings = el('button', { disabled: busy, 'aria-label': `设置${plugin.name}` }, '设置…')
@@ -161,19 +160,19 @@ async function applyPluginChange(plugin, enabled) {
   let loadError
   try {
     await scheduleSync()
-    if (snapshot.pendingSwitch?.token !== pending.token) throw new Error('切换已取消，请重新选择主题')
+    if (snapshot.pendingSwitch?.token !== pending.token) throw new Error('切换已取消，请重新选择插件')
     if (pending.target) {
       const target = snapshot.plugins.find(p => p.id === pending.target)
-      if (host.state(pending.target) !== 'enabled' || host.entries.get(pending.target)?.generation !== target.generation) throw new Error(failures.get(pending.target)?.message || '主题前端未成功挂载')
-    } else if (snapshot.plugins.some(p => p.exclusiveGroup === pending.group && host.state(p.id) === 'enabled')) throw new Error('旧主题尚未完成卸载')
+      if (target.state !== 'enabled' || target.client && (host.state(pending.target) !== 'enabled' || host.entries.get(pending.target)?.generation !== target.generation)) throw new Error(failures.get(pending.target)?.message || '插件未成功启动')
+    } else if (snapshot.plugins.some(p => p.client && p.exclusiveGroup === pending.group && host.state(p.id) === 'enabled')) throw new Error('原插件尚未完成卸载')
   } catch (error) { loadError = error }
   const confirmed = await request('/api/plugins/exclusive/confirm', 'POST', { token: pending.token, success: !loadError, error: loadError?.message })
   await scheduleSync()
   if (loadError) {
     const restoreFailed = pending.previous.some(id => host.state(id) !== 'enabled')
-    throw new Error(restoreFailed ? `${confirmed.message}；原主题页面恢复失败，请重载前端。` : confirmed.message)
+    throw new Error(restoreFailed ? `${confirmed.message}；原插件页面恢复失败，请重载前端。` : confirmed.message)
   }
-  toast(pending.target ? `已切换为${plugin.name}` : '已恢复默认样式')
+  toast(pending.target ? `已切换为${plugin.name}` : '已停用此插件')
 }
 async function saveConfig(plugin, config) {
   plugin = { ...snapshot.plugins.find(p => p.id === plugin.id), configRevision: plugin.configRevision }
@@ -193,8 +192,9 @@ async function synchronize() {
   const next = await request('/api/plugins')
   // A remote stop is already committed: disposal must not start another save
   // against disappearing services. Edits are backed up when they occur.
-  const removed = snapshot.plugins.some(p => p.enabled && p.client && !next.plugins.some(n => n.id === p.id && n.enabled))
-  if (removed && !stopping.running && root.notebook?.dirty) toast('其他页面已停用插件，未保存草稿保留在此浏览器。')
+  if (next.pendingConfig?.backend) return
+  const removed = snapshot.plugins.filter(p => p.enabled && p.client && !next.plugins.some(n => n.id === p.id && n.enabled)).map(p => p.id)
+  if (removed.length && !stopping.running) await root.parallel('plugins/remote-stop', { targets: removed }).catch(error => toast(error.message))
   snapshot = next
   await host.sync(snapshot.plugins)
   renderManager()

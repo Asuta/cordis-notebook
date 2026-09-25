@@ -1,0 +1,69 @@
+{
+  "name": "@cordis-notebook/editor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tailwindcss": "^4.3.3",
+    "@cordis-notebook/ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "editor",
+    "name": "纯文本编辑器",
+    "description": "编辑普通笔记正文。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "editorHost",
+        "noteFormats"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 17,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "utilities.css",
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "tailwind",
+        "input": "tailwind.css",
+        "output": "utilities.css"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": [
+      "utilities.css",
+      "style.css"
+    ]
+  }
+}

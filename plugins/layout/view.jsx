@@ -35,11 +35,11 @@ export function mountLayout(ctx, sdk, main, targets) {
           <DropdownMenuItem
             key={i}
             disabled={node.disabled}
-            className={node.classList.contains('note-delete-action') ? 'text-destructive' : ''}
+            className={node.dataset.variant === 'destructive' ? 'text-destructive' : ''}
             aria-label={node.getAttribute('aria-label') || node.textContent}
             onSelect={() => node.click()}
           >
-            {node.getAttribute('aria-label') === '置顶笔记' ? '置顶 / 取消置顶' : node.textContent}
+            {node.dataset.menuLabel || node.textContent}
           </DropdownMenuItem>
         ) : (
           <Slot key={i} node={node} />

@@ -1,0 +1,80 @@
+{
+  "name": "@cordis-notebook/theme-blue",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/theme-engine": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "theme-blue",
+    "name": "晴蓝主题",
+    "description": "清透的雾蓝配色，搭配干净明亮的编辑空间。",
+    "requires": {
+      "server": [
+        "themeEngine"
+      ],
+      "client": [
+        "shell",
+        "themeEngine"
+      ]
+    },
+    "provides": {
+      "server": [
+        "theme"
+      ],
+      "client": [
+        "theme"
+      ]
+    },
+    "exclusiveGroup": "appearance.theme",
+    "groupLabel": "主题",
+    "swatch": "#547dae",
+    "order": 26,
+    "defaultEnabled": false,
+    "client": "client.js",
+    "server": {
+      "entry": "server.js",
+      "export": "theme"
+    },
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ],
+    "category": {
+      "id": "themes",
+      "label": "外观"
+    },
+    "icon": "Palette",
+    "styles": []
+  },
+  "exports": {
+    "./client": {
+      "types": "./types/client.d.ts"
+    },
+    "./server": {
+      "types": "./types/server.d.ts"
+    }
+  }
+}

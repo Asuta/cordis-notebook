@@ -1,0 +1,67 @@
+{
+  "name": "@cordis-notebook/plugin-manager-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tailwindcss": "^4.3.3",
+    "@cordis-notebook/ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "plugin-manager-ui",
+    "name": "插件中心界面",
+    "description": "分类浏览插件、外观预览和依赖详情；停用后保留宿主恢复入口。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "pluginManagement"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 3,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css",
+      "utilities.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      },
+      {
+        "type": "tailwind",
+        "input": "tailwind.css",
+        "output": "utilities.css"
+      }
+    ],
+    "category": {
+      "id": "services",
+      "label": "基础能力"
+    },
+    "icon": "Blocks",
+    "styles": [
+      "style.css",
+      "utilities.css"
+    ]
+  }
+}

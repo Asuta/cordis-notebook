@@ -107,6 +107,7 @@ export function mountEditorHost(ctx, sdk, root, content, views) {
   const view = ctx.ui.mount(ctx, root, <EditorHost />)
   const remove = sdk.button('toolbar', '删除笔记', () => setDeleteOpen(true))
   remove.className = 'note-delete-action'
+  remove.dataset.variant = 'destructive'
   remove.setAttribute('aria-label', '删除笔记')
   ctx.notebook.observe(ctx, () => {
     remove.disabled = !ctx.notebook.current() || ctx.notebook.busy

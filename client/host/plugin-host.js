@@ -3,10 +3,11 @@ import { runtimeState, actualFiber, bindingsFor } from '../../shared/lifecycle.j
 import { configBinding } from './config-binding.js'
 
 export class ClientPlugins {
-  constructor(root, { sdkFor, load, onChange = () => {}, startupTimeoutMs = 10000 }) {
+  constructor(root, { sdkFor, load, stylesFor = () => {}, onChange = () => {}, startupTimeoutMs = 10000 }) {
     this.root = root; this.sdkFor = sdkFor; this.load = load; this.onChange = onChange
     this.entries = new Map(); this.gates = new Map(); this.plugins = []; this.attempt = 0
     this.startupTimeoutMs = startupTimeoutMs
+    this.stylesFor = stylesFor
     root.on('internal/status', fiber => {
       const entry = [...this.entries.values()].find(item => actualFiber(item.fiber) === fiber)
       if (!entry) return
@@ -87,6 +88,7 @@ export class ClientPlugins {
           const binding = entry.config
           Object.defineProperty(sdk, 'config', { get: () => binding.value })
           sdk.onConfig = callback => binding.onChange(callback)
+          await this.stylesFor(ctx, entry.plugin)
           await activate(ctx, sdk, module.default, this.startupTimeoutMs)
           new Service(ctx, 'plugin:' + plugin.id)
         } })

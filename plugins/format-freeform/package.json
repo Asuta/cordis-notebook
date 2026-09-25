@@ -1,0 +1,72 @@
+{
+  "name": "@cordis-notebook/format-freeform",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/rich-text": "workspace:*",
+    "@cordis-notebook/notes": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "format-freeform",
+    "name": "自由页面格式",
+    "description": "提供容器、富文本、纸张属性与旧文字块迁移。",
+    "requires": {
+      "server": [
+        "noteFormats",
+        "richText"
+      ],
+      "client": [
+        "noteFormats",
+        "richText"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 8,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "server": {
+      "entry": "server.js",
+      "export": "formatFreeform"
+    },
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": []
+  },
+  "exports": {
+    "./data": {
+      "types": "./types/data.d.ts"
+    }
+  }
+}

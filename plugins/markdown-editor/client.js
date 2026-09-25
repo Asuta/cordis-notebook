@@ -1,5 +1,5 @@
 
-import { mountToolbar } from './view.bundle.js'
+import { mountToolbar } from './view.jsx'
 export default function(ctx, sdk) {
   const model = ctx.notebook
   const root = sdk.el('section', { class: 'markdown-editor', 'aria-label': 'Markdown 编辑器' })
@@ -9,8 +9,6 @@ export default function(ctx, sdk) {
   const preview = sdk.el('article', { class: 'markdown-preview', 'aria-label': 'Markdown 预览', tabIndex: 0 })
   const panes = sdk.el('div', { class: 'markdown-panes' }); panes.append(source, preview)
   toolbar.append(actions, modes); root.append(toolbar, panes)
-  const style = sdk.el('link', { rel: 'stylesheet', href: '/builtin/markdown-editor/style.css' })
-  ctx.effect(() => { document.head.append(style); return () => style.remove() })
   ctx.editorHost.register(ctx, 'markdown', root)
   let mode = 'split', selectedId, rendered, timer, composing = false, disposed = false
   const editableButtons = [], viewButtons = new Map(), urls = new Map()

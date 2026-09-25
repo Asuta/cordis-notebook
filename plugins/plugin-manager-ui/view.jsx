@@ -1,26 +1,15 @@
-const infrastructure = new Set([
-  'ui',
-  'theme-engine',
-  'markdown',
-  'note-formats',
-  'storage',
-  'notes',
-  'notes-api',
-  'notebook',
-  'editor-host',
-  'plugin-manager-ui'
-])
 export function mountManager(ctx, sdk, root, dependencies) {
   const { h, React, Button, Input, Icon, Slot, Badge, Tabs, TabsList, TabsTrigger, TabsContent } = ctx.ui,
     api = ctx.pluginManagement
   const Fragment = React.Fragment
-  const category = (p) => (p.exclusiveGroup ? 'themes' : infrastructure.has(p.id) ? 'services' : 'features')
+  const category = (p) => p.category?.id || 'features'
   function Manager() {
     ctx.ui.useObserve(ctx, api)
     const state = api.current(),
       plugins = state.plugins,
+      categories = [...new Map(plugins.map(p => [category(p), p.category?.label || '功能'])).entries()],
       busy = state.working || !!state.pendingConfig || !!state.pendingSwitch
-    const [tab, setTab] = React.useState('features'),
+    const [tab, setTab] = React.useState('all'),
       [query, setQuery] = React.useState(''),
       [selected, setSelected] = React.useState(null)
     const [installOpen, setInstallOpen] = React.useState(false),
@@ -143,9 +132,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
         >
           <div className="manager-filters">
             <TabsList aria-label="插件分类">
-              <TabsTrigger value="features">功能</TabsTrigger>
-              <TabsTrigger value="themes">外观</TabsTrigger>
-              <TabsTrigger value="services">基础能力</TabsTrigger>
+              {categories.map(([id, label]) => <TabsTrigger key={id} value={id}>{label}</TabsTrigger>)}
               <TabsTrigger value="all">全部</TabsTrigger>
               <TabsTrigger value="dependencies">依赖关系</TabsTrigger>
             </TabsList>
@@ -161,11 +148,11 @@ export function mountManager(ctx, sdk, root, dependencies) {
               </div>
             )}
           </div>
-          {['features', 'themes', 'services', 'all'].map((value) => (
+          {[...categories.map(([id]) => id), 'all'].map((value) => (
             <TabsContent value={value} key={value}>
               <div className="manager-browser">
                 <div
-                  className={'manager-plugin-list' + (tab === 'themes' ? ' theme-list' : '')}
+                  className="manager-plugin-list"
                   aria-label="插件列表"
                 >
                   {visible.map((p) => (
@@ -175,14 +162,14 @@ export function mountManager(ctx, sdk, root, dependencies) {
                       aria-pressed={p.id === plugin?.id}
                       onClick={() => select(p.id)}
                     >
-                      {p.exclusiveGroup ? (
+                      {p.swatch ? (
                         <span className="theme-preview" style={{ background: p.swatch }}>
                           <span />
                           <span />
                         </span>
                       ) : (
                         <span className="plugin-icon">
-                          <Icon name={category(p) === 'services' ? 'Blocks' : 'Puzzle'} size={20} />
+                          <Icon name={p.icon || 'Puzzle'} size={20} />
                         </span>
                       )}
                       <span className="plugin-row-content">
@@ -205,7 +192,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
                     <>
                       <div className="detail-heading">
                         <span className="plugin-icon large">
-                          <Icon name={plugin.exclusiveGroup ? 'Palette' : 'Puzzle'} size={25} />
+                          <Icon name={plugin.icon || 'Puzzle'} size={25} />
                         </span>
                         <Badge variant={plugin.state === 'failed' ? 'destructive' : 'secondary'}>
                           {api.labels[plugin.state]}
@@ -224,8 +211,8 @@ export function mountManager(ctx, sdk, root, dependencies) {
                         >
                           {plugin.exclusiveGroup
                             ? plugin.enabled
-                              ? '恢复默认外观'
-                              : '使用此主题'
+                              ? '停用插件'
+                              : '使用此插件'
                             : plugin.enabled
                               ? '停用插件'
                               : '启用插件'}
@@ -342,7 +329,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
           </TabsContent>
         </Tabs>
         <footer className="manager-bottom">
-          <span>停用插件前会保护未保存的笔记</span>
+          <span>停用插件前会检查未完成的操作</span>
           <span>管理入口始终可用</span>
         </footer>
       </>

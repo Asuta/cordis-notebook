@@ -1,0 +1,84 @@
+{
+  "name": "@cordis-notebook/rich-text",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@tiptap/extension-text-style": "^3.31.3",
+    "@tiptap/extension-text-align": "^3.31.3",
+    "@tiptap/extension-highlight": "^3.31.3",
+    "@tiptap/extension-table": "^3.31.3",
+    "@tiptap/extension-image": "^3.31.3",
+    "@tiptap/extension-subscript": "^3.31.3",
+    "@tiptap/extension-superscript": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/host": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "rich-text",
+    "name": "富文本能力",
+    "description": "段落、文字格式片段、标记与编辑内核，提供独立的文档模型。",
+    "requires": {
+      "server": [],
+      "client": []
+    },
+    "provides": {
+      "server": [
+        "richText"
+      ],
+      "client": [
+        "richText"
+      ]
+    },
+    "order": 0,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "server": {
+      "entry": "server.js",
+      "export": "richText"
+    },
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ],
+    "category": {
+      "id": "services",
+      "label": "基础能力"
+    },
+    "icon": "Blocks",
+    "styles": []
+  },
+  "exports": {
+    "./data": {
+      "types": "./types/data.d.ts"
+    },
+    "./client": {
+      "types": "./types/client.d.ts"
+    },
+    "./server": {
+      "types": "./types/server.d.ts"
+    }
+  }
+}

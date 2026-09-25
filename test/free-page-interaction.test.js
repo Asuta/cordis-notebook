@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
-import freePage from '../plugins/free-page-editor/client.js'
+import freePage from '../plugins/free-page-editor/dist/client.js'
 import { documentService } from '../plugins/rich-text/document.js'
 import { createFreeformFormat } from '../plugins/format-freeform/format.js'
 

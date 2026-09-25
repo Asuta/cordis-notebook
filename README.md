@@ -10,6 +10,8 @@
 - [React 界面插件开发指南](docs/React界面插件开发指南.md)：React/shadcn 接入、服务依赖、生命周期与构建。
 - [第三方插件开发指南](docs/插件开发指南.md)：开发、打包和安装现有 API v1 插件。
 
+- [Workspace 插件开发指南](docs/Workspace插件开发指南.md)：插件自声明、自动发现、通用构建与公开类型归属。
+
 ## 启动
 
 需要 Node.js 22+ 与 pnpm。
@@ -19,7 +21,7 @@ pnpm install
 pnpm start
 ```
 
-打开 http://127.0.0.1:3210 。`pnpm dev` 构建前端运行时并监视后端源码；修改宿主、插件 JSX 或 Tailwind 样式后运行 `pnpm build` 并刷新页面。内置客户端插件以独立 ES 模块加载。`PORT` 可修改端口。`pnpm test` 运行集成测试。
+打开 http://127.0.0.1:3210 。`pnpm dev` 先构建，再监视后端导入图；插件运行入口是 dist，修改源码、JSX 或样式后须运行 `pnpm build`，重启服务并刷新页面。内置客户端插件以独立 ES 模块加载。`PORT` 可修改端口。`pnpm test` 运行集成测试。
 
 ## 使用
 
@@ -77,29 +79,32 @@ node scripts/pack-plugin.js examples/local-lab outputs/local-lab.cordis-plugin.j
 
 ## 架构
 
-`server/server.js` 创建根 Context，安装 HTTP 与插件管理服务。`server/builtins.js` 只定义内置清单；每个内置插件的代码聚合在 `plugins/<插件 ID>/`，前端入口为 `client.js`，后端入口为 `server.js`，只存在一侧能力的插件不必提供另一侧文件。每个功能记录对应 Cordis Fiber，停用实际调用 fiber.dispose()。
+每个内置插件都是 plugins/<id>/ 下的 pnpm workspace 包，package.json 的 cordis 字段声明身份、前后端入口、服务依赖、配置、公开资源与构建任务。server/plugin-discovery.js 只读清单；宿主根据持久化启用选择登记 Cordis Fiber，服务依赖满足后才导入后端。新增普通插件不再修改注册表、类型总表或专用构建逻辑。
 
 ```text
-client/host/          前端宿主、插件加载与管理界面
-client/contracts/     公共服务和事件类型
-plugins/<id>/         一个插件的前后端入口、样式和专属辅助模块
-server/server.js      应用入口
-server/builtins.js    内置插件注册清单
-server/host/          后端常驻服务、插件管理及子进程设施
-shared/              宿主共用的配置校验、生命周期与依赖关系代码
-docs/                开发指南、服务契约与维护文档
-outputs/             可交付的示例插件安装包
+packages/host/          通用 SDK、配置与生命周期类型；前后端服务映射
+client/host/            浏览器宿主、管理和同步
+client/contracts/       通用宿主类型的兼容转发
+server/host/            后端宿主、安装管理与第三方 worker
+server/plugin-discovery.js 清单发现与校验
+server/builtins.js      通用发现结果的兼容入口，无业务注册项
+plugins/<id>/          包清单、前后端实现、公开 types 和私有辅助模块
+plugins/<id>/dist/     构建产物；只按 public 白名单提供浏览器资源
+scripts/plugin-builder.js 通用 bundle / copy / tailwind 执行器
+scripts/export-plugins.js 导出仅含清单和 dist 的插件运行包
+shared/                宿主共用协议实现
+docs/                  架构、接手与开发指南
 ```
 
-例如 `plugins/format-markdown/` 包含 `client.js`、`server.js`、`format.js`，依赖 markdown 服务；`plugins/markdown/` 封装解析实现及解析器构建产物 `parser.bundle.js`（不提交）。`plugins/markdown-editor/` 包含 `client.js` 和 `style.css`。同一插件前后端共用的逻辑留在插件目录；跨插件能力通过声明依赖并调用服务使用；`shared/` 只放宿主共用的配置校验、生命周期与依赖关系代码。
+代码包依赖通过 package.json dependencies 声明，服务依赖通过 cordis.requires 声明。安装代码不会自动启用服务。浏览器和 Node 各有独立 Cordis Context；业务通过 ctx 服务协作，类型允许通过其他插件的公开类型导出引用。ClientContext 与 ServerContext 分开，宿主不汇总业务接口。
 
-浏览器通过 `/builtin/<插件 ID>/<文件名>` 加载内置资源，只允许读取 `server/builtins.js` 中明确列出的 `clientAssets`，不公开 `server.js` 等后端代码。不再开放旧 `/shared/*.js` 和 `/builtin/note-format.js` 业务模块地址；内置插件已改为通过服务调用公共能力。插件 ID、用户数据目录、启停配置和 HTTP 业务接口保持不变。
+浏览器通过 /builtin/<id>/<资源路径> 获取显式公开的 dist 产物。后端入口、未公开文件和源码不能通过此路径读取。React/React DOM 由 UI 插件统一打包，其他视图从 ctx.ui 获取组件及 hooks；跨插件运行时实现导入由构建器拒绝。
 
-`client/host/runtime.js` 将 Cordis 打包进浏览器，创建独立 Context。插件通过公开 SDK 注册服务、插槽、DOM、事件和卸载清理；各插件的样式跟随插件加载和卸载。
+界面挂载点由提供者插件注册；业务插件拥有自己的 CSS 和 Tailwind 构建，styles 清单负责自动加载与卸载。插件分类、图标和通用互斥组也在清单中声明，管理器不再维护业务分类列表。
 
-内置主题使用 `exclusiveGroup: appearance.theme` 描述互斥关系，并在前后端分别提供同名 Cordis `theme` 服务。宿主负责先停旧插件、再启动新插件和失败恢复；Cordis 负责服务唯一性与生命周期。样式在插件卸载时清理，笔记编辑器无需重建。互斥组不属于依赖边。此协议本次只用于内置主题，第三方插件包和运行机制保持原样。
+前端、后端及双端内置插件共用配置确认流程，支持 live/restart 和失败恢复。后端取得独立的 runtime.dataDir；原有笔记、图片和配置路径保持兼容。运行阶段只需要插件清单与 dist；`pnpm export:plugins <新目录>` 导出运行包，在输出目录安装依赖后，用 PLUGINS_DIR 指定目录并执行 `pnpm start:runtime`。完整步骤及宿主文件要求见 [Workspace 插件开发指南](docs/Workspace插件开发指南.md)。
 
-第三方后端通过 `server/host/remote.js` 启动独立 Node 进程。`server/host/worker.js` 在进程内部创建 Cordis Context，调用插件入口，通过 IPC/RPC 连接浏览器与宿主。SDK 启动的命令进程会登记，退出时进行清理。后端异常退出会撤销依赖插件并显示错误，管理入口仍可使用。
+第三方 API v1 仍使用本地 JSON 安装包，由 server/host/remote.js 启动独立 Node 进程，经 IPC/RPC 协作；没有纳入本次 workspace 清单和运行包安装协议。
 
 ## 第一版边界
 
@@ -108,7 +113,7 @@ outputs/             可交付的示例插件安装包
 - 支持本地自包含 JSON 插件包，最大 2 MB / 100 个文本文件，API 版本固定为 1。外部依赖应预先打包进入口，Node 内置模块可直接导入。安装不执行 npm/pnpm 脚本。
 - 不提供插件市场、签名验证、覆盖升级、自动更新与数据库迁移回滚。更新时先停用并卸载旧代码，再安装新版，数据保留。
 - 第三方 API v1 保留按插件 ID 检查和原有 SDK 的兼容路径；本次服务契约改造用于内置插件。尚无依赖版本范围解析。
-- 本次配置系统用于内置前端插件；第三方插件和后端服务配置暂未接入。发起页面确认成功不代表所有打开的页面都能应用成功；其他页面通过 SSE 同步并显示自己的运行状态，依赖重载时未保存内容通过本标签页草稿恢复。
+- 配置系统支持内置前端、后端及双端插件；第三方 API v1 暂不接入。发起页面确认成功不代表所有打开的页面都能应用成功；其他页面通过 SSE 同步并显示自己的运行状态，依赖重载时未保存内容通过本标签页草稿恢复。
 - 停用不能撤销已经发生的文件修改、外部网络请求或命令效果。
 - 多标签页编辑同一笔记仍以最后保存为准，未实现协同合并。
 - Cordis 固定为 4.0.0-rc.10；前后端使用同一个依赖版本。

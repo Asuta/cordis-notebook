@@ -1,0 +1,70 @@
+{
+  "name": "@cordis-notebook/markdown-editor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tailwindcss": "^4.3.3",
+    "@cordis-notebook/ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "markdown-editor",
+    "name": "Markdown 编辑器",
+    "description": "源码编辑、实时预览、格式快捷操作和 Markdown 导出。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "editorHost",
+        "noteFormats",
+        "markdown"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 19,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css",
+      "utilities.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      },
+      {
+        "type": "tailwind",
+        "input": "tailwind.css",
+        "output": "utilities.css"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": [
+      "style.css",
+      "utilities.css"
+    ]
+  }
+}

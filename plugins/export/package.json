@@ -1,0 +1,49 @@
+{
+  "name": "@cordis-notebook/export",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "export",
+    "name": "笔记导出",
+    "description": "导出 TXT；自由页面还可导出保留布局的 JSON。",
+    "requires": {
+      "server": [],
+      "client": [
+        "notebook",
+        "shell"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 22,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": []
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "name": "@cordis-notebook/note-list",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "cordis": "4.0.0-rc.10",
+    "tailwindcss": "^4.3.3",
+    "@cordis-notebook/ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "note-list",
+    "name": "笔记列表",
+    "description": "显示笔记、选择与新建，提供列表扩展服务。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "shell",
+        "noteFormats"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": [
+        "noteListUI"
+      ]
+    },
+    "order": 15,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "utilities.css",
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "tailwind",
+        "input": "tailwind.css",
+        "output": "utilities.css"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": [
+      "utilities.css",
+      "style.css"
+    ]
+  },
+  "exports": {
+    "./client": {
+      "types": "./types/client.d.ts"
+    }
+  }
+}

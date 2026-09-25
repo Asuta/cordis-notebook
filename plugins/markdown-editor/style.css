@@ -237,3 +237,15 @@
     height: 30px;
   }
 }
+.is-markdown .note-heading {
+  max-width: none;
+  padding: 24px 30px 16px;
+}
+.is-markdown #title {
+  font-size: 27px;
+}
+@media (max-width: 620px) {
+.is-markdown .note-heading {
+    padding: 20px 20px 13px;
+  }
+}

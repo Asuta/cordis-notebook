@@ -11,3 +11,5 @@ plugins/ui/style.css
 .env
 .env.*
 !.env.example
+
+plugins/*/dist/

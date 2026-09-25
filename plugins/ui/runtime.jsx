@@ -137,7 +137,7 @@ export function createUI() {
         onUncaughtError(error) {
           if (!active) return
           const notice = document.createElement('p')
-          notice.className = 'editor-missing'
+          notice.className = 'ui-error'
           notice.setAttribute('role', 'alert')
           notice.textContent = '界面加载失败，可在插件管理中停用后重新启用。' + error.message
           container.replaceChildren(notice)

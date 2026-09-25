@@ -1,0 +1,52 @@
+{
+  "name": "@cordis-notebook/storage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/host": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "storage",
+    "name": "本地文件存储",
+    "description": "兼容原有 notes.json，串行原子写入。",
+    "requires": {
+      "server": [],
+      "client": []
+    },
+    "provides": {
+      "server": [
+        "storage"
+      ],
+      "client": []
+    },
+    "order": 10,
+    "defaultEnabled": true,
+    "server": {
+      "entry": "server.js",
+      "export": "storage"
+    },
+    "public": [],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ],
+    "category": {
+      "id": "services",
+      "label": "基础能力"
+    },
+    "icon": "Blocks",
+    "styles": []
+  },
+  "exports": {
+    "./server": {
+      "types": "./types/server.d.ts"
+    }
+  }
+}

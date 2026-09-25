@@ -1,0 +1,78 @@
+{
+  "name": "@cordis-notebook/note-summary",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "note-summary",
+    "name": "保存后摘要",
+    "description": "监听保存成功事件，在页面下方显示最近保存的正文摘要。",
+    "requires": {
+      "server": [],
+      "client": [
+        "notebook",
+        "shell"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "settings": {
+      "mode": "live",
+      "fields": {
+        "length": {
+          "type": "number",
+          "label": "摘要长度",
+          "default": 120,
+          "options": [
+            {
+              "label": "80 字",
+              "value": 80
+            },
+            {
+              "label": "120 字",
+              "value": 120
+            },
+            {
+              "label": "200 字",
+              "value": 200
+            }
+          ]
+        },
+        "showCount": {
+          "type": "boolean",
+          "label": "显示字符数",
+          "default": true
+        }
+      }
+    },
+    "order": 24,
+    "defaultEnabled": false,
+    "client": "client.js",
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": []
+  }
+}

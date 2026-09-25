@@ -1,0 +1,71 @@
+{
+  "name": "@cordis-notebook/free-page-editor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tailwindcss": "^4.3.3",
+    "@cordis-notebook/ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "free-page-editor",
+    "name": "自由页面编辑器",
+    "description": "富文本容器、平移缩放、段落标记与快捷键的自由纸张。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "editorHost",
+        "noteFormats",
+        "richText",
+        "noteAssets"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 18,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css",
+      "utilities.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      },
+      {
+        "type": "tailwind",
+        "input": "tailwind.css",
+        "output": "utilities.css"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": [
+      "style.css",
+      "utilities.css"
+    ]
+  }
+}

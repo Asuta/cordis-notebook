@@ -9,7 +9,7 @@ import { formatPlain } from '../plugins/format-plain/server.js'
 import { formatFreeform } from '../plugins/format-freeform/server.js'
 import { richText } from '../plugins/rich-text/server.js'
 import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
-import { createMarkdown } from '../plugins/markdown/parser.bundle.js'
+import { createMarkdown } from '../plugins/markdown/parser.js'
 const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
 
 const note = (id, title, pinned = false) => ({ id, title, content: '正文 ' + title, pinned, createdAt: '2026-01-01', updatedAt: '2026-01-01' })

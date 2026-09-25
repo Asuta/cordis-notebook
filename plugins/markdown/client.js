@@ -1,2 +1,2 @@
-import { createMarkdown } from './parser.bundle.js'
+import { createMarkdown } from './parser.js'
 export default function(ctx, sdk) { sdk.provide('markdown', createMarkdown()) }

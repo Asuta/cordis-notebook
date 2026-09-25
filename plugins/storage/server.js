@@ -1,6 +1,6 @@
 import { Service } from 'cordis'
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
 class Storage extends Service {
   constructor(ctx, { file }) { super(ctx, 'storage'); this.file = file }
@@ -10,4 +10,7 @@ class Storage extends Service {
   }
   async write(items) { await writeFile(this.file + '.tmp', JSON.stringify(items, null, 2)); await rename(this.file + '.tmp', this.file) }
 }
-export const storage = { apply: (ctx, config) => { new Storage(ctx, config) } }
+export const storage = { apply: (ctx, config, runtime) => {
+  // Legacy notebooks keep their existing file; new plugins own their dataDir.
+  new Storage(ctx, { file: config.file ?? runtime?.legacyFile ?? join(runtime.appDataDir, 'notes.json') })
+} }

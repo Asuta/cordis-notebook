@@ -1,0 +1,68 @@
+{
+  "name": "@cordis-notebook/search",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tailwindcss": "^4.3.3",
+    "@cordis-notebook/ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "search",
+    "name": "全文搜索",
+    "description": "按标题和正文即时过滤。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "noteListUI"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 20,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "utilities.css",
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "tailwind",
+        "input": "tailwind.css",
+        "output": "utilities.css"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": [
+      "utilities.css",
+      "style.css"
+    ]
+  }
+}

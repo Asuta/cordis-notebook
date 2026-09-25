@@ -1,0 +1,4 @@
+@import "@cordis-notebook/ui/theme.css";
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "./*.jsx";

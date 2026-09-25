@@ -6,15 +6,16 @@
 
 - `plugins/ui/`：唯一的 React/React DOM 运行时、shadcn 组件源码、Lucide 图标和生命周期桥接。
 - `plugins/<id>/view.jsx`：该插件自己的视图，通过 `ctx.ui` 取得组件与 hooks，不跨目录导入业务实现。
-- `plugins/<id>/view.bundle.js`：构建产物，与源码同目录，不提交。
-- `plugins/ui/style.css`：Tailwind 生成的组件样式，不提交；主题变量由 theme-engine 应用。
+- `plugins/<id>/dist/client.js`：浏览器构建产物，包含自己的 view.jsx，不提交。
+- `plugins/ui/dist/style.css`：仅 UI 通用组件样式；每个 JSX 插件用自身 tailwind.css 编译 utilities.css，@source 只扫描自身源码。公共色彩 token 从 UI 公开的 theme.css 引用，见 Workspace 指南第 8 节。
+- 插件业务 CSS 由所属插件清单的 styles 声明，不依赖布局插件代管；自动加载完成才激活，停用时自动清理。
 - `plugins/plugin-manager-ui/`：新版插件中心，通过宿主提供的 pluginManagement 操作现有管理流程。
 
 `pnpm build` 编译 Tailwind、UI 运行时、各插件 JSX 和宿主入口。`pnpm dev` 只监视后端导入图，修改 JSX 后需要重新构建并刷新。
 
 ## 消费 UI 服务
 
-在内置注册清单中声明 `requires.client: ['ui', ...]`，将 `view.bundle.js` 加入 `clientAssets`。入口 `client.js` 导入自身的构建产物。JSX 使用局部变量 h 编译，不把 React 再打入每一个插件。
+在插件自己的 package.json 中声明 `cordis.requires.client: ['ui', ...]`，把 dist 的 client.js 与所需样式列入 public，并把要自动加载的 CSS 列入 styles。源码 client.js 直接导入 ./view.jsx；bundle 任务声明 `jsx: { factory: 'h', fragment: 'Fragment' }`。从 ctx.ui 取得 h，不重复打包 React。完整清单见 [Workspace 插件开发指南](Workspace插件开发指南.md)。
 
 ```jsx
 export function mountView(ctx, container) {

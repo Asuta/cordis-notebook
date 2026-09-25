@@ -1,0 +1,78 @@
+{
+  "name": "@cordis-notebook/editor-host",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "cordis": "4.0.0-rc.10",
+    "tailwindcss": "^4.3.3",
+    "@cordis-notebook/ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "editor-host",
+    "name": "笔记编辑区",
+    "description": "标题、删除与按格式选择编辑器。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "shell",
+        "noteFormats"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": [
+        "editorHost"
+      ]
+    },
+    "order": 16,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "utilities.css",
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "tailwind",
+        "input": "tailwind.css",
+        "output": "utilities.css"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "category": {
+      "id": "services",
+      "label": "基础能力"
+    },
+    "icon": "Blocks",
+    "styles": [
+      "utilities.css",
+      "style.css"
+    ]
+  },
+  "exports": {
+    "./client": {
+      "types": "./types/client.d.ts"
+    }
+  }
+}

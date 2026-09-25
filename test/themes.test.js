@@ -46,7 +46,7 @@ test('前端或后端失败、确认超时均恢复旧主题，退出不保存�
     app = await createApp({ port: 0, file }); const manager = app.manager
     let pending = (await manager.toggle('theme-blue', true)).pendingSwitch
     const failed = await manager.finishExclusive(pending.token, false, '模拟前端导入失败')
-    assert.match(failed.message, /模拟前端导入失败.*已恢复原主题/)
+    assert.match(failed.message, /模拟前端导入失败.*已恢复原插件/)
     assert.equal(app.ctx.theme.id, 'theme')
     assert.equal(manager.records.get('theme-blue').state, 'failed')
     const night = manager.records.get('theme-night'), original = night.server
@@ -61,7 +61,7 @@ test('前端或后端失败、确认超时均恢复旧主题，退出不保存�
     pending = (await manager.toggle('theme-blue', true)).pendingSwitch
     const persist = manager.persist
     manager.persist = async () => { throw new Error('磁盘写入失败') }
-    await assert.rejects(manager.finishExclusive(pending.token, true), /保存主题选择失败.*磁盘写入失败/)
+    await assert.rejects(manager.finishExclusive(pending.token, true), /保存插件选择失败.*磁盘写入失败/)
     manager.persist = persist
     assert.equal(app.ctx.theme.id, 'theme')
     assert.equal(manager.pendingSwitch, null)

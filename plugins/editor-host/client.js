@@ -1,4 +1,4 @@
-import { mountEditorHost } from './view.bundle.js'
+import { mountEditorHost } from './view.jsx'
 export default function (ctx, sdk) {
   const views = new Map(),
     root = sdk.el('div', { class: 'editor-host-view' }),

@@ -1,0 +1,84 @@
+{
+  "name": "@cordis-notebook/notebook",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/notes": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "notebook",
+    "name": "前端笔记服务",
+    "description": "共享选择、草稿、自动保存与恢复。",
+    "requires": {
+      "server": [],
+      "client": [
+        "notesApi",
+        "shell",
+        "noteFormats"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": [
+        "notebook"
+      ]
+    },
+    "settings": {
+      "mode": "restart",
+      "fields": {
+        "autosaveMs": {
+          "type": "number",
+          "label": "自动保存间隔（毫秒）",
+          "description": "停止输入后等待多久保存。保存设置会先保存草稿，再重新加载笔记服务及其界面。",
+          "default": 600,
+          "min": 100,
+          "max": 10000,
+          "step": 100,
+          "integer": true
+        }
+      }
+    },
+    "order": 14,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "category": {
+      "id": "services",
+      "label": "基础能力"
+    },
+    "icon": "Blocks",
+    "styles": [
+      "style.css"
+    ]
+  },
+  "exports": {
+    "./client": {
+      "types": "./types/client.d.ts"
+    }
+  }
+}

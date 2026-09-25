@@ -1,0 +1,41 @@
+.plain-editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.plain-editor {
+  width: 100%;
+  max-width: 920px;
+  margin: auto;
+  padding: 0 48px;
+}
+#content {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+  color: var(--theme-text);
+  resize: none;
+  border: 0;
+  outline: 0;
+  font-size: 16px;
+  line-height: 1.95;
+  padding: 0 0 40px;
+  scrollbar-width: thin;
+}
+#content::placeholder {
+  color: var(--theme-muted);
+  opacity: 0.65;
+}
+@media (max-width: 900px) {
+.plain-editor {
+    padding: 0 28px;
+  }
+}
+@media (max-width: 620px) {
+.plain-editor {
+    padding: 0 22px;
+  }
+}

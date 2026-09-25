@@ -1,6 +1,6 @@
 import { createHistory } from './history.js'
 import { createViewport } from './viewport.js'
-import { mountControls } from './view.bundle.js'
+import { mountControls } from './view.jsx'
 
 export default function (ctx, sdk) {
   const model = ctx.notebook,
@@ -30,11 +30,6 @@ export default function (ctx, sdk) {
   stage.append(paper)
   viewport.append(stage)
   root.append(controls, viewport, footer)
-  const style = sdk.el('link', { rel: 'stylesheet', href: '/builtin/free-page-editor/style.css' })
-  sdk.effect(() => {
-    document.head.append(style)
-    return () => style.remove()
-  })
   ctx.editorHost.register(ctx, 'freeform', root)
   const current = () => model.current(),
     blocks = () => current()?.blocks || [],

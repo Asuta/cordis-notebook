@@ -1,7 +1,12 @@
-import { Context } from 'cordis'
-import type { Note, NotebookService, ClientSDK, ConfigSchema } from '../client/contracts/index.d.ts'
+import type { ClientContext } from '@cordis-notebook/host'
+import type {} from '@cordis-notebook/markdown/client'
+import type {} from '@cordis-notebook/note-formats/client'
+import type {} from '@cordis-notebook/theme-engine/client'
+import type { Note } from '@cordis-notebook/notes/data'
+import type { NotebookService } from '@cordis-notebook/notebook/client'
+import type { ClientSDK, ConfigSchema } from '@cordis-notebook/host'
 
-declare const ctx: Context
+declare const ctx: ClientContext
 const html: string = ctx.markdown.render('# 标题')
 const plain: string = ctx.markdown.toText(html)
 const kind: string = ctx.noteFormats.typeOf()

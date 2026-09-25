@@ -1,0 +1,59 @@
+{
+  "name": "@cordis-notebook/stats",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "stats",
+    "name": "字数统计",
+    "description": "实时显示正文字符数。",
+    "requires": {
+      "server": [],
+      "client": [
+        "notebook",
+        "shell"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "settings": {
+      "mode": "live",
+      "fields": {
+        "includeWhitespace": {
+          "type": "boolean",
+          "label": "统计空格与换行",
+          "default": false
+        }
+      }
+    },
+    "order": 23,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": []
+  }
+}

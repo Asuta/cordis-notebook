@@ -22,7 +22,7 @@ export function createSettingsView({ el, save, getSnapshot }) {
   }
   function open(next) {
     plugin = next; title.textContent = next.name + ' · 设置'; controls = new Map(); fields.replaceChildren()
-    description.textContent = !next.enabled ? '插件已停用，保存后将在下次启用时生效。' : next.settings.mode === 'restart' ? '保存前会保护未保存的笔记，然后重新加载此插件和依赖它的界面。' : '保存后立即更新界面，无需重启插件。'
+    description.textContent = !next.enabled ? '插件已停用，保存后将在下次启用时生效。' : next.settings.mode === 'restart' ? '保存前会保护未完成的操作，然后重新加载此插件及其依赖方。' : '保存后立即应用配置，无需重启插件。'
     for (const [key, field] of Object.entries(next.settings.fields)) {
       const label = el('label', { class: 'settings-field' }), text = el('span', {}, field.label)
       let input

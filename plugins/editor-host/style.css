@@ -1,0 +1,106 @@
+.editor-host-view .section-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--theme-muted);
+  display: block;
+  margin-bottom: 7px;
+}
+.editor-host-view,
+.editor-writing,
+.editor-content-slot,
+.note-editor-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.editor-writing {
+  overflow: hidden;
+}
+.note-heading {
+  padding: 32px 48px 18px;
+  flex-shrink: 0;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+}
+.note-meta {
+  display: flex;
+  gap: 10px;
+  color: var(--theme-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  margin-bottom: 13px;
+}
+#title {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--theme-text);
+  font:
+    500 31px/1.5 'Segoe UI',
+    'Microsoft YaHei',
+    sans-serif;
+  letter-spacing: -0.035em;
+  outline: none;
+  padding: 0;
+}
+#title::placeholder {
+  color: var(--theme-muted);
+  opacity: 0.65;
+}
+.empty,
+.editor-missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  flex: 1;
+  padding: 40px;
+  text-align: center;
+  color: var(--theme-muted);
+}
+.empty-art {
+  width: 90px;
+  height: 105px;
+  background: var(--theme-panel);
+  border: 1px solid var(--theme-border);
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 28px;
+  color: var(--theme-accent);
+  transform: rotate(-6deg);
+}
+.empty h2,
+.editor-missing h2 {
+  font-size: 23px;
+  font-weight: 500;
+  color: var(--theme-text);
+  margin: 8px 0 13px;
+}
+.empty p,
+.editor-missing p {
+  font-size: 13px;
+  line-height: 1.8;
+  max-width: 380px;
+}
+@media (min-width: 1500px) {
+.note-heading {
+    padding-top: 48px;
+  }
+}
+@media (max-width: 900px) {
+.note-heading {
+    padding: 26px 28px 18px;
+  }
+}
+@media (max-width: 620px) {
+.note-heading {
+    padding: 24px 22px 14px;
+  }
+#title {
+    font-size: 27px;
+  }
+}

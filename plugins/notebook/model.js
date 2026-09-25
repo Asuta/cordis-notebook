@@ -1,7 +1,7 @@
 /**
  * Public notebook service. Filter storage and save scheduling stay private.
  * @param {import('cordis').Context} ctx
- * @param {import('../../client/contracts/index.d.ts').ClientSDK} sdk
+ * @param {import('@cordis-notebook/host').ClientSDK} sdk
  * @param {{storage: Storage, draftKey: string, autosaveMs?: number}} options
  */
 export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs = 600 }) {

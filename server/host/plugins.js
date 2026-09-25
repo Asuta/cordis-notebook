@@ -1,7 +1,6 @@
 import { Service } from 'cordis'
 import { mkdir, readFile, writeFile, rename, readdir, rm } from 'node:fs/promises'
 import { join, resolve, sep, dirname } from 'node:path'
-import { builtins } from '../builtins.js'
 import { fail } from './http.js'
 import { Remote } from './remote.js'
 import { randomUUID } from 'node:crypto'
@@ -28,11 +27,11 @@ export function validatePackage(pkg) {
 }
 export class Plugins extends Service {
   static inject = ['http']
-  constructor(ctx, { dataDir, file }) {
+  constructor(ctx, { dataDir, file, builtinPlugins = [] }) {
     super(ctx, 'plugins'); this.dataDir = resolve(dataDir); this.file = file; this.records = new Map(); this.queue = Promise.resolve(); this.revision = 0
     this.pendingSwitch = null
     this.settings = new PluginSettings(this)
-    for (const item of builtins) this.records.set(item.manifest.id, { ...item, state: 'disabled', enabled: item.defaultEnabled !== false, error: '', logs: [] })
+    for (const item of builtinPlugins) this.records.set(item.manifest.id, { ...item, state: 'disabled', enabled: item.defaultEnabled !== false, error: '', logs: [] })
     ctx.on('internal/status', fiber => {
       const record = [...this.records.values()].find(r => actualFiber(r.fiber) === fiber)
       if (record) this.refreshState(record)
@@ -45,7 +44,7 @@ export class Plugins extends Service {
       waitingFor: record.state === 'waiting' ? (record.manifest.requires?.server || record.server?.inject || []).filter(name => !this.ctx.get(name)) : [],
     }
   }
-  serialize() { return { revision: this.revision, pendingConfig: this.settings.pending ? { id: this.settings.pending.id, token: this.settings.pending.token } : null, pendingSwitch: this.pendingSwitch ? { token: this.pendingSwitch.token, group: this.pendingSwitch.group, target: this.pendingSwitch.target, previous: this.pendingSwitch.previous, phase: this.pendingSwitch.phase } : null, plugins: [...this.records.values()].map(r => this.describe(r)) } }
+  serialize() { return { revision: this.revision, pendingConfig: this.settings.pending ? { id: this.settings.pending.id, token: this.settings.pending.token, backend: this.settings.pending.backend } : null, pendingSwitch: this.pendingSwitch ? { token: this.pendingSwitch.token, group: this.pendingSwitch.group, target: this.pendingSwitch.target, previous: this.pendingSwitch.previous, phase: this.pendingSwitch.phase } : null, plugins: [...this.records.values()].map(r => this.describe(r)) } }
   refreshState(record) {
     if (!record.fiber || record.remoteFailed) return
     const state = runtimeState(record.fiber)
@@ -131,7 +130,13 @@ export class Plugins extends Service {
       } }
       if (record.fiber) await record.fiber.dispose()
       record.remoteFailed = false
-      const fiber = this.ctx.plugin(plugin, { file: this.file }); record.fiber = fiber
+      const dataDir = join(this.dataDir, 'plugin-data', id)
+      await mkdir(dataDir, { recursive: true })
+      const fiber = this.ctx.plugin(plugin, {
+        settings: record.configOverride ?? this.settings.describe(record).config ?? {},
+        runtime: { id, dataDir, appDataDir: this.dataDir, legacyFile: this.file },
+        bind: binding => { record.configBinding = binding },
+      }); record.fiber = fiber
       this.refreshState(record); await fiber; this.refreshState(record)
     } catch (error) {
       if (record.fiber) { await record.fiber.dispose().catch(() => {}); record.fiber = null }; record.remote = null
@@ -154,7 +159,7 @@ export class Plugins extends Service {
       this.settings.assertIdle()
       const record = this.records.get(id); if (!record) throw fail(404, '插件不存在')
       if (typeof enabled !== 'boolean') throw fail(400, 'enabled 必须是布尔值')
-      if (this.pendingSwitch) throw fail(409, '正在确认主题切换，请稍后再试')
+      if (this.pendingSwitch) throw fail(409, '正在确认插件切换，请稍后再试')
       if (record.manifest.builtin && record.manifest.exclusiveGroup) return this.beginExclusive(record, enabled)
       if (!enabled) {
         const deps = this.dependents(id)
@@ -168,7 +173,7 @@ export class Plugins extends Service {
     const id = record.manifest.id, group = record.manifest.exclusiveGroup
     if ((enabled && record.state === 'enabled') || (!enabled && record.state === 'disabled')) return this.serialize()
     const previous = [...this.records.values()].filter(r => r.manifest.exclusiveGroup === group && r.state === 'enabled').map(r => r.manifest.id)
-    if (enabled) for (const dep of record.manifest.dependencies) if (this.records.get(dep)?.state !== 'enabled') throw fail(409, `请先启用依赖：${dep}`)
+    if (enabled && !record.manifest.builtin) for (const dep of record.manifest.dependencies) if (this.records.get(dep)?.state !== 'enabled') throw fail(409, `请先启用依赖：${dep}`)
     for (const oldId of previous) {
       const users = this.dependents(oldId)
       if (users.length) throw fail(409, `无法切换，仍有插件依赖 ${this.records.get(oldId).manifest.name}：${users.map(key => this.records.get(key).manifest.name).join('、')}`)
@@ -195,7 +200,7 @@ export class Plugins extends Service {
         const message = await this.rollbackExclusive(token, String(error).slice(0, 500) || '前端加载失败')
         return { ...this.serialize(), message }
       }
-      try { await this.persist(true) } catch (cause) { const message = await this.rollbackExclusive(token, `保存主题选择失败：${cause.message}`); throw fail(500, message) }
+      try { await this.persist(true) } catch (cause) { const message = await this.rollbackExclusive(token, `保存插件选择失败：${cause.message}`); throw fail(500, message) }
       clearTimeout(pending.timer); this.pendingSwitch = null; this.changed(); return this.serialize()
     })
   }
@@ -213,7 +218,7 @@ export class Plugins extends Service {
       try { await this.start(oldId) } catch (error) { problems.push(`恢复 ${old.manifest.name} 失败：${error.message}`) }
     }
     const requested = this.records.get(pending.requested)
-    const message = `切换失败：${reason}。${problems.length ? problems.join('；') : pending.previous.length ? '已恢复原主题' : '已恢复默认样式'}`
+    const message = `切换失败：${reason}。${problems.length ? problems.join('；') : pending.previous.length ? '已恢复原插件' : '已停用此插件'}`
     if (!pending.previous.includes(pending.requested)) { requested.state = 'failed'; requested.error = message; requested.enabled = false }
     else requested.error = message
     this.pendingSwitch = null; this.changed(); return message
@@ -253,5 +258,5 @@ export class Plugins extends Service {
       await rm(target, { recursive: true, force: true }); return { ok: true }
     })
   }
-  async close() { await this.queue; if (this.settings.pending) this.settings.cancel(this.settings.pending.token, '应用正在退出'); if (this.pendingSwitch) await this.rollbackExclusive(this.pendingSwitch.token, '应用正在退出'); for (const id of [...this.records.keys()].reverse()) await this.stop(id) }
+  async close() { await this.queue; if (this.settings.pending) await this.settings.cancel(this.settings.pending.token, '应用正在退出'); if (this.pendingSwitch) await this.rollbackExclusive(this.pendingSwitch.token, '应用正在退出'); for (const id of [...this.records.keys()].reverse()) await this.stop(id) }
 }

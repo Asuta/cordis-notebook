@@ -1,0 +1,75 @@
+{
+  "name": "@cordis-notebook/markdown",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "markdown-it": "15.0.2",
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/host": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "markdown",
+    "name": "Markdown 解析能力",
+    "description": "提供安全渲染与正文提取，供格式和编辑器依赖。",
+    "requires": {
+      "server": [],
+      "client": []
+    },
+    "provides": {
+      "server": [
+        "markdown"
+      ],
+      "client": [
+        "markdown"
+      ]
+    },
+    "order": 4,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "server": {
+      "entry": "server.js",
+      "export": "markdown"
+    },
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ],
+    "category": {
+      "id": "services",
+      "label": "基础能力"
+    },
+    "icon": "Blocks",
+    "styles": []
+  },
+  "exports": {
+    "./data": {
+      "types": "./types/data.d.ts"
+    },
+    "./client": {
+      "types": "./types/client.d.ts"
+    },
+    "./server": {
+      "types": "./types/server.d.ts"
+    }
+  }
+}

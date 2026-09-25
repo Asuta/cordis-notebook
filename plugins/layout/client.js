@@ -1,11 +1,6 @@
 import { provideMounts } from './mounts.js'
-import { mountLayout } from './view.bundle.js'
+import { mountLayout } from './view.jsx'
 export default function (ctx, sdk) {
-  const style = sdk.el('link', { rel: 'stylesheet', href: '/builtin/layout/style.css' })
-  ctx.effect(() => {
-    document.head.append(style)
-    return () => style.remove()
-  })
   const main = sdk.el('main', { class: 'notebook-shell' })
   sdk.mount('app', main)
   const targets = Object.fromEntries(
@@ -24,6 +19,7 @@ export default function (ctx, sdk) {
     targets.toolbarEvents.dispatchEvent(new Event('change'))
   })
   shell.main = main
+  for (const name of ['sidebar', 'toolbar', 'status', 'editor', 'footer', 'panels']) sdk.slot(name, (owner, node) => shell.mount(owner, name, node))
   shell.showEditor = () => main.dispatchEvent(new Event('show-editor'))
   mountLayout(ctx, sdk, main, targets)
 }

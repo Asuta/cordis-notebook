@@ -17,10 +17,15 @@ function violations(source, modes) {
 }
 
 test('业务事件声明分发模式，源码调用与契约一致', async () => {
-  const declarations = await readFile('client/contracts/index.d.ts', 'utf8')
+  const paths = ['packages/host/index.d.ts']
+  for (const entry of await readdir('plugins')) {
+    const files = await readdir(`plugins/${entry}/types`).catch(() => [])
+    paths.push(...files.filter(name => name.endsWith('.d.ts')).map(name => `plugins/${entry}/types/${name}`))
+  }
+  const declarations = (await Promise.all(paths.map(path => readFile(path, 'utf8')))).join('\n')
   const modes = new Map([...declarations.matchAll(/@mode\s+(\w+)\s*\*\/\s*'([^']+)'/g)].map(([, mode, event]) => [event, mode]))
   const events = [...declarations.matchAll(/'((?:notebook|plugins)\/[^']+)'\s*\(/g)].map(([, event]) => event)
-  assert.equal(events.length, 4)
+  assert.equal(events.length, 5)
   assert.deepEqual([...modes.keys()].sort(), events.sort())
   for (const mode of modes.values()) assert.ok(['parallel', 'serial'].includes(mode))
   const files = await readdir('client', { recursive: true })

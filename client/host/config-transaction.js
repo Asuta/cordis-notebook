@@ -2,7 +2,7 @@
 export async function applyConfiguration({ plugin, config, host, request, synchronize, getSnapshot }) {
   let staged, problem
   const healthy = [...host.entries.keys()].filter(id => host.state(id) === 'enabled')
-  if (plugin.enabled && host.state(plugin.id) !== 'enabled') throw new Error('插件前端尚未就绪，请恢复运行或停用后保存设置')
+  if (plugin.enabled && plugin.client && host.state(plugin.id) !== 'enabled') throw new Error('插件前端尚未就绪，请恢复运行或停用后保存设置')
   try {
     staged = await request(`/api/plugins/${plugin.id}/config`, 'POST', { config, expectedRevision: plugin.configRevision })
     if (staged.preview) {

@@ -8,24 +8,237 @@ importers:
 
   .:
     dependencies:
-      '@radix-ui/react-dialog':
-        specifier: ^1.1.23
-        version: 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-dropdown-menu':
-        specifier: ^2.1.24
-        version: 2.1.24(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-slot':
-        specifier: ^1.3.3
-        version: 1.3.3(@types/react@19.3.0)(react@19.3.0)
-      '@radix-ui/react-switch':
-        specifier: ^1.3.7
-        version: 1.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-tabs':
-        specifier: ^1.1.21
-        version: 1.1.21(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@radix-ui/react-tooltip':
-        specifier: ^1.2.16
-        version: 1.2.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+    devDependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:packages/host
+      '@cordis-notebook/markdown':
+        specifier: workspace:*
+        version: link:plugins/markdown
+      '@cordis-notebook/note-assets':
+        specifier: workspace:*
+        version: link:plugins/note-assets
+      '@cordis-notebook/note-formats':
+        specifier: workspace:*
+        version: link:plugins/note-formats
+      '@cordis-notebook/notebook':
+        specifier: workspace:*
+        version: link:plugins/notebook
+      '@cordis-notebook/notes':
+        specifier: workspace:*
+        version: link:plugins/notes
+      '@cordis-notebook/rich-text':
+        specifier: workspace:*
+        version: link:plugins/rich-text
+      '@cordis-notebook/theme-engine':
+        specifier: workspace:*
+        version: link:plugins/theme-engine
+      '@tailwindcss/cli':
+        specifier: ^4.3.3
+        version: 4.3.3
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.4
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      happy-dom:
+        specifier: ^20.14.5
+        version: 20.14.5
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  packages/host:
+    dependencies:
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.4
+
+  plugins/editor:
+    dependencies:
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/editor-host:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/export: {}
+
+  plugins/format-freeform:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/notes':
+        specifier: workspace:*
+        version: link:../notes
+      '@cordis-notebook/rich-text':
+        specifier: workspace:*
+        version: link:../rich-text
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/format-markdown: {}
+
+  plugins/format-plain: {}
+
+  plugins/free-page-editor:
+    dependencies:
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/layout:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/markdown:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+      markdown-it:
+        specifier: 15.0.2
+        version: 15.0.2
+
+  plugins/markdown-editor:
+    dependencies:
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/note-assets:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/note-formats:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/notes':
+        specifier: workspace:*
+        version: link:../notes
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/note-list:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/note-summary: {}
+
+  plugins/notebook:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/notes':
+        specifier: workspace:*
+        version: link:../notes
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/notes:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/notes-api:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/notes':
+        specifier: workspace:*
+        version: link:../notes
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/pin: {}
+
+  plugins/plugin-manager-ui:
+    dependencies:
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/rich-text:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
       '@tiptap/core':
         specifier: ^3.31.3
         version: 3.31.3(@tiptap/pm@3.31.3)
@@ -56,6 +269,98 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^3.31.3
         version: 3.31.3
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/search:
+    dependencies:
+      '@cordis-notebook/ui':
+        specifier: workspace:*
+        version: link:../ui
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
+  plugins/stats: {}
+
+  plugins/storage:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/theme:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/theme-engine':
+        specifier: workspace:*
+        version: link:../theme-engine
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/theme-blue:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/theme-engine':
+        specifier: workspace:*
+        version: link:../theme-engine
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/theme-engine:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/theme-night:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@cordis-notebook/theme-engine':
+        specifier: workspace:*
+        version: link:../theme-engine
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  plugins/ui:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@radix-ui/react-dialog':
+        specifier: ^1.1.23
+        version: 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dropdown-menu':
+        specifier: ^2.1.24
+        version: 2.1.24(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot':
+        specifier: ^1.3.3
+        version: 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-switch':
+        specifier: ^1.3.7
+        version: 1.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-tabs':
+        specifier: ^1.1.21
+        version: 1.1.21(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-tooltip':
+        specifier: ^1.2.16
+        version: 1.2.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -68,9 +373,6 @@ importers:
       lucide-react:
         specifier: ^1.48.0
         version: 1.48.0(react@19.3.0)
-      markdown-it:
-        specifier: 15.0.2
-        version: 15.0.2
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -80,28 +382,16 @@ importers:
       tailwind-merge:
         specifier: ^3.7.0
         version: 3.7.0
-    devDependencies:
-      '@tailwindcss/cli':
+      tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+    devDependencies:
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
       '@types/react-dom':
         specifier: ^19.3.0
         version: 19.3.0(@types/react@19.3.0)
-      esbuild:
-        specifier: ^0.28.2
-        version: 0.28.2
-      happy-dom:
-        specifier: ^20.14.5
-        version: 20.14.5
-      tailwindcss:
-        specifier: ^4.3.3
-        version: 4.3.3
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
 
 packages:
 
@@ -972,8 +1262,8 @@ packages:
   '@tiptap/starter-kit@3.31.3':
     resolution: {integrity: sha512-WKof9RewdmGHvWJ1wn0/HVNG2mV+HOgVRyJkKekuM9fgr6BZAAH/xZsWE1eon+94JnQ+KtK2ThydXQM/qc6b2A==}
 
-  '@types/node@26.6.2':
-    resolution: {integrity: sha512-X1P21scMv4zGKLYqjdGjaKa7COa0RKVYYZZN/NfvLQ1JegxFhdhpZG/Lyn8AXx6CDUavKAd11v6BvfpkDByK8g==}
+  '@types/node@22.20.4':
+    resolution: {integrity: sha512-zJRE40jpHtKqE/C4fgHrAKQLJuSpzEnP9ff9Y7YtoR3Wd2pwqzlekDeEuUQXjRd+QCYnVnNwuJYmhdk9XV8gvA==}
 
   '@types/react-dom@19.3.0':
     resolution: {integrity: sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==}
@@ -1442,8 +1732,8 @@ packages:
   uc.micro@3.0.0:
     resolution: {integrity: sha512-U3PppEkleoTnIfi8BozMx3yju3qc/L6SwqWo2Sw+54PX+PX0q9I+r1Um5HCmqD7n9VDX5/v3vQH/AjA6deDdtw==}
 
-  undici-types@8.9.0:
-    resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
   use-callback-ref@1.3.3:
     resolution: {integrity: sha512-jQL3lRnocaFtu3V00JToYz/4QkNWswxijDaCVNZRiRTO3HQDLsdu1ZtmIUvV4yPp+rvWm5j0y0TG/S61cuijTg==}
@@ -2230,9 +2520,9 @@ snapshots:
       '@tiptap/extensions': 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
       '@tiptap/pm': 3.31.3
 
-  '@types/node@26.6.2':
+  '@types/node@22.20.4':
     dependencies:
-      undici-types: 8.9.0
+      undici-types: 6.21.0
 
   '@types/react-dom@19.3.0(@types/react@19.3.0)':
     dependencies:
@@ -2246,7 +2536,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 26.6.2
+      '@types/node': 22.20.4
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -2320,7 +2610,7 @@ snapshots:
 
   buffer-image-size@0.6.4:
     dependencies:
-      '@types/node': 26.6.2
+      '@types/node': 22.20.4
 
   class-variance-authority@0.7.1:
     dependencies:
@@ -2391,7 +2681,7 @@ snapshots:
 
   happy-dom@20.14.5:
     dependencies:
-      '@types/node': 26.6.2
+      '@types/node': 22.20.4
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.1
       buffer-image-size: 0.6.4
@@ -2654,7 +2944,7 @@ snapshots:
 
   uc.micro@3.0.0: {}
 
-  undici-types@8.9.0: {}
+  undici-types@6.21.0: {}
 
   use-callback-ref@1.3.3(@types/react@19.3.0)(react@19.3.0):
     dependencies:

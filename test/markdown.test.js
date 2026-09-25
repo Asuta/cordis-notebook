@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../server/server.js'
 import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
-import { createMarkdown } from '../plugins/markdown/parser.bundle.js'
+import { createMarkdown } from '../plugins/markdown/parser.js'
 const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
 const { render: renderMarkdown, toText: markdownText } = markdown
 
@@ -47,7 +47,7 @@ test('Markdown 插件通过通用 API 保存原始源码，格式停用保留数
     const saved = await response.json(); assert.equal(saved.markdown, source); assert.equal(saved.content, markdownText(source))
     assert.equal((await request('/' + note.id, 'PATCH', { markdown: {} })).status, 400)
     assert.equal((await request('/' + note.id, 'PATCH', { content: '不能覆盖派生正文' })).status, 400)
-    for (const url of ['/builtin/markdown-editor/client.js', '/builtin/markdown-editor/style.css', '/builtin/format-markdown/format.js', '/builtin/markdown/parser.bundle.js']) assert.equal((await fetch(base() + url)).status, 200)
+    for (const url of ['/builtin/markdown-editor/client.js', '/builtin/markdown-editor/style.css', '/builtin/format-markdown/client.js', '/builtin/markdown/client.js']) assert.equal((await fetch(base() + url)).status, 200)
     await app.manager.toggle('format-markdown', false)
     assert.equal(app.ctx.noteFormats.get('markdown'), undefined)
     assert.equal((await request('/' + note.id, 'PATCH', { title: '被拒绝' })).status, 409)

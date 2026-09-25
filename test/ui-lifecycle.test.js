@@ -36,9 +36,12 @@ test('React UI 订阅在 Cordis 代理变化时保持稳定，消费插件停用
     subscriptions = 0
   document.body.append(container)
   try {
-    const { createUI } = await import('../plugins/ui/runtime.bundle.js')
+    const { default: ui } = await import('../plugins/ui/dist/client.js')
     const provider = await root.plugin((ctx) => {
-      Object.assign(new Service(ctx, 'ui'), createUI())
+      ui(ctx, {
+        el(tag, props) { return Object.assign(document.createElement(tag), props) },
+        provide(name, value) { return Object.assign(new Service(ctx, name), value) },
+      })
     })
     Object.assign(new Service(root, 'counter'), {
       getValue: () => value,
@@ -77,7 +80,10 @@ test('React UI 订阅在 Cordis 代理变化时保持稳定，消费插件停用
     assert.equal(container.textContent, '')
     assert.equal(listeners.size, 0)
     await root.plugin((ctx) => {
-      Object.assign(new Service(ctx, 'ui'), createUI())
+      ui(ctx, {
+        el(tag, props) { return Object.assign(document.createElement(tag), props) },
+        provide(name, value) { return Object.assign(new Service(ctx, name), value) },
+      })
     })
     await consumer
     await new Promise((resolve) => setTimeout(resolve, 30))
