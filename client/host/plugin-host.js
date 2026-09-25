@@ -6,6 +6,8 @@ export class ClientPlugins {
   constructor(root, { sdkFor, load, stylesFor = () => {}, onChange = () => {}, startupTimeoutMs = 10000 }) {
     this.root = root; this.sdkFor = sdkFor; this.load = load; this.onChange = onChange
     this.entries = new Map(); this.gates = new Map(); this.plugins = []; this.attempt = 0
+    this.disposed = false
+    root.effect(() => () => { this.disposed = true; this.entries.clear(); this.gates.clear() })
     this.startupTimeoutMs = startupTimeoutMs
     this.stylesFor = stylesFor
     root.on('internal/status', fiber => {
@@ -39,15 +41,19 @@ export class ClientPlugins {
       bindings: { ...plugin.bindings, client: bindingsFor(entry?.fiber, this.entries) } }
   }
   async sync(plugins) {
+    if (this.disposed) return
     this.plugins = plugins
+    const isCurrent = () => !this.disposed && this.plugins === plugins
     const wanted = new Map(plugins.filter(p => p.enabled && p.client).map(p => [p.id, p]))
     // Backend readiness is a transport boundary, represented as an injected gate.
     for (const [id, item] of this.gates) {
+      if (!isCurrent()) return
       const legacy = id.startsWith('legacy:')
       const p = legacy ? plugins.find(p => p.id === id.slice(7) && !p.client && p.enabled) : wanted.get(id)
       if (!p || (legacy ? p.state : p.serverState) !== 'enabled' || p.generation !== item.generation) { this.gates.delete(id); await item.fiber.dispose() }
     }
     for (const [id, entry] of [...this.entries].reverse()) {
+      if (!isCurrent()) return
       const next = wanted.get(id), changed = next && (next.configRevision ?? 0) !== entry.configRevision
       if (next) entry.plugin = next
       if (!next || next.generation !== entry.generation || entry.deferred && next.state === 'enabled' || changed && next.settings?.mode === 'restart') {
@@ -61,10 +67,12 @@ export class ClientPlugins {
       }
     }
     for (const p of wanted.values()) if (p.serverState === 'enabled' && !this.gates.has(p.id)) {
+      if (!isCurrent()) return
       const fiber = this.root.plugin(ctx => { new Service(ctx, 'backend:' + p.id) })
       this.gates.set(p.id, { fiber, generation: p.generation }); await fiber
     }
     // Register all consumers even when their providers are absent. Cordis orders activation.
+    if (!isCurrent()) return
     await Promise.all([...wanted.values()].map(async plugin => {
       if (this.entries.has(plugin.id)) return
       const entry = { plugin, configRevision: plugin.configRevision ?? 0, generation: plugin.generation, requires: [], error: '', fiber: null, loading: true }
@@ -72,6 +80,8 @@ export class ClientPlugins {
       if (!plugin.builtin && plugin.state !== 'enabled') { entry.deferred = true; return }
       try {
         const module = await deadline(this.load({ ...plugin, attempt: ++this.attempt }))
+        // A remote stop, replacement, or host disposal can invalidate this load.
+        if (this.entries.get(plugin.id) !== entry) return
         if (typeof module.default !== 'function') throw new Error('前端入口需要导出 default 函数')
         const declared = plugin.builtin ? plugin.requires.client : module.inject || []
         entry.requires = Array.isArray(declared) ? declared : Object.keys(declared)
@@ -97,7 +107,9 @@ export class ClientPlugins {
       } catch (error) { entry.loading = false; entry.error = error.message }
     }))
     // Pure backend dependencies of API v1 packages also expose a compatibility gate.
+    if (!isCurrent()) return
     for (const p of plugins.filter(p => !p.client && p.enabled && p.state === 'enabled')) {
+      if (!isCurrent()) return
       // The transport gates above are only for frontend entries; these markers have
       // the same owned lifetime as their backend status snapshot.
       const key = 'legacy:' + p.id
@@ -107,7 +119,7 @@ export class ClientPlugins {
       }
     }
     await Promise.all([...this.entries.values()].map(entry => entry.fiber?.await().catch(error => { entry.error = error.message })))
-    this.onChange()
+    if (isCurrent()) this.onChange()
   }
   async retry(id) {
     const entry = this.entries.get(id); this.entries.delete(id)

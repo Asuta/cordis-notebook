@@ -135,6 +135,63 @@ test('模块仍在加载时显示启动中，不提前报告运行中', async ()
   } finally { await root.fiber.dispose() }
 })
 
+test('重试加载期间远端停用插件，迟到模块不会注册服务且可再次启用', async () => {
+  const root = new Context()
+  let finish, entered, loads = 0, starts = 0, cleanups = 0
+  const loading = new Promise(resolve => { entered = resolve })
+  const pending = new Promise(resolve => { finish = resolve })
+  const module = { default(ctx, sdk) {
+    starts++; sdk.provide('retryService', {})
+    ctx.effect(() => () => { cleanups++ })
+  } }
+  const host = new ClientPlugins(root, { sdkFor, load: async () => {
+    if (++loads === 1) throw new Error('首次加载失败')
+    if (loads === 2) { entered(); return pending }
+    return module
+  } })
+  const plugin = spec('retry-race'), disabled = { ...plugin, enabled: false, state: 'disabled' }
+  const backend = { ...spec('pure-backend'), client: null }
+  try {
+    await host.sync([plugin, backend]); assert.equal(host.state(plugin.id), 'failed')
+    const retry = host.retry(plugin.id)
+    await loading
+    await host.sync([disabled])
+    finish(module); await retry
+    await host.sync([disabled])
+    assert.equal(starts, 0)
+    assert.equal(root.get('retryService'), undefined)
+    assert.equal(root.get('plugin:' + plugin.id), undefined)
+    assert.equal(root.get('plugin:' + backend.id), undefined)
+    assert.equal(host.entries.has(plugin.id), false)
+    assert.equal(host.state(plugin.id), 'disabled')
+    await host.sync([plugin])
+    assert.equal(host.state(plugin.id), 'enabled'); assert.equal(starts, 1)
+    await host.sync([disabled]); assert.equal(cleanups, 1)
+  } finally { finish(module); await root.fiber.dispose() }
+})
+
+for (const operation of ['replace', 'dispose']) test(`模块加载期间${operation === 'replace' ? '替换代次' : '释放宿主'}，旧加载不会激活`, async () => {
+  const root = new Context(), starts = []
+  let finish
+  const pending = new Promise(resolve => { finish = resolve })
+  const host = new ClientPlugins(root, { sdkFor, load: plugin => plugin.generation === 1 ? pending : Promise.resolve({
+    default(ctx, sdk) { starts.push(2); sdk.provide('replacementService', { generation: 2 }) },
+  }) })
+  const plugin = spec('loading-race')
+  const oldModule = { default(ctx, sdk) { starts.push(1); sdk.provide('replacementService', { generation: 1 }) } }
+  try {
+    const first = host.sync([plugin])
+    if (operation === 'replace') await host.sync([{ ...plugin, generation: 2 }])
+    else await root.fiber.dispose()
+    finish(oldModule); await first
+    assert.deepEqual(starts, operation === 'replace' ? [2] : [])
+    if (operation === 'replace') {
+      assert.equal(host.state(plugin.id), 'enabled')
+      assert.equal(root.get('replacementService').generation, 2)
+    }
+  } finally { finish(oldModule); await root.fiber.dispose() }
+})
+
 test('启动超时取消本次激活，迟到的清理只执行一次且不影响重试实例', async () => {
   const root = new Context(), releases = [], signals = [], cleaned = []
   let started = 0

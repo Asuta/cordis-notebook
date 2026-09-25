@@ -234,6 +234,7 @@ export default function (ctx, sdk) {
       left: viewport.scrollLeft,
       top: viewport.scrollTop,
       before: data(),
+      selected: new Set(selection),
       shift: event.shiftKey,
       moved: false,
     }
@@ -268,7 +269,7 @@ export default function (ctx, sdk) {
       if (Math.abs(dxw) + Math.abs(dyw) > 3) g.moved = true
       if (g.kind === 'move')
         for (const b of g.before.blocks)
-          if (selection.has(b.id)) {
+          if (g.selected.has(b.id)) {
             const n = nodes.get(b.id)?.node
             if (n) {
               n.style.left = Math.max(0, b.x + dxw) + 'px'
@@ -277,7 +278,8 @@ export default function (ctx, sdk) {
           }
       if (g.kind === 'resize') {
         const b = g.before.blocks.find((b) => b.id === g.id)
-        nodes.get(g.id).node.style.width = Math.max(160, Math.min(4000, b.width + dxw)) + 'px'
+        const node = nodes.get(g.id)?.node
+        if (node) node.style.width = Math.max(160, Math.min(4000, b.width + dxw)) + 'px'
       }
       if (g.kind === 'marquee') {
         marquee.hidden = false
@@ -308,7 +310,7 @@ export default function (ctx, sdk) {
       for (const [id, item] of nodes)
         item.node.classList.toggle(
           'merge-target',
-          g.kind === 'move' && g.shift && !selection.has(id) && hit(g.point, id),
+          g.kind === 'move' && g.shift && !g.selected.has(id) && hit(g.point, id),
         )
     }
     frame = requestAnimationFrame(tick)
@@ -336,36 +338,43 @@ export default function (ctx, sdk) {
     guide.hidden = true
     const dx = g.point.x - g.start.x,
       dy = g.point.y - g.start.y
+    // Gestures own geometry only. Uploads and edits may have changed content
+    // since pointerdown; preserve current blocks, including additions/removals.
+    const before = new Map(g.before.blocks.map((b) => [b.id, b]))
     if (g.moved && g.kind === 'move') {
-      const target = g.shift && blocks().find((b) => !selection.has(b.id) && hit(g.point, b.id))
+      const target = g.shift && blocks().find((b) => !g.selected.has(b.id) && hit(g.point, b.id))
       if (target) {
         const merged = {
           version: 1,
           elements: [
             ...outline(target).elements,
-            ...g.before.blocks.filter((b) => selection.has(b.id)).flatMap((b) => outline(b).elements),
+            ...blocks().filter((b) => g.selected.has(b.id)).flatMap((b) => outline(b).elements),
           ],
         }
         changeBlocks(
           blocks()
-            .filter((b) => !selection.has(b.id))
+            .filter((b) => !g.selected.has(b.id))
             .map((b) => (b.id === target.id ? { ...b, outline: merged } : b)),
         )
         select(target.id)
       } else
         changeBlocks(
-          g.before.blocks.map((b) =>
-            selection.has(b.id)
-              ? { ...b, x: Math.max(0, Math.min(10000000, b.x + dx)), y: Math.max(0, Math.min(10000000, b.y + dy)) }
-              : b,
-          ),
+          blocks().map((b) => {
+            const original = before.get(b.id)
+            return original && g.selected.has(b.id)
+              ? { ...b, x: Math.max(0, Math.min(10000000, original.x + dx)), y: Math.max(0, Math.min(10000000, original.y + dy)) }
+              : b
+          }),
         )
     } else if (g.kind === 'resize' && g.moved)
       changeBlocks(
-        g.before.blocks.map((b) => (b.id === g.id ? { ...b, width: Math.max(160, Math.min(4000, b.width + dx)) } : b)),
+        blocks().map((b) => (b.id === g.id ? { ...b, width: Math.max(160, Math.min(4000, before.get(b.id).width + dx)) } : b)),
       )
     else if (g.kind === 'space' && dy > 0)
-      changeBlocks(g.before.blocks.map((b) => (b.y >= g.start.y ? { ...b, y: Math.min(10000000, b.y + dy) } : b)))
+      changeBlocks(blocks().map((b) => {
+        const original = before.get(b.id)
+        return original && original.y >= g.start.y ? { ...b, y: Math.min(10000000, original.y + dy) } : b
+      }))
     for (const item of nodes.values()) item.node.classList.remove('merge-target')
     render()
     camera.scrolled()

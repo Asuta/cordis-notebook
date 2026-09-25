@@ -150,7 +150,10 @@ async function changePlugin(plugin, enabled) {
   return stopping.run({ reason: plugin.exclusiveGroup ? 'switch' : 'disable', targets: [...new Set(targets)] }, action)
 }
 async function retryPlugin(plugin) {
-  return stopping.run({ reason: 'reload', targets: [plugin.id] }, () => host.retry(plugin.id))
+  return stopping.run({ reason: 'reload', targets: [plugin.id] }, () => {
+    const task = syncQueue.then(() => host.retry(plugin.id))
+    syncQueue = task.catch(() => {}); return task
+  })
 }
 async function applyPluginChange(plugin, enabled) {
   const result = await request(`/api/plugins/${plugin.id}/toggle`, 'POST', { enabled })
