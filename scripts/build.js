@@ -1,5 +1,6 @@
 import { build } from 'esbuild'
 import { readdir, access } from 'node:fs/promises'
+await build({ entryPoints: ['plugins/rich-text/engine.js'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'plugins/rich-text/engine.bundle.js', minify: true, define: { 'process.env.NODE_ENV': '"production"' } })
 await build({ entryPoints: ['plugins/ui/runtime.jsx'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'plugins/ui/runtime.bundle.js', minify: true, define: { 'process.env.NODE_ENV': '"production"' } })
 for (const dir of await readdir('plugins')) {
   const entry = `plugins/${dir}/view.jsx`

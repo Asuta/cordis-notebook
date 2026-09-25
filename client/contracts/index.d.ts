@@ -19,6 +19,58 @@ export interface TextBlock {
   readonly y: number
   readonly width: number
   readonly text: string
+  readonly outline?: OutlineDocument
+}
+export interface TextRun {
+  readonly text: string
+  readonly format?: Readonly<Partial<Record<'bold' | 'italic' | 'underline' | 'strike' | 'superscript' | 'subscript' | 'code', boolean>> & { font?: string; size?: number; color?: string; highlight?: string; link?: string }>
+}
+export interface OutlineElement {
+  readonly id: string
+  readonly kind: 'paragraph' | 'heading' | 'code' | 'quote' | 'list' | 'item' | 'table' | 'row' | 'cell' | 'image' | 'rule'
+  readonly runs?: readonly TextRun[]
+  readonly children?: readonly OutlineElement[]
+  readonly indent?: number
+  readonly align?: 'left' | 'center' | 'right' | 'justify'
+  readonly tag?: 'todo' | 'important' | 'question' | 'definition' | 'idea' | null
+  readonly checked?: boolean
+  readonly collapsed?: boolean
+  readonly level?: number
+  readonly ordered?: boolean
+  readonly start?: number
+  readonly header?: boolean
+  readonly colspan?: number
+  readonly rowspan?: number
+  readonly widths?: readonly number[]
+  readonly src?: string
+  readonly alt?: string
+  readonly width?: number
+  readonly height?: number
+}
+export interface OutlineDocument { readonly version: 1; readonly elements: readonly OutlineElement[] }
+export interface RichEditor {
+  readonly document: OutlineDocument
+  readonly composing: boolean
+  focus(where?: 'start' | 'end' | number): unknown
+  setDocument(doc: OutlineDocument): void
+  setEditable(value: boolean): void
+  exec(command: string, value?: unknown): boolean
+  status(): Record<string, unknown>
+  destroy(): unknown
+}
+export interface RichTextService {
+  normalize(input: unknown): OutlineDocument
+  plain(text?: string, prefix?: string): OutlineDocument
+  text(doc: OutlineDocument): string
+  toEditor(doc: OutlineDocument): unknown
+  fromEditor(json: unknown): OutlineDocument
+  mount(owner: Context, element: HTMLElement, options: {
+    document: OutlineDocument; editable?: boolean
+    change(doc: OutlineDocument, reason: 'paste' | 'text'): void
+    selection?(): void; focus?(): void; blur?(): void; boundary?(): void
+    undo?(): void; redo?(): void; selectContainer?(): void; link?(): void
+    images?(files: File[]): unknown; error?(error: Error): void
+  }): RichEditor
 }
 export interface Note {
   readonly type?: string
@@ -133,6 +185,8 @@ export interface ConfigSchema { mode: 'live' | 'restart'; fields: Record<string,
 declare module 'cordis' {
   interface Context {
     ui: UIService
+    richText: RichTextService
+    noteAssets: { upload(file: File): Promise<string> }
     markdown: MarkdownService
     themeEngine: ThemeEngine
     notebook: NotebookService

@@ -7,6 +7,7 @@ import summary from '../plugins/note-summary/client.js'
 import { noteFormats } from '../plugins/note-formats/server.js'
 import { formatPlain } from '../plugins/format-plain/server.js'
 import { formatFreeform } from '../plugins/format-freeform/server.js'
+import { richText } from '../plugins/rich-text/server.js'
 import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
 import { createMarkdown } from '../plugins/markdown/parser.bundle.js'
 const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
@@ -16,7 +17,7 @@ const turn = () => new Promise(resolve => setImmediate(resolve))
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 async function fixture(t, initialNotes, extraFormats = []) {
   const root = new Context(), backup = new Map(), writes = [], messages = []
-  await root.plugin(noteFormats); await root.plugin(formatPlain)
+  await root.plugin(noteFormats); await root.plugin(formatPlain); await root.plugin(richText)
   const freeform = root.plugin(formatFreeform); await freeform
   for (const format of extraFormats) await root.plugin(ctx => { root.noteFormats.register(ctx, format) })
   const notes = initialNotes || [note('a', 'alpha'), note('b', 'beta', true)]

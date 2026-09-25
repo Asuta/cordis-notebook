@@ -1,0 +1,406 @@
+import { Editor, Extension } from '@tiptap/core'
+import StarterKit from '@tiptap/starter-kit'
+import { TextStyleKit } from '@tiptap/extension-text-style'
+import TextAlign from '@tiptap/extension-text-align'
+import Highlight from '@tiptap/extension-highlight'
+import { TableKit } from '@tiptap/extension-table'
+import Image from '@tiptap/extension-image'
+import Subscript from '@tiptap/extension-subscript'
+import Superscript from '@tiptap/extension-superscript'
+import { Plugin, TextSelection } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { toEditor, fromEditor, safeLink, safeImage } from './document.js'
+
+const uid = () => crypto.randomUUID()
+const elementTypes = [
+  'paragraph',
+  'heading',
+  'codeBlock',
+  'blockquote',
+  'bulletList',
+  'orderedList',
+  'listItem',
+  'table',
+  'tableRow',
+  'tableCell',
+  'tableHeader',
+  'image',
+  'horizontalRule',
+]
+export function mountEditor(owner, element, options) {
+  let applying = false,
+    selectAllCount = 0
+  const paragraphCommand = (fn) => {
+    const { state, view } = editor,
+      tr = state.tr,
+      { from, to } = state.selection
+    state.doc.nodesBetween(from, to, (node, pos) => {
+      if (['paragraph', 'heading', 'codeBlock'].includes(node.type.name)) fn(node, pos, tr)
+    })
+    view.dispatch(tr)
+    return true
+  }
+  const indent = (delta) => {
+    if (editor.isActive('listItem'))
+      return delta > 0 ? editor.commands.sinkListItem('listItem') : editor.commands.liftListItem('listItem')
+    return paragraphCommand((n, p, tr) =>
+      tr.setNodeMarkup(p, undefined, { ...n.attrs, indent: Math.max(0, Math.min(8, (n.attrs.indent || 0) + delta)) }),
+    )
+  }
+  const tag = (value) =>
+    paragraphCommand((n, p, tr) =>
+      tr.setNodeMarkup(p, undefined, { ...n.attrs, noteTag: n.attrs.noteTag === value ? null : value, checked: false }),
+    )
+  const moveParagraph = (direction) => {
+    const { state, view } = editor,
+      { $from } = state.selection
+    if ($from.depth < 1) return false
+    const index = $from.index(0),
+      nodes = []
+    state.doc.forEach((n) => nodes.push(n))
+    const other = index + direction
+    if (other < 0 || other >= nodes.length) return false
+    const pos = nodes.slice(0, index).reduce((n, v) => n + v.nodeSize, 0),
+      target = nodes.slice(0, other).reduce((n, v) => n + v.nodeSize, 0)
+    const lo = Math.min(pos, target),
+      hi = Math.max(pos + nodes[index].nodeSize, target + nodes[other].nodeSize)
+    const pair = direction < 0 ? [nodes[index], nodes[other]] : [nodes[other], nodes[index]]
+    const tr = state.tr.replaceWith(lo, hi, pair),
+      next = direction < 0 ? target : pos + nodes[other].nodeSize
+    tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(next + 1, tr.doc.content.size))))
+    view.dispatch(tr)
+    return true
+  }
+  const Meta = Extension.create({
+    name: 'outlineMetadata',
+    priority: 1000,
+    addGlobalAttributes() {
+      return [
+        {
+          types: elementTypes,
+          attributes: {
+            id: { default: null, parseHTML: () => null, renderHTML: (a) => ({ 'data-element-id': a.id }) },
+          },
+        },
+        {
+          types: ['paragraph', 'heading', 'codeBlock'],
+          attributes: {
+            indent: {
+              default: 0,
+              parseHTML: (e) => Number(e.getAttribute('data-indent')) || 0,
+              renderHTML: (a) => ({ 'data-indent': a.indent, style: `margin-left:${a.indent * 24}px` }),
+            },
+            noteTag: {
+              default: null,
+              parseHTML: (e) => e.getAttribute('data-note-tag'),
+              renderHTML: (a) => (a.noteTag ? { 'data-note-tag': a.noteTag } : {}),
+            },
+            checked: {
+              default: false,
+              parseHTML: (e) => e.getAttribute('data-checked') === 'true',
+              renderHTML: (a) => ({ 'data-checked': String(a.checked) }),
+            },
+            collapsed: {
+              default: false,
+              parseHTML: () => false,
+              renderHTML: (a) => ({ 'data-collapsed': String(a.collapsed) }),
+            },
+          },
+        },
+      ]
+    },
+    addKeyboardShortcuts() {
+      return {
+        'Mod-z': () => {
+          options.undo?.()
+          return true
+        },
+        'Mod-y': () => {
+          options.redo?.()
+          return true
+        },
+        'Mod-Shift-z': () => {
+          options.redo?.()
+          return true
+        },
+        'Mod-1': () => tag('todo'),
+        'Mod-2': () => tag('important'),
+        'Mod-3': () => tag('question'),
+        'Mod-.': () => editor.commands.toggleBulletList(),
+        'Mod-/': () => editor.commands.toggleOrderedList(),
+        'Mod-k': () => {
+          options.link?.()
+          return true
+        },
+        'Mod-Shift-n': () => editor.chain().unsetAllMarks().clearNodes().run(),
+        'Alt-Shift-ArrowRight': () => indent(1),
+        'Alt-Shift-ArrowLeft': () => indent(-1),
+        'Alt-Shift-ArrowUp': () => moveParagraph(-1),
+        'Alt-Shift-ArrowDown': () => moveParagraph(1),
+        Tab: () => (editor.isActive('table') ? editor.commands.goToNextCell() : indent(1)),
+        'Shift-Tab': () => (editor.isActive('table') ? editor.commands.goToPreviousCell() : indent(-1)),
+        'Mod-a': () => {
+          if (++selectAllCount > 1) {
+            options.selectContainer?.()
+            return true
+          }
+          return editor.commands.selectAll()
+        },
+        Escape: () => {
+          options.selectContainer?.()
+          return true
+        },
+      }
+    },
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          filterTransaction(transaction) {
+            if (!transaction.docChanged || applying) return true
+            try {
+              fromEditor(transaction.doc.toJSON())
+              return true
+            } catch (error) {
+              options.error?.(error)
+              return false
+            }
+          },
+          appendTransaction(transactions, oldState, newState) {
+            if (!transactions.some((t) => t.docChanged)) return
+            const ids = new Set(),
+              tr = newState.tr
+            newState.doc.descendants((node, pos) => {
+              if (elementTypes.includes(node.type.name)) {
+                let id = node.attrs.id
+                if (!id || ids.has(id)) {
+                  id = uid()
+                  tr.setNodeMarkup(pos, undefined, { ...node.attrs, id })
+                }
+                ids.add(id)
+              }
+            })
+            return tr.docChanged ? tr : null
+          },
+          props: {
+            decorations(state) {
+              const decorations = []
+              let folded = null
+              state.doc.forEach((node, pos) => {
+                const level = node.attrs.indent || 0
+                if (folded !== null && level > folded)
+                  decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: 'outline-folded' }))
+                else {
+                  folded = null
+                  if (node.attrs.collapsed) folded = level
+                }
+              })
+              return DecorationSet.create(state.doc, decorations)
+            },
+          },
+        }),
+      ]
+    },
+  })
+  const LocalImage = Image.extend({
+    parseHTML() {
+      return [{ tag: 'img[src]', getAttrs: (e) => (safeImage(e.getAttribute('src')) ? null : false) }]
+    },
+  })
+  const editor = new Editor({
+    element,
+    content: toEditor(options.document),
+    editable: options.editable !== false,
+    extensions: [
+      StarterKit.configure({
+        undoRedo: false,
+        link: { openOnClick: false, isAllowedUri: (url) => !!safeLink(url) },
+        trailingNode: false,
+      }),
+      TextStyleKit,
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      Highlight.configure({ multicolor: true }),
+      TableKit.configure({ table: { resizable: true } }),
+      LocalImage.configure({ resize: { enabled: true, alwaysPreserveAspectRatio: true } }),
+      Subscript,
+      Superscript,
+      Meta,
+    ],
+    editorProps: {
+      handleDOMEvents: {
+        pointerdown() {
+          selectAllCount = 0
+          return false
+        },
+      },
+      attributes: { class: 'outline-prose', 'aria-label': '容器正文', spellcheck: 'false' },
+      handleKeyDown(view, event) {
+        if (event.key.toLowerCase() !== 'a' || !(event.ctrlKey || event.metaKey)) selectAllCount = 0
+        if (event.ctrlKey || event.metaKey || event.altKey) options.boundary?.()
+        options.keydown?.(event)
+        return false
+      },
+      handlePaste(view, event) {
+        const files = [...(event.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'))
+        if (files.length) {
+          event.preventDefault()
+          options.images?.(files)
+          return true
+        }
+        return false
+      },
+      handleDrop(view, event) {
+        const files = [...(event.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'))
+        if (files.length) {
+          event.preventDefault()
+          options.images?.(files)
+          return true
+        }
+        return false
+      },
+      handleClick(view, pos, event) {
+        const p = event.target.closest('[data-note-tag="todo"]')
+        if (p && event.clientX < p.getBoundingClientRect().left + 23) {
+          const at = view.posAtDOM(p, 0),
+            resolved = view.state.doc.resolve(at)
+          const start = resolved.before(resolved.depth)
+          const node = view.state.doc.nodeAt(start)
+          if (node) {
+            view.dispatch(
+              view.state.tr.setNodeMarkup(start, undefined, { ...node.attrs, checked: !node.attrs.checked }),
+            )
+            return true
+          }
+        }
+        return false
+      },
+    },
+    onUpdate: ({ transaction }) => {
+      if (!applying)
+        try {
+          options.change(fromEditor(editor.getJSON()), transaction.getMeta('paste') ? 'paste' : 'text')
+        } catch (e) {
+          options.error?.(e)
+        }
+    },
+    onSelectionUpdate: () => options.selection?.(),
+    onFocus: () => options.focus?.(),
+    onBlur: () => options.blur?.(),
+  })
+  const api = {
+    get editor() {
+      return editor
+    },
+    get document() {
+      return fromEditor(editor.getJSON())
+    },
+    get composing() {
+      return editor.view.composing
+    },
+    focus: (where) => editor.commands.focus(where),
+    setEditable: (value) => editor.setEditable(value, false),
+    setDocument(doc) {
+      applying = true
+      try {
+        const selection = editor.state.selection
+        editor.commands.setContent(toEditor(doc), { emitUpdate: false })
+        if (editor.isFocused)
+          editor.commands.setTextSelection({
+            from: Math.min(selection.from, editor.state.doc.content.size),
+            to: Math.min(selection.to, editor.state.doc.content.size),
+          })
+      } finally {
+        applying = false
+      }
+    },
+    exec(command, value) {
+      if (!editor.isEditable) return false
+      options.boundary?.()
+      if (command === 'indent') return indent(value)
+      if (command === 'tag') return tag(value)
+      if (command === 'checked')
+        return paragraphCommand((n, p, tr) => tr.setNodeMarkup(p, undefined, { ...n.attrs, checked: !n.attrs.checked }))
+      if (command === 'collapse')
+        return paragraphCommand((n, p, tr) =>
+          tr.setNodeMarkup(p, undefined, { ...n.attrs, collapsed: !n.attrs.collapsed }),
+        )
+      if (command === 'moveParagraph') return moveParagraph(value)
+      const chain = editor.chain().focus()
+      const toggles = {
+        bold: 'toggleBold',
+        italic: 'toggleItalic',
+        underline: 'toggleUnderline',
+        strike: 'toggleStrike',
+        superscript: 'toggleSuperscript',
+        subscript: 'toggleSubscript',
+        bullet: 'toggleBulletList',
+        number: 'toggleOrderedList',
+        quote: 'toggleBlockquote',
+        code: 'toggleCodeBlock',
+      }
+      if (toggles[command]) return chain[toggles[command]]().run()
+      if (command === 'style')
+        return value === 'normal' ? chain.setParagraph().run() : chain.setHeading({ level: Number(value) }).run()
+      if (command === 'font') return chain.setFontFamily(value).run()
+      if (command === 'size') return chain.setFontSize(`${value}pt`).run()
+      if (command === 'color') return chain.setColor(value).run()
+      if (command === 'highlight') return chain.toggleHighlight({ color: value || '#fff59d' }).run()
+      if (command === 'align') return chain.setTextAlign(value).run()
+      if (command === 'link')
+        return value
+          ? !!safeLink(value) &&
+              chain
+                .extendMarkRange('link')
+                .setLink({ href: safeLink(value) })
+                .run()
+          : chain.unsetLink().run()
+      if (command === 'clear') return chain.unsetAllMarks().clearNodes().run()
+      if (command === 'table') return chain.insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run()
+      if (command === 'image') return chain.setImage(value).run()
+      if (
+        [
+          'addRowAfter',
+          'addColumnAfter',
+          'deleteRow',
+          'deleteColumn',
+          'deleteTable',
+          'mergeCells',
+          'splitCell',
+        ].includes(command)
+      )
+        return chain[command]().run()
+      if (command === 'format') {
+        chain.unsetAllMarks()
+        for (const mark of value || []) if (mark.type !== 'link') chain.setMark(mark.type, mark.attrs)
+        return chain.run()
+      }
+      return false
+    },
+    format() {
+      return editor.state.storedMarks || editor.state.selection.$from.marks()
+    },
+    paragraph() {
+      const { $from } = editor.state.selection
+      let d = $from.depth
+      while (d > 1) d--
+      return d ? { index: $from.index(0), id: $from.node(d).attrs.id } : null
+    },
+    status() {
+      const attrs = editor.getAttributes('textStyle')
+      return {
+        bold: editor.isActive('bold'),
+        italic: editor.isActive('italic'),
+        underline: editor.isActive('underline'),
+        font: attrs.fontFamily || 'Microsoft YaHei',
+        size: parseFloat(attrs.fontSize) || 12,
+        heading: editor.getAttributes('heading').level || 'normal',
+        table: editor.isActive('table'),
+        tag: editor.getAttributes(editor.isActive('heading') ? 'heading' : 'paragraph').noteTag || '',
+      }
+    },
+    destroy: () => release(),
+  }
+  const release = owner.effect(() => () => {
+    if (!editor.isDestroyed) editor.destroy()
+  })
+  return api
+}

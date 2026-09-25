@@ -1,176 +1,758 @@
 import { createHistory } from './history.js'
+import { createViewport } from './viewport.js'
 import { mountControls } from './view.bundle.js'
 
-export default function(ctx, sdk) {
-  const model = ctx.notebook, states = new Map(), nodes = new Map()
-  let noteId = null, selected = null, gesture = null, frame = 0, composing = false, pendingScroll = false
+export default function (ctx, sdk) {
+  const model = ctx.notebook,
+    rich = ctx.richText,
+    states = new Map(),
+    nodes = new Map(),
+    selection = new Set()
+  let noteId = null,
+    active = null,
+    tool = 'type',
+    gesture = null,
+    frame = 0,
+    applying = false,
+    disposed = false,
+    formatBrush = null,
+    lastInput = 0,
+    refresh = () => {}
   const root = sdk.el('section', { class: 'free-page', 'aria-label': '自由页面编辑器' })
   const controls = sdk.el('div', { class: 'free-page-controls' })
-  const add = sdk.el('button', {}, '＋ 文字块'), undo = sdk.el('button', { 'aria-label': '撤销文字块操作' }, '↶ 撤销'), redo = sdk.el('button', { 'aria-label': '重做文字块操作' }, '↷ 重做'), remove = sdk.el('button', {}, '删除文字块')
-  controls.append(add, undo, redo, remove, sdk.el('span', {}, '双击空白处书写 · 拖动手柄移动'))
-  const refreshControls = mountControls(ctx, controls, [add, undo, redo, remove])
   const viewport = sdk.el('div', { class: 'free-page-viewport', tabIndex: 0, 'aria-label': '自由页面纸张' })
-  const paper = sdk.el('div', { class: 'free-page-paper' })
-  viewport.append(paper); root.append(controls, viewport)
+  const stage = sdk.el('div', { class: 'free-page-stage' }),
+    paper = sdk.el('div', { class: 'free-page-paper' })
+  const marquee = sdk.el('div', { class: 'free-page-marquee', hidden: true }),
+    guide = sdk.el('div', { class: 'free-page-space-guide', hidden: true })
+  const footer = sdk.el('div', { class: 'free-page-status' })
+  paper.append(marquee, guide)
+  stage.append(paper)
+  viewport.append(stage)
+  root.append(controls, viewport, footer)
   const style = sdk.el('link', { rel: 'stylesheet', href: '/builtin/free-page-editor/style.css' })
-  sdk.effect(() => { document.head.append(style); return () => style.remove() })
+  sdk.effect(() => {
+    document.head.append(style)
+    return () => style.remove()
+  })
   ctx.editorHost.register(ctx, 'freeform', root)
-  const blocks = () => model.current()?.blocks || []
+  const current = () => model.current(),
+    blocks = () => current()?.blocks || [],
+    page = () => current()?.page || { color: '#ffffff', rule: 'none' }
+  const editable = () => !!noteId && !model.busy && model.editable
+  const data = () => ({ blocks: structuredClone(blocks()), page: structuredClone(page()), version: 2 })
+  const outline = (block) => block.outline || rich.plain(block.text || '', block.id)
   const state = () => {
     if (!states.has(noteId)) {
-      let scroll = [0, 0]
-      try { const saved = JSON.parse(sessionStorage.getItem('cordis-page-scroll-' + noteId)); if (Array.isArray(saved) && saved.length === 2 && saved.every(Number.isFinite)) scroll = saved.map(n => Math.max(0, Math.min(10000000, n))) } catch {}
-      states.set(noteId, { history: createHistory(), scroll })
+      let view = { left: 0, top: 0, zoom: 1 }
+      try {
+        const v = JSON.parse(
+          sessionStorage.getItem('cordis-page-view-' + noteId) ||
+            sessionStorage.getItem('cordis-page-scroll-' + noteId),
+        )
+        if (Array.isArray(v)) view = { left: v[0], top: v[1], zoom: 1 }
+        else if (v) view = v
+      } catch {}
+      states.set(noteId, { history: createHistory(), view })
     }
     return states.get(noteId)
   }
-  const saveScroll = () => {
-    if (!noteId || pendingScroll || !viewport.isConnected || !viewport.clientWidth || !viewport.clientHeight) return
-    state().scroll = [viewport.scrollLeft, viewport.scrollTop]
-    try { sessionStorage.setItem('cordis-page-scroll-' + noteId, JSON.stringify(state().scroll)) } catch {}
-  }
-  const stopGesture = () => { if (frame) cancelAnimationFrame(frame); frame = 0; gesture = null; if (noteId) state().history.breakGroup() }
-  const updateButtons = () => {
-    const history = noteId && state().history, disabled = !noteId || model.busy || !model.editable
-    add.disabled = disabled; undo.disabled = disabled || !history?.canUndo; redo.disabled = disabled || !history?.canRedo
-    remove.disabled = disabled || !blocks().some(block => block.id === selected)
-    refreshControls()
-  }
-  const select = id => {
-    selected = id
-    for (const [key, item] of nodes) item.node.classList.toggle('selected', key === id)
-    updateButtons()
-  }
-  const commit = (next, group = null) => {
-    if (!noteId || model.busy || !model.editable) return false
-    const previous = blocks()
-    if (JSON.stringify(previous) === JSON.stringify(next)) return true
-    try {
-      model.edit({ blocks: next })
-      state().history.record(previous, group); updateButtons(); return true
-    } catch (error) { sdk.toast(error.message); render(); return false }
-  }
-  const resizePaper = () => {
-    let width = viewport.clientWidth, height = viewport.clientHeight
-    for (const block of blocks()) {
-      width = Math.max(width, block.x + block.width + 160)
-      height = Math.max(height, block.y + (nodes.get(block.id)?.node.offsetHeight || 100) + 220)
-    }
-    // Keep the current scroll location stable when moving or deleting an edge block.
-    paper.style.width = Math.max(width, viewport.scrollLeft + viewport.clientWidth) + 'px'
-    paper.style.height = Math.max(height, viewport.scrollTop + viewport.clientHeight) + 'px'
-  }
-  const layout = () => {
-    // React may reveal this editor after the notebook notification. Measure and
-    // restore only once it has a viewport, including when a mobile pane opens.
-    if (!noteId || !viewport.isConnected || !viewport.clientWidth || !viewport.clientHeight) return
-    for (const item of nodes.values()) {
-      item.text.style.height = 'auto'
-      item.text.style.height = Math.max(44, item.text.scrollHeight) + 'px'
-    }
-    resizePaper()
-    if (pendingScroll) {
-      const [left, top] = state().scroll
-      paper.style.width = Math.max(paper.offsetWidth, left + viewport.clientWidth) + 'px'
-      paper.style.height = Math.max(paper.offsetHeight, top + viewport.clientHeight) + 'px'
-      viewport.scrollTo(left, top)
-      // A freshly mounted stylesheet may not have made the viewport scrollable
-      // yet. Keep the saved target until layout actually accepts it.
-      pendingScroll = Math.abs(viewport.scrollLeft - left) > 1 || Math.abs(viewport.scrollTop - top) > 1
-    }
-  }
-  const addBlock = (x, y) => {
-    const block = { id: crypto.randomUUID(), x: Math.max(0, x), y: Math.max(0, y), width: 320, text: '' }
-    if (commit([...blocks(), block])) { select(block.id); nodes.get(block.id)?.text.focus() }
-  }
-  const travel = direction => {
-    if (!noteId || model.busy || !model.editable || composing) return
-    stopGesture()
-    const next = state().history[direction](blocks())
-    if (next) { model.edit({ blocks: next }); updateButtons() }
-  }
-  const move = () => {
-    if (!gesture || model.busy || !model.editable || model.selected !== noteId) { stopGesture(); return }
-    const g = gesture, rect = viewport.getBoundingClientRect()
-    const speed = (point, low, high) => point < low + 35 ? -14 : point > high - 35 ? 14 : 0
-    const dx = speed(g.clientX, rect.left, rect.right), dy = speed(g.clientY, rect.top, rect.bottom)
-    if (dx > 0) paper.style.width = Math.max(paper.offsetWidth, viewport.scrollLeft + viewport.clientWidth + 100) + 'px'
-    if (dy > 0) paper.style.height = Math.max(paper.offsetHeight, viewport.scrollTop + viewport.clientHeight + 100) + 'px'
-    viewport.scrollBy(dx, dy)
-    const x = g.clientX - rect.left + viewport.scrollLeft, y = g.clientY - rect.top + viewport.scrollTop
-    const patch = g.kind === 'move' ? { x: Math.max(0, Math.min(10000000, g.block.x + x - g.x)), y: Math.max(0, Math.min(10000000, g.block.y + y - g.y)) }
-      : { width: Math.max(120, Math.min(4000, g.block.width + x - g.x)) }
-    commit(blocks().map(block => block.id === g.block.id ? { ...block, ...patch } : block), 'gesture:' + g.block.id)
-    frame = requestAnimationFrame(move)
-  }
-  const startGesture = (event, blockId, kind) => {
-    if (event.button !== 0 || model.busy || !model.editable) return
-    event.preventDefault(); stopGesture(); select(blockId)
-    const block = blocks().find(block => block.id === blockId), rect = viewport.getBoundingClientRect()
-    gesture = { kind, block, x: event.clientX - rect.left + viewport.scrollLeft, y: event.clientY - rect.top + viewport.scrollTop, clientX: event.clientX, clientY: event.clientY }
-    event.currentTarget.setPointerCapture(event.pointerId)
-    frame = requestAnimationFrame(move)
-  }
-  function render() {
-    const note = model.current(), nextId = note && ctx.noteFormats.typeOf(note) === 'freeform' ? note.id : null
-    const changed = nextId !== noteId
-    if (changed) { saveScroll(); stopGesture(); noteId = nextId; pendingScroll = !!noteId; selected = null; nodes.clear(); paper.replaceChildren(); composing = false }
+  const saveView = (value) => {
     if (!noteId) return
-    if (model.busy) stopGesture()
-    const current = note.blocks || [], ids = new Set(current.map(block => block.id))
-    for (const [id, item] of nodes) if (!ids.has(id)) { item.node.remove(); nodes.delete(id) }
-    for (const block of current) {
+    state().view = value
+    try {
+      sessionStorage.setItem('cordis-page-view-' + noteId, JSON.stringify(value))
+    } catch {}
+  }
+  const camera = createViewport(
+    viewport,
+    stage,
+    paper,
+    () => {
+      let width = 0,
+        height = 0
+      for (const block of blocks()) {
+        const item = nodes.get(block.id)
+        width = Math.max(width, block.x + block.width + 220)
+        height = Math.max(height, block.y + (item?.node.offsetHeight || 100) + 260)
+      }
+      return { width, height }
+    },
+    saveView,
+  )
+  const update = () => {
+    for (const [id, item] of nodes) item.node.classList.toggle('selected', selection.has(id))
+    root.dataset.tool = tool
+    footer.textContent = `${blocks().length} 个容器${selection.size ? ' · 已选 ' + selection.size + ' 个' : ''} · ${Math.round(camera.zoom * 100)}% · Shift 拖动合并 · 中键平移`
+    refresh()
+  }
+  const select = (id, extend = false) => {
+    if (!extend) selection.clear()
+    if (id) {
+      if (extend && selection.has(id)) selection.delete(id)
+      else selection.add(id)
+    }
+    active = id
+    update()
+  }
+  const commit = (next, key = null) => {
+    if (!editable()) return false
+    const before = data()
+    if (JSON.stringify(before) === JSON.stringify(next)) return true
+    try {
+      applying = true
+      model.edit(next)
+      state().history.record(before, key)
+      return true
+    } catch (e) {
+      sdk.toast(e.message)
+      return false
+    } finally {
+      applying = false
+      render()
+    }
+  }
+  const changeBlocks = (next, key) => commit({ ...data(), blocks: next }, key)
+  const travel = (direction) => {
+    if (!editable() || [...nodes.values()].some((n) => n.editor.composing)) return
+    cancelGesture()
+    const next = state().history[direction](data())
+    if (!next) return
+    try {
+      model.edit(next)
+    } catch (e) {
+      state().history[direction === 'undo' ? 'redo' : 'undo'](data())
+      sdk.toast(e.message)
+    }
+    update()
+  }
+  const renew = (doc) => {
+    const value = structuredClone(doc)
+    const visit = (items) => {
+      for (const n of items) {
+        n.id = crypto.randomUUID()
+        if (n.children) visit(n.children)
+      }
+    }
+    visit(value.elements)
+    return value
+  }
+  const add = (x = viewport.scrollLeft / camera.zoom + 40, y = viewport.scrollTop / camera.zoom + 40, doc) => {
+    const id = crypto.randomUUID(),
+      block = {
+        id,
+        x: Math.min(10000000, x),
+        y: Math.min(10000000, y),
+        width: 420,
+        text: '',
+        outline: doc || rich.plain('', id),
+      }
+    if (changeBlocks([...blocks(), block])) {
+      select(id)
+      nodes.get(id)?.editor.focus('end')
+    }
+    return id
+  }
+  const removeSelected = () => {
+    if (selection.size && changeBlocks(blocks().filter((b) => !selection.has(b.id)))) {
+      selection.clear()
+      active = null
+      update()
+    }
+  }
+  const run = (name, value) => {
+    if (!editable()) return
+    const item = nodes.get(active)
+    if (!item) {
+      sdk.toast('先点击一个容器中的文字。')
+      return
+    }
+    try {
+      item.editor.exec(name, value)
+      state().history.breakGroup()
+      update()
+    } catch (e) {
+      sdk.toast(e.message)
+    }
+  }
+  const upload = async (files, id = active) => {
+    const expected = noteId
+    if (!editable()) return
+    if (!id) id = add()
+    const item = nodes.get(id)
+    if (!item) return
+    const pos = item.editor.editor?.state.selection.from
+    try {
+      for (const file of files) {
+        const src = await ctx.noteAssets.upload(file)
+        if (disposed || noteId !== expected || !editable() || nodes.get(id) !== item) {
+          sdk.toast('图片已保存，页面已切换，请回到原页重新插入。')
+          return
+        }
+        if (pos != null)
+          item.editor.editor.commands.setTextSelection(Math.min(pos, item.editor.editor.state.doc.content.size))
+        item.editor.exec('image', { src, alt: file.name || '粘贴的图片', width: 320 })
+      }
+    } catch (e) {
+      sdk.toast(e.message)
+    }
+  }
+  const file = sdk.el('input', {
+    type: 'file',
+    accept: 'image/png,image/jpeg,image/gif,image/webp',
+    multiple: true,
+    hidden: true,
+  })
+  root.append(file)
+  sdk.listen(file, 'change', () => {
+    void upload([...file.files])
+    file.value = ''
+  })
+  function cancelGesture() {
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+    gesture = null
+    marquee.hidden = true
+    guide.hidden = true
+    for (const item of nodes.values()) item.node.classList.remove('merge-target')
+    render()
+  }
+  function begin(event, kind, id) {
+    if (gesture || (event.button !== 0 && event.button !== 1) || !noteId) return
+    if (event.button === 1 || tool === 'pan') {
+      kind = 'pan'
+      id = null
+    }
+    if (['move', 'resize', 'space'].includes(kind) && !editable()) return
+    event.preventDefault()
+    if (id && (!selection.has(id) || event.ctrlKey || event.metaKey)) select(id, event.ctrlKey || event.metaKey)
+    const point = camera.point(event)
+    gesture = {
+      kind,
+      id,
+      start: point,
+      point,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      left: viewport.scrollLeft,
+      top: viewport.scrollTop,
+      before: data(),
+      shift: event.shiftKey,
+      moved: false,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    if (kind === 'marquee' && !event.shiftKey) selection.clear()
+    if (kind === 'space') {
+      guide.hidden = false
+      guide.style.top = point.y + 'px'
+    }
+    frame = requestAnimationFrame(tick)
+  }
+  function tick() {
+    if (!gesture) return
+    const g = gesture,
+      r = viewport.getBoundingClientRect()
+    if (g.kind === 'pan') {
+      const left = Math.max(0, g.left + g.startClientX - g.clientX),
+        top = Math.max(0, g.top + g.startClientY - g.clientY)
+      stage.style.width = Math.max(stage.offsetWidth, left + viewport.clientWidth + 100) + 'px'
+      stage.style.height = Math.max(stage.offsetHeight, top + viewport.clientHeight + 100) + 'px'
+      viewport.scrollTo(left, top)
+    } else {
+      const speed = (v, lo, hi) => (v < lo + 28 ? -12 : v > hi - 28 ? 12 : 0),
+        dx = speed(g.clientX, r.left, r.right),
+        dy = speed(g.clientY, r.top, r.bottom)
+      if (dx > 0) stage.style.width = stage.offsetWidth + 50 + 'px'
+      if (dy > 0) stage.style.height = stage.offsetHeight + 50 + 'px'
+      if (dx || dy) viewport.scrollBy(dx, dy)
+      g.point = camera.point(g)
+      const dxw = g.point.x - g.start.x,
+        dyw = g.point.y - g.start.y
+      if (Math.abs(dxw) + Math.abs(dyw) > 3) g.moved = true
+      if (g.kind === 'move')
+        for (const b of g.before.blocks)
+          if (selection.has(b.id)) {
+            const n = nodes.get(b.id)?.node
+            if (n) {
+              n.style.left = Math.max(0, b.x + dxw) + 'px'
+              n.style.top = Math.max(0, b.y + dyw) + 'px'
+            }
+          }
+      if (g.kind === 'resize') {
+        const b = g.before.blocks.find((b) => b.id === g.id)
+        nodes.get(g.id).node.style.width = Math.max(160, Math.min(4000, b.width + dxw)) + 'px'
+      }
+      if (g.kind === 'marquee') {
+        marquee.hidden = false
+        const box = {
+          x: Math.min(g.start.x, g.point.x),
+          y: Math.min(g.start.y, g.point.y),
+          width: Math.abs(dxw),
+          height: Math.abs(dyw),
+        }
+        Object.assign(marquee.style, {
+          left: box.x + 'px',
+          top: box.y + 'px',
+          width: box.width + 'px',
+          height: box.height + 'px',
+        })
+        selection.clear()
+        for (const b of blocks())
+          if (
+            b.x < box.x + box.width &&
+            b.x + b.width > box.x &&
+            b.y < box.y + box.height &&
+            b.y + (nodes.get(b.id)?.node.offsetHeight || 60) > box.y
+          )
+            selection.add(b.id)
+        update()
+      }
+      if (g.kind === 'space') guide.style.height = Math.max(2, dyw) + 'px'
+      for (const [id, item] of nodes)
+        item.node.classList.toggle(
+          'merge-target',
+          g.kind === 'move' && g.shift && !selection.has(id) && hit(g.point, id),
+        )
+    }
+    frame = requestAnimationFrame(tick)
+  }
+  const hit = (p, id) => {
+    const b = blocks().find((b) => b.id === id)
+    return (
+      b && p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + (nodes.get(id)?.node.offsetHeight || 60)
+    )
+  }
+  function finish(event) {
+    if (!gesture) return
+    cancelAnimationFrame(frame)
+    if (event) {
+      gesture.clientX = event.clientX
+      gesture.clientY = event.clientY
+      gesture.shift = event.shiftKey
+    }
+    tick()
+    const g = gesture
+    cancelAnimationFrame(frame)
+    frame = 0
+    gesture = null
+    marquee.hidden = true
+    guide.hidden = true
+    const dx = g.point.x - g.start.x,
+      dy = g.point.y - g.start.y
+    if (g.moved && g.kind === 'move') {
+      const target = g.shift && blocks().find((b) => !selection.has(b.id) && hit(g.point, b.id))
+      if (target) {
+        const merged = {
+          version: 1,
+          elements: [
+            ...outline(target).elements,
+            ...g.before.blocks.filter((b) => selection.has(b.id)).flatMap((b) => outline(b).elements),
+          ],
+        }
+        changeBlocks(
+          blocks()
+            .filter((b) => !selection.has(b.id))
+            .map((b) => (b.id === target.id ? { ...b, outline: merged } : b)),
+        )
+        select(target.id)
+      } else
+        changeBlocks(
+          g.before.blocks.map((b) =>
+            selection.has(b.id)
+              ? { ...b, x: Math.max(0, Math.min(10000000, b.x + dx)), y: Math.max(0, Math.min(10000000, b.y + dy)) }
+              : b,
+          ),
+        )
+    } else if (g.kind === 'resize' && g.moved)
+      changeBlocks(
+        g.before.blocks.map((b) => (b.id === g.id ? { ...b, width: Math.max(160, Math.min(4000, b.width + dx)) } : b)),
+      )
+    else if (g.kind === 'space' && dy > 0)
+      changeBlocks(g.before.blocks.map((b) => (b.y >= g.start.y ? { ...b, y: Math.min(10000000, b.y + dy) } : b)))
+    for (const item of nodes.values()) item.node.classList.remove('merge-target')
+    render()
+    camera.scrolled()
+  }
+  const observer = new ResizeObserver(() => {
+    if (!gesture) camera.layout()
+  })
+  observer.observe(viewport)
+  function render() {
+    if (applying || disposed) return
+    const note = current(),
+      next = note && ctx.noteFormats.typeOf(note) === 'freeform' ? note.id : null,
+      changed = next !== noteId
+    if (changed) {
+      if (noteId) saveView(camera.snapshot())
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+      gesture = null
+      for (const item of nodes.values()) {
+        observer.unobserve(item.node)
+        item.editor.destroy()
+        item.node.remove()
+      }
+      nodes.clear()
+      selection.clear()
+      active = null
+      noteId = next
+    }
+    if (!noteId) {
+      update()
+      return
+    }
+    const ids = new Set(blocks().map((b) => b.id))
+    for (const [id, item] of nodes)
+      if (!ids.has(id)) {
+        observer.unobserve(item.node)
+        item.editor.destroy()
+        item.node.remove()
+        nodes.delete(id)
+        selection.delete(id)
+        if (active === id) active = null
+      }
+    for (const block of blocks()) {
       let item = nodes.get(block.id)
       if (!item) {
-        const node = sdk.el('div', { class: 'free-block' }), handle = sdk.el('button', { class: 'free-block-handle', title: '拖动移动；方向键微调', 'aria-label': '移动文字块' }, '⠿')
-        const text = sdk.el('textarea', { class: 'free-block-text', spellcheck: false, placeholder: '输入文字…', 'aria-label': '文字块正文', maxLength: 200000 })
-        const grip = sdk.el('button', { class: 'free-block-resize', title: '拖动调整宽度；左右键微调', 'aria-label': '调整文字块宽度' })
-        node.append(handle, text, grip); paper.append(node); item = { node, text, handle, grip }; nodes.set(block.id, item)
-        // Element-owned handlers disappear with the node, without growing context listeners.
-        text.onfocus = () => { select(block.id); state().history.breakGroup() }
-        text.onblur = () => state().history.breakGroup()
-        text.oncompositionstart = () => { composing = true }
-        text.oncompositionend = () => { composing = false }
-        text.oninput = () => commit(blocks().map(value => value.id === block.id ? { ...value, text: text.value } : value), 'text:' + block.id)
-        handle.onpointerdown = event => startGesture(event, block.id, 'move')
-        grip.onpointerdown = event => startGesture(event, block.id, 'resize')
-        for (const control of [handle, grip]) {
-          control.onfocus = () => select(block.id)
-          control.onkeydown = event => {
-            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
-            event.preventDefault()
-            const delta = event.shiftKey ? 10 : 1, current = blocks().find(value => value.id === block.id)
-            const patch = control === grip ? { width: Math.max(120, Math.min(4000, current.width + (event.key === 'ArrowLeft' ? -delta : event.key === 'ArrowRight' ? delta : 0))) }
-              : { x: Math.max(0, Math.min(10000000, current.x + (event.key === 'ArrowLeft' ? -delta : event.key === 'ArrowRight' ? delta : 0))), y: Math.max(0, Math.min(10000000, current.y + (event.key === 'ArrowUp' ? -delta : event.key === 'ArrowDown' ? delta : 0))) }
-            commit(blocks().map(value => value.id === block.id ? { ...value, ...patch } : value))
+        const node = sdk.el('div', { class: 'free-block', 'data-block-id': block.id }),
+          handle = sdk.el(
+            'button',
+            {
+              class: 'free-block-handle',
+              'aria-label': '移动容器',
+              title: '拖动移动 · Shift 拖到其他容器合并',
+              tabIndex: 0,
+            },
+            '⠿',
+          )
+        const grip = sdk.el(
+            'button',
+            { class: 'free-block-resize', 'aria-label': '调整容器宽度', title: '拖动调整宽度' },
+            '↔',
+          ),
+          body = sdk.el('div', { class: 'free-block-body' })
+        node.append(handle, grip, body)
+        paper.append(node)
+        item = { node, body, handle, grip, doc: null }
+        nodes.set(block.id, item)
+        item.editor = rich.mount(ctx, body, {
+          document: outline(block),
+          editable: editable(),
+          change: (doc, reason) => {
+            if (!editable()) return
+            const now = Date.now()
+            if (now - lastInput > 800 || reason !== 'text') state().history.breakGroup()
+            lastInput = now
+            item.doc = JSON.stringify(doc)
+            if (
+              !changeBlocks(
+                blocks().map((b) => (b.id === block.id ? { ...b, outline: doc } : b)),
+                'text:' + block.id,
+              )
+            ) {
+              item.doc = null
+              render()
+            }
+          },
+          focus: () => {
+            select(block.id)
+            state().history.breakGroup()
+          },
+          blur: () => {
+            if (noteId) state().history.breakGroup()
+          },
+          boundary: () => state().history.breakGroup(),
+          selection: update,
+          undo: () => travel('undo'),
+          redo: () => travel('redo'),
+          selectContainer: () => {
+            select(block.id)
+            viewport.focus()
+          },
+          link: () => {
+            select(block.id)
+            controller.link()
+          },
+          images: (files) => upload(files, block.id),
+          error: (e) => sdk.toast(e.message),
+        })
+        item.doc = JSON.stringify(outline(block))
+        observer.observe(node)
+        handle.onpointerdown = (e) => begin(e, 'move', block.id)
+        grip.onpointerdown = (e) => begin(e, 'resize', block.id)
+        for (const control of [handle, grip])
+          control.onkeydown = (e) => {
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || !editable()) return
+            e.preventDefault()
+            select(block.id)
+            const amount = e.shiftKey ? 10 : 1
+            changeBlocks(
+              blocks().map((b) =>
+                b.id === block.id
+                  ? {
+                      ...b,
+                      ...(control === grip
+                        ? { width: Math.max(160, Math.min(4000, b.width + (e.key === 'ArrowLeft' ? -amount : amount))) }
+                        : {
+                            x: Math.max(
+                              0,
+                              Math.min(
+                                10000000,
+                                b.x + (e.key === 'ArrowLeft' ? -amount : e.key === 'ArrowRight' ? amount : 0),
+                              ),
+                            ),
+                            y: Math.max(
+                              0,
+                              Math.min(
+                                10000000,
+                                b.y + (e.key === 'ArrowUp' ? -amount : e.key === 'ArrowDown' ? amount : 0),
+                              ),
+                            ),
+                          }),
+                    }
+                  : b,
+              ),
+            )
           }
-        }
       }
-      item.node.style.left = block.x + 'px'; item.node.style.top = block.y + 'px'; item.node.style.width = block.width + 'px'
-      if (item.text.value !== block.text) item.text.value = block.text
-      item.text.disabled = item.handle.disabled = item.grip.disabled = model.busy || !model.editable
-      item.node.classList.toggle('selected', block.id === selected)
+      const doc = JSON.stringify(outline(block))
+      if (doc !== item.doc && !item.editor.composing) {
+        item.doc = doc
+        item.editor.setDocument(outline(block))
+      }
+      item.editor.setEditable(editable())
+      item.handle.disabled = item.grip.disabled = !editable()
+      if (!gesture) {
+        item.node.style.left = block.x + 'px'
+        item.node.style.top = block.y + 'px'
+        item.node.style.width = block.width + 'px'
+      }
     }
-    layout()
-    updateButtons()
+    paper.style.backgroundColor = page().color
+    paper.dataset.rule = page().rule
+    if (changed) camera.restore(state().view)
+    else if (!gesture) camera.layout()
+    update()
   }
-  sdk.listen(add, 'click', () => addBlock(viewport.scrollLeft + 32, viewport.scrollTop + 40))
-  sdk.listen(undo, 'click', () => travel('undo')); sdk.listen(redo, 'click', () => travel('redo'))
-  sdk.listen(remove, 'click', () => { if (selected) { commit(blocks().filter(block => block.id !== selected)); select(null) } })
-  sdk.listen(paper, 'dblclick', event => { if (event.target === paper && !model.busy) { const rect = paper.getBoundingClientRect(); addBlock(event.clientX - rect.left, event.clientY - rect.top) } })
-  sdk.listen(paper, 'pointerdown', event => { if (event.target === paper) { select(null); state().history.breakGroup() } })
-  sdk.listen(root, 'pointermove', event => { if (gesture) { gesture.clientX = event.clientX; gesture.clientY = event.clientY } })
-  sdk.listen(root, 'pointerup', stopGesture); sdk.listen(root, 'pointercancel', stopGesture); sdk.listen(root, 'lostpointercapture', stopGesture)
-  sdk.listen(root, 'keydown', event => {
-    if (event.isComposing || composing) return
-    if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
-      event.preventDefault(); travel(event.shiftKey || event.key.toLowerCase() === 'y' ? 'redo' : 'undo')
+  const controller = {
+    status: () => ({
+      editable: editable(),
+      active: !!nodes.get(active)?.editor,
+      tool,
+      zoom: Math.round(camera.zoom * 100),
+      page: page(),
+      selected: selection.size,
+      undo: !!noteId && state().history.canUndo,
+      redo: !!noteId && state().history.canRedo,
+      ...(nodes.get(active)?.editor?.status() || {}),
+    }),
+    add: () => add(),
+    remove: removeSelected,
+    undo: () => travel('undo'),
+    redo: () => travel('redo'),
+    run,
+    setTool: (value) => {
+      tool = value
+      update()
+      viewport.focus()
+    },
+    zoom: (value) => {
+      camera.setZoom(value / 100)
+      update()
+    },
+    setPage: (patch) => commit({ ...data(), page: { ...page(), ...patch } }),
+    image: () => file.click(),
+    link: () => {},
+    copyFormat: () => {
+      formatBrush = nodes
+        .get(active)
+        ?.editor.format()
+        .map((m) => ({ type: m.type.name, attrs: { ...m.attrs } }))
+      sdk.toast('已复制文字格式，选择目标文字后点“应用格式”。')
+    },
+    pasteFormat: () => {
+      if (formatBrush) run('format', formatBrush)
+    },
+    split: () => {
+      const b = blocks().find((b) => b.id === active),
+        part = nodes.get(active)?.editor.paragraph()
+      if (!b || !part) return
+      const doc = outline(b)
+      if (doc.elements.length < 2) {
+        sdk.toast('容器至少需要两个段落才能拆分。')
+        return
+      }
+      const id = crypto.randomUUID(),
+        elements = doc.elements.filter((e, i) => i !== part.index)
+      if (
+        changeBlocks([
+          ...blocks().map((v) => (v.id === b.id ? { ...v, outline: { version: 1, elements } } : v)),
+          {
+            id,
+            x: b.x + b.width + 40,
+            y: b.y,
+            width: b.width,
+            text: '',
+            outline: { version: 1, elements: [doc.elements[part.index]] },
+          },
+        ])
+      )
+        select(id)
+    },
+  }
+  refresh = mountControls(ctx, controls, controller, sdk)
+  sdk.listen(paper, 'pointerdown', (event) => {
+    if (event.button === 1 || tool === 'pan') return begin(event, 'pan')
+    if (event.target !== paper && event.target !== stage) return
+    if (tool === 'select') begin(event, 'marquee')
+    else if (tool === 'space') begin(event, 'space')
+    else if (event.button === 0 && editable()) {
+      const p = camera.point(event)
+      add(p.x, p.y)
     }
-    if (event.key === 'Delete' && event.target.tagName !== 'TEXTAREA' && selected) { event.preventDefault(); remove.click() }
   })
-  sdk.listen(viewport, 'scroll', saveScroll)
-  const observer = new ResizeObserver(layout)
-  observer.observe(viewport)
-  ctx.effect(() => () => { saveScroll(); stopGesture(); observer.disconnect(); states.clear(); nodes.clear() })
+  sdk.listen(root, 'pointermove', (event) => {
+    if (gesture) {
+      gesture.clientX = event.clientX
+      gesture.clientY = event.clientY
+      gesture.shift = event.shiftKey
+    }
+  })
+  sdk.listen(root, 'pointerup', finish)
+  sdk.listen(root, 'pointercancel', cancelGesture)
+  sdk.listen(root, 'lostpointercapture', () => {
+    if (gesture) cancelGesture()
+  })
+  sdk.listen(viewport, 'scroll', () => camera.scrolled())
+  const wheel = (event) => {
+    if (event.ctrlKey) {
+      event.preventDefault()
+      camera.setZoom(camera.zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1), { x: event.clientX, y: event.clientY })
+      update()
+    }
+  }
+  ctx.effect(() => {
+    viewport.addEventListener('wheel', wheel, { passive: false })
+    return () => viewport.removeEventListener('wheel', wheel)
+  })
+  sdk.listen(root, 'keydown', (event) => {
+    if (event.isComposing) return
+    const editing = event.target.closest('[contenteditable=true],input,select,textarea')
+    if ((event.ctrlKey || event.metaKey) && ['+', '=', '-', '0'].includes(event.key)) {
+      event.preventDefault()
+      camera.setZoom(event.key === '0' ? 1 : camera.zoom * (event.key === '-' ? 1 / 1.1 : 1.1))
+      update()
+      return
+    }
+    if (editing) return
+    if (event.key === 'Escape') {
+      if (gesture) cancelGesture()
+      selection.clear()
+      active = null
+      tool = 'type'
+      update()
+    }
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      removeSelected()
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault()
+      for (const b of blocks()) selection.add(b.id)
+      update()
+    }
+    if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
+      event.preventDefault()
+      travel(event.shiftKey || event.key.toLowerCase() === 'y' ? 'redo' : 'undo')
+    }
+    if (event.code === 'Space' && !event.repeat) {
+      event.preventDefault()
+      root.dataset.previousTool = tool
+      tool = 'pan'
+      update()
+    }
+  })
+  sdk.listen(window, 'keyup', (event) => {
+    if (event.code === 'Space' && root.dataset.previousTool) {
+      tool = root.dataset.previousTool
+      delete root.dataset.previousTool
+      update()
+    }
+  })
+  const copy = (event, cut = false) => {
+    if (event.target.closest('[contenteditable=true],input,textarea') || !selection.size) return
+    const selected = blocks().filter((b) => selection.has(b.id))
+    event.clipboardData.setData('application/x-cordis-outlines', JSON.stringify({ version: 2, blocks: selected }))
+    event.clipboardData.setData('text/plain', selected.map((b) => b.text).join('\n'))
+    event.preventDefault()
+    if (cut) removeSelected()
+  }
+  sdk.listen(root, 'copy', (e) => copy(e))
+  sdk.listen(root, 'cut', (e) => copy(e, true))
+  sdk.listen(root, 'paste', (event) => {
+    if (!editable() || event.target.closest('[contenteditable=true],input,textarea')) return
+    const raw = event.clipboardData.getData('application/x-cordis-outlines')
+    if (raw)
+      try {
+        const pkg = JSON.parse(raw)
+        if (pkg.version !== 2 || !Array.isArray(pkg.blocks) || !pkg.blocks.length) return
+        const x = Math.min(...pkg.blocks.map((b) => b.x)),
+          y = Math.min(...pkg.blocks.map((b) => b.y)),
+          baseX = viewport.scrollLeft / camera.zoom + 40,
+          baseY = viewport.scrollTop / camera.zoom + 40
+        const next = pkg.blocks.map((b) => ({
+          ...b,
+          id: crypto.randomUUID(),
+          x: baseX + b.x - x,
+          y: baseY + b.y - y,
+          outline: renew(outline(b)),
+        }))
+        event.preventDefault()
+        if (changeBlocks([...blocks(), ...next])) {
+          selection.clear()
+          for (const b of next) selection.add(b.id)
+          update()
+        }
+        return
+      } catch (e) {
+        sdk.toast('粘贴失败：' + e.message)
+        return
+      }
+    const files = [...(event.clipboardData.files || [])]
+    if (files.length) {
+      event.preventDefault()
+      void upload(files, null)
+      return
+    }
+    const text = event.clipboardData.getData('text/plain')
+    if (text) {
+      event.preventDefault()
+      add(undefined, undefined, rich.plain(text, crypto.randomUUID()))
+    }
+  })
+  sdk.listen(viewport, 'dragover', (e) => {
+    if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+  })
+  sdk.listen(viewport, 'drop', (e) => {
+    if (e.defaultPrevented || !editable()) return
+    const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith('image/'))
+    if (files.length) {
+      e.preventDefault()
+      const p = camera.point(e),
+        id = add(p.x, p.y)
+      void upload(files, id)
+    }
+  })
+  ctx.effect(() => () => {
+    disposed = true
+    if (noteId) saveView(camera.snapshot())
+    if (frame) cancelAnimationFrame(frame)
+    observer.disconnect()
+    for (const item of nodes.values()) item.editor.destroy()
+    nodes.clear()
+    states.clear()
+  })
   model.observe(ctx, render)
 }

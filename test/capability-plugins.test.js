@@ -51,6 +51,26 @@ test('前端 Markdown 格式等待真实解析服务，提供者替换后重新�
   } finally { await root.fiber.dispose() }
 })
 
+test('富文本能力失去时保护自由页面，恢复后重新绑定并保留内容', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cordis-outline-capability-'))
+  let app
+  try {
+    app = await createApp({ port: 0, file: join(dir, 'notes.json') })
+    await assert.rejects(app.manager.toggle('rich-text', false), /依赖/)
+    await assert.rejects(app.manager.toggle('note-assets', false), /依赖/)
+    const note = await app.ctx.notes.create({ type: 'freeform' })
+    const blocks = [{ id: 'outline', x: 20, y: 30, width: 400, outline: app.ctx.richText.plain('格式数据保留') }]
+    const saved = await app.ctx.notes.update(note.id, { blocks })
+    await app.manager.stop('rich-text')
+    assert.equal(app.ctx.noteFormats.get('freeform'), undefined)
+    assert.deepEqual(app.ctx.notes.list().find(n => n.id === note.id), saved)
+    await assert.rejects(app.ctx.notes.update(note.id, { blocks }), { status: 409 })
+    await app.manager.start('rich-text')
+    await app.manager.records.get('format-freeform').fiber
+    assert.equal((await app.ctx.notes.update(note.id, { blocks })).content, '格式数据保留')
+  } finally { if (app) await app.close(); await rm(dir, { recursive: true, force: true }) }
+})
+
 test('主题样式归属主题消费者，停用主题和引擎均能清理，重启后只保留一份样式', async () => {
   const previous = globalThis.document, styles = new Set()
   globalThis.document = {

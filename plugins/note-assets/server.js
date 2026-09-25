@@ -1,0 +1,46 @@
+import { Service } from 'cordis'
+import { mkdir, writeFile, readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { createHash } from 'node:crypto'
+const types = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
+export const noteAssets = {
+  inject: ['http', 'storage'],
+  apply(ctx) {
+    const dir = join(dirname(ctx.storage.file), 'note-assets')
+    Object.assign(new Service(ctx, 'noteAssets'), { directory: dir })
+    ctx.http.route(ctx, 'POST', /^\/api\/note-assets$/, async ({ req }) => {
+      const { data } = await ctx.http.body(req)
+      if (typeof data !== 'string' || data.length > 1400000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data))
+        throw Object.assign(Error('图片不能超过 1 MB'), { status: 400 })
+      const bytes = Buffer.from(data, 'base64')
+      const type = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+        ? 'png'
+        : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+          ? 'jpg'
+          : /^GIF8[79]a/.test(bytes.subarray(0, 6).toString())
+            ? 'gif'
+            : bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP'
+              ? 'webp'
+              : null
+      if (!type || bytes.length > 1048576)
+        throw Object.assign(Error('仅支持 1 MB 以内的 PNG、JPEG、GIF、WebP 图片'), { status: 400 })
+      const name = createHash('sha256').update(bytes).digest('hex') + '.' + type
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, name), bytes, { flag: 'wx' }).catch((e) => {
+        if (e.code !== 'EEXIST') throw e
+      })
+      return { src: '/api/note-assets/' + name }
+    })
+    ctx.http.route(ctx, 'GET', /^\/api\/note-assets\/([a-f0-9]{64}\.(png|jpg|gif|webp))$/, async ({ res, match }) => {
+      const bytes = await readFile(join(dir, match[1])).catch(() => {
+        throw Object.assign(Error('图片不存在'), { status: 404 })
+      })
+      res.writeHead(200, {
+        'Content-Type': types[match[2]],
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      })
+      res.end(bytes)
+    })
+  },
+}

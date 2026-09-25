@@ -10,6 +10,10 @@ import { Switch } from './components/switch'
 import { Badge } from './components/badge'
 import * as tooltip from './components/tooltip'
 import {
+  Image,
+  Table,
+  Hand,
+  MousePointer2,
   FileText,
   FileCode2,
   LayoutDashboard,
@@ -50,6 +54,10 @@ import {
 } from 'lucide-react'
 
 const icons = {
+  Image,
+  Table,
+  Hand,
+  MousePointer2,
   FileText,
   FileCode2,
   LayoutDashboard,
