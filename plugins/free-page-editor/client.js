@@ -7,7 +7,8 @@ export default function (ctx, sdk) {
     rich = ctx.richText,
     states = new Map(),
     nodes = new Map(),
-    selection = new Set()
+    selection = new Set(),
+    uploading = new Map()
   let noteId = null,
     active = null,
     tool = 'type',
@@ -73,10 +74,14 @@ export default function (ctx, sdk) {
       }
       return { width, height }
     },
-    saveView,
+    (value) => { saveView(value); if (!disposed) update() },
   )
   const update = () => {
-    for (const [id, item] of nodes) item.node.classList.toggle('selected', selection.has(id))
+    for (const [id, item] of nodes) {
+      item.node.classList.toggle('selected', selection.has(id))
+      item.node.dataset.selected = String(selection.has(id))
+      item.handle.setAttribute('aria-pressed', String(selection.has(id)))
+    }
     root.dataset.tool = tool
     footer.textContent = `${blocks().length} 个容器${selection.size ? ' · 已选 ' + selection.size + ' 个' : ''} · ${Math.round(camera.zoom * 100)}% · Shift 拖动合并 · 中键平移`
     refresh()
@@ -89,6 +94,7 @@ export default function (ctx, sdk) {
     }
     active = id
     update()
+    viewport.focus({ preventScroll: true })
   }
   const commit = (next, key = null) => {
     if (!editable()) return false
@@ -108,6 +114,23 @@ export default function (ctx, sdk) {
     }
   }
   const changeBlocks = (next, key) => commit({ ...data(), blocks: next }, key)
+  const removeEmpty = (id) => {
+    const item = nodes.get(id), block = blocks().find(b => b.id === id)
+    if (!editable() || current()?.id !== noteId || !block || item?.editor.composing || uploading.has(item)) return
+    // Images, tables, lists and tags are content even if their plain-text summary is empty.
+    const empty = outline(block).elements.every(n =>
+      ['paragraph', 'heading', 'code'].includes(n.kind) && !n.tag && n.runs.every(r => !r.text.trim()))
+    if (empty) changeBlocks(blocks().filter(b => b.id !== id))
+  }
+  const cleanupAfterBlur = (id) => {
+    const expected = noteId
+    queueMicrotask(() => {
+      if (disposed || expected !== noteId || selection.has(id)) return
+      const focus = document.activeElement
+      if (nodes.get(id)?.node.contains(focus) || controls.contains(focus) || focus?.closest('[role=dialog]')) return
+      removeEmpty(id)
+    })
+  }
   const travel = (direction) => {
     if (!editable() || [...nodes.values()].some((n) => n.editor.composing)) return
     cancelGesture()
@@ -177,6 +200,7 @@ export default function (ctx, sdk) {
     const item = nodes.get(id)
     if (!item) return
     const pos = item.editor.editor?.state.selection.from
+    uploading.set(item, (uploading.get(item) || 0) + 1)
     try {
       for (const file of files) {
         const src = await ctx.noteAssets.upload(file)
@@ -190,6 +214,11 @@ export default function (ctx, sdk) {
       }
     } catch (e) {
       sdk.toast(e.message)
+    } finally {
+      const count = uploading.get(item) - 1
+      if (count) uploading.set(item, count)
+      else uploading.delete(item)
+      if (!disposed && noteId === expected) cleanupAfterBlur(id)
     }
   }
   const file = sdk.el('input', {
@@ -220,7 +249,9 @@ export default function (ctx, sdk) {
     }
     if (['move', 'resize', 'space'].includes(kind) && !editable()) return
     event.preventDefault()
+    camera.finishZoom()
     if (id && (!selection.has(id) || event.ctrlKey || event.metaKey)) select(id, event.ctrlKey || event.metaKey)
+    if (kind !== 'pan') viewport.focus({ preventScroll: true })
     const point = camera.point(event)
     gesture = {
       kind,
@@ -461,11 +492,14 @@ export default function (ctx, sdk) {
             }
           },
           focus: () => {
-            select(block.id)
+            active = block.id
+            selection.clear()
+            update()
             state().history.breakGroup()
           },
           blur: () => {
             if (noteId) state().history.breakGroup()
+            cleanupAfterBlur(block.id)
           },
           boundary: () => state().history.breakGroup(),
           selection: update,
@@ -476,7 +510,7 @@ export default function (ctx, sdk) {
             viewport.focus()
           },
           link: () => {
-            select(block.id)
+            active = block.id
             controller.link()
           },
           images: (files) => upload(files, block.id),
@@ -607,12 +641,34 @@ export default function (ctx, sdk) {
     },
   }
   refresh = mountControls(ctx, controls, controller, sdk)
+  ctx.effect(() => {
+    // Run before a different note/element takes focus so cleanup saves to the old note.
+    const leave = (event) => {
+      if (disposed || !active || gesture || nodes.get(active)?.node.contains(event.target) ||
+          controls.contains(event.target) || event.target.closest?.('[role=dialog]') ||
+          ((event.ctrlKey || event.metaKey) && root.contains(event.target))) return
+      const id = active
+      selection.delete(id)
+      removeEmpty(id)
+      if (!root.contains(event.target)) { selection.clear(); active = null; update() }
+    }
+    document.addEventListener('pointerdown', leave, true)
+    return () => document.removeEventListener('pointerdown', leave, true)
+  })
   sdk.listen(paper, 'pointerdown', (event) => {
+    if (event.defaultPrevented) return
     if (event.button === 1 || tool === 'pan') return begin(event, 'pan')
+    const block = event.target.closest('.free-block')
+    if (block && tool === 'select' && event.button === 0) {
+      event.preventDefault()
+      select(block.dataset.blockId, event.ctrlKey || event.metaKey)
+      return
+    }
     if (event.target !== paper && event.target !== stage) return
     if (tool === 'select') begin(event, 'marquee')
     else if (tool === 'space') begin(event, 'space')
     else if (event.button === 0 && editable()) {
+      camera.finishZoom()
       const p = camera.point(event)
       add(p.x, p.y)
     }
@@ -633,7 +689,9 @@ export default function (ctx, sdk) {
   const wheel = (event) => {
     if (event.ctrlKey) {
       event.preventDefault()
-      camera.setZoom(camera.zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1), { x: event.clientX, y: event.clientY })
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1)
+      camera.setZoom(camera.targetZoom * Math.exp(-Math.max(-240, Math.min(240, delta)) * 0.002),
+        { x: event.clientX, y: event.clientY }, true)
       update()
     }
   }
@@ -642,8 +700,14 @@ export default function (ctx, sdk) {
     return () => viewport.removeEventListener('wheel', wheel)
   })
   sdk.listen(root, 'keydown', (event) => {
-    if (event.isComposing) return
+    if (event.isComposing || event.defaultPrevented) return
     const editing = event.target.closest('[contenteditable=true],input,select,textarea')
+    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey &&
+        (event.code === 'KeyI' || event.key.toLowerCase() === 'i')) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
     if ((event.ctrlKey || event.metaKey) && ['+', '=', '-', '0'].includes(event.key)) {
       event.preventDefault()
       camera.setZoom(event.key === '0' ? 1 : camera.zoom * (event.key === '-' ? 1 / 1.1 : 1.1))
@@ -696,7 +760,7 @@ export default function (ctx, sdk) {
   sdk.listen(root, 'copy', (e) => copy(e))
   sdk.listen(root, 'cut', (e) => copy(e, true))
   sdk.listen(root, 'paste', (event) => {
-    if (!editable() || event.target.closest('[contenteditable=true],input,textarea')) return
+    if (event.defaultPrevented || !editable() || event.target.closest('[contenteditable=true],input,textarea')) return
     const raw = event.clipboardData.getData('application/x-cordis-outlines')
     if (raw)
       try {
@@ -724,16 +788,17 @@ export default function (ctx, sdk) {
         sdk.toast('粘贴失败：' + e.message)
         return
       }
-    const files = [...(event.clipboardData.files || [])]
+    const text = event.clipboardData.getData('text/plain')
+    const files = [...(event.clipboardData.files || [])].filter(f => f.type.startsWith('image/'))
+    if (text.trim()) {
+      event.preventDefault()
+      add(undefined, undefined, rich.plain(text, crypto.randomUUID()))
+      return
+    }
     if (files.length) {
       event.preventDefault()
       void upload(files, null)
       return
-    }
-    const text = event.clipboardData.getData('text/plain')
-    if (text) {
-      event.preventDefault()
-      add(undefined, undefined, rich.plain(text, crypto.randomUUID()))
     }
   })
   sdk.listen(viewport, 'dragover', (e) => {
@@ -752,6 +817,7 @@ export default function (ctx, sdk) {
   ctx.effect(() => () => {
     disposed = true
     if (noteId) saveView(camera.snapshot())
+    camera.destroy()
     if (frame) cancelAnimationFrame(frame)
     observer.disconnect()
     for (const item of nodes.values()) item.editor.destroy()

@@ -11,6 +11,7 @@ function fixture(t) {
   for (const [key, value] of Object.entries({
     window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
+    DOMParser: window.DOMParser,
     MutationObserver: window.MutationObserver, sessionStorage: window.sessionStorage,
     ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
     getComputedStyle: window.getComputedStyle.bind(window),
@@ -82,7 +83,7 @@ function fixture(t) {
   })
   return {
     get note() { return structuredClone(note) },
-    commands, editors,
+    commands, editors, root, window,
     finishUpload: () => finishUpload('/api/note-assets/' + 'a'.repeat(64) + '.png'),
     pointer(type, selector, x, y, shiftKey = false) {
       (selector ? root.querySelector(selector) : root).dispatchEvent(new window.PointerEvent(type, {
@@ -117,4 +118,124 @@ for (const action of ['move', 'resize', 'space', 'merge']) test(`图片上传与
   if (action === 'merge') assert.equal(after.blocks.length, 1)
   f.undo(); assert.deepEqual(f.note, withImage)
   f.redo(); assert.deepEqual(f.note, after)
+})
+
+const key = (f, target, key, extra = {}) => {
+  const event = new f.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
+  target.dispatchEvent(event)
+  return event
+}
+const focus = (f, id) => {
+  const api = f.editors.get(id).editor
+  api.editor.view.focus()
+  return api
+}
+
+test('空容器离开时清理，工具栏操作和上传中的容器不被误删', async t => {
+  const f = fixture(t)
+  f.pointer('pointerdown', '.free-page-paper', 200, 300)
+  const id = f.note.blocks.at(-1).id
+  const api = focus(f, id)
+  const toolbar = f.root.querySelector('.free-page-controls')
+  toolbar.dispatchEvent(new f.window.PointerEvent('pointerdown', { bubbles: true }))
+  await Promise.resolve()
+  assert.equal(f.note.blocks.length, 3)
+  f.pointer('pointerdown', '.free-page-paper', 300, 400)
+  assert.equal(f.note.blocks.length, 3)
+  assert.ok(!f.note.blocks.some(b => b.id === id))
+  assert.ok(api.editor.isDestroyed)
+  const pendingId = f.note.blocks.at(-1).id
+  focus(f, pendingId)
+  const upload = f.editors.get(pendingId).images([{ name: 'picture.png' }])
+  f.pointer('pointerdown', '[data-block-id=one] .free-block-body', 50, 70)
+  focus(f, 'one')
+  await Promise.resolve()
+  assert.ok(f.note.blocks.some(b => b.id === pendingId))
+  f.finishUpload(); await upload
+  assert.equal(f.note.blocks.find(b => b.id === pendingId).outline.elements.at(-1).kind, 'image')
+})
+
+test('文字编辑与容器选中区分，点击操作柄后 Delete 删除整容器且可撤销', async t => {
+  const f = fixture(t)
+  const api = focus(f, 'one')
+  assert.equal(f.root.querySelector('[data-block-id=one]').dataset.selected, 'false')
+  f.pointer('pointerdown', '[data-block-id=one] .free-block-handle', 50, 45)
+  f.pointer('pointerup', null, 50, 45)
+  assert.equal(f.root.querySelector('[data-block-id=one]').dataset.selected, 'true')
+  assert.equal(document.activeElement, f.root.querySelector('.free-page-viewport'))
+  key(f, document.activeElement, 'Delete')
+  assert.deepEqual(f.note.blocks.map(b => b.id), ['two'])
+  assert.ok(api.editor.isDestroyed)
+  f.undo()
+  assert.deepEqual(f.note.blocks.map(b => b.id), ['one', 'two'])
+  const restored = focus(f, 'one')
+  key(f, restored.editor.view.dom, 'Escape')
+  assert.equal(f.root.querySelector('[data-block-id=one]').dataset.selected, 'true')
+})
+
+test('行首退格逐级取消 Tab 缩进，正文中不吞退格，中文句号键可切换项目符号', async t => {
+  const f = fixture(t), api = focus(f, 'one'), dom = api.editor.view.dom
+  api.editor.commands.setTextSelection(1)
+  key(f, dom, 'Tab'); key(f, dom, 'Tab')
+  assert.equal(api.document.elements[0].indent, 2)
+  assert.equal(key(f, dom, 'Backspace').defaultPrevented, true)
+  assert.equal(api.document.elements[0].indent, 1)
+  key(f, dom, 'Backspace')
+  assert.equal(api.document.elements[0].indent, 0)
+  key(f, dom, 'Tab')
+  api.editor.commands.setTextSelection(2)
+  key(f, dom, 'Backspace')
+  assert.equal(api.document.elements[0].indent, 1, '段中退格不修改段落缩进')
+  api.editor.commands.setTextSelection(1)
+  key(f, dom, 'Backspace')
+  assert.equal(key(f, dom, '。', { code: 'Period', ctrlKey: true }).defaultPrevented, true)
+  assert.equal(api.document.elements[0].kind, 'list')
+  assert.equal(api.document.elements[0].ordered, false)
+  key(f, dom, '.', { code: 'Period', ctrlKey: true })
+  assert.equal(api.document.elements[0].kind, 'paragraph')
+  key(f, dom, '.', { code: 'Period', ctrlKey: true, isComposing: true })
+  assert.equal(api.document.elements[0].kind, 'paragraph', '输入法组词期间不处理快捷键')
+})
+
+test('列表行首退格提升层级，Alt Shift 段落操作及反馈组合仅在编辑区拦截', async t => {
+  const f = fixture(t), api = focus(f, 'one'), dom = api.editor.view.dom
+  api.editor.commands.setContent('<ul><li><p>第一项</p><ul><li><p>第二项</p></li></ul></li></ul>')
+  let pos
+  api.editor.state.doc.descendants((n, p) => { if (n.type.name === 'paragraph' && n.textContent === '第二项') pos = p + 1 })
+  api.editor.commands.setTextSelection(pos)
+  key(f, dom, 'Backspace')
+  assert.equal(api.document.elements[0].children.length, 2)
+  assert.equal(api.document.elements[0].children[1].children[0].runs[0].text, '第二项')
+  assert.equal(key(f, dom, 'ArrowUp', { altKey: true, shiftKey: true }).defaultPrevented, true)
+  assert.equal(key(f, dom, 'I', { code: 'KeyI', altKey: true, shiftKey: true }).defaultPrevented, true)
+  assert.equal(key(f, document.body, 'I', { code: 'KeyI', altKey: true, shiftKey: true }).defaultPrevented, false)
+})
+
+test('Office 多格式剪贴板只粘贴一次文字，纯图片仍上传，已处理事件不在画布重放', async t => {
+  const f = fixture(t), api = focus(f, 'one'), dom = api.editor.view.dom
+  api.editor.commands.setTextSelection({ from: 1, to: 4 })
+  const paste = (target, values, files = [], prevented = false) => {
+    const event = new f.window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', { value: { getData: type => values[type] || '', files } })
+    if (prevented) event.preventDefault()
+    target.dispatchEvent(event)
+    return event
+  }
+  const text = '尝试好“像素控制”能力（10分钟）\n几个路线\n单纯文字\n只是数字限制\n参考图\n普通参考图（ai找找）\n网格参考图\n多次简化'
+  const html = '<html><body><!--StartFragment--><ul><li><p>尝试好“像素控制”能力（10分钟）</p><ul><li><p>几个路线</p><ul><li><p>单纯文字</p><ul><li><p>只是数字限制</p></li></ul></li><li><p>参考图</p><ul><li><p>普通参考图（ai找找）</p></li><li><p>网格参考图</p></li><li><p>多次简化</p></li></ul></li></ul></li></ul></li></ul><!--EndFragment--></body></html>'
+  const files = [new f.window.File(['image'], 'clipboard.png', { type: 'image/png' })]
+  assert.equal(paste(dom, { 'text/plain': text, 'text/html': html }, files).defaultPrevented, true)
+  assert.equal(f.note.blocks.length, 2)
+  assert.equal(f.note.blocks[0].text, text)
+  assert.equal(api.document.elements[0].kind, 'list')
+  assert.equal(f.note.blocks[0].x, 40)
+  assert.equal(f.note.blocks[0].outline.elements.some(n => n.kind === 'image'), false)
+  const before = f.note
+  paste(f.root.querySelector('.free-page-viewport'), { 'text/plain': text }, files, true)
+  assert.deepEqual(f.note, before)
+  paste(dom, {}, files)
+  f.finishUpload()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(f.note.blocks.length, 2)
+  assert.equal(f.root.querySelectorAll('.outline-prose img').length, 1)
 })

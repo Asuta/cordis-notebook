@@ -47,6 +47,16 @@ export function mountEditor(owner, element, options) {
       tr.setNodeMarkup(p, undefined, { ...n.attrs, indent: Math.max(0, Math.min(8, (n.attrs.indent || 0) + delta)) }),
     )
   }
+  const backspaceIndent = () => {
+    const { empty, $from } = editor.state.selection
+    if (!empty || $from.parentOffset !== 0 || !$from.parent.isTextblock) return false
+    if ($from.parent.attrs.indent > 0) return paragraphCommand((n, p, tr) =>
+      tr.setNodeMarkup(p, undefined, { ...n.attrs, indent: Math.max(0, (n.attrs.indent || 0) - 1) }))
+    // Only lift at the beginning of an item; later paragraphs should merge normally.
+    if ($from.depth > 1 && $from.node(-1).type.name === 'listItem' && $from.index(-1) === 0)
+      return editor.commands.liftListItem('listItem')
+    return false
+  }
   const tag = (value) =>
     paragraphCommand((n, p, tr) =>
       tr.setNodeMarkup(p, undefined, { ...n.attrs, noteTag: n.attrs.noteTag === value ? null : value, checked: false }),
@@ -137,8 +147,9 @@ export function mountEditor(owner, element, options) {
         'Alt-Shift-ArrowLeft': () => indent(-1),
         'Alt-Shift-ArrowUp': () => moveParagraph(-1),
         'Alt-Shift-ArrowDown': () => moveParagraph(1),
-        Tab: () => (editor.isActive('table') ? editor.commands.goToNextCell() : indent(1)),
-        'Shift-Tab': () => (editor.isActive('table') ? editor.commands.goToPreviousCell() : indent(-1)),
+        Tab: () => { editor.isActive('table') ? editor.commands.goToNextCell() : indent(1); return true },
+        'Shift-Tab': () => { editor.isActive('table') ? editor.commands.goToPreviousCell() : indent(-1); return true },
+        Backspace: backspaceIndent,
         'Mod-a': () => {
           if (++selectAllCount > 1) {
             options.selectContainer?.()
@@ -227,6 +238,10 @@ export function mountEditor(owner, element, options) {
     ],
     editorProps: {
       handleDOMEvents: {
+        keydown(view, event) {
+          // Keep native IME input, but do not pass composing keys to later shortcut plugins.
+          return event.isComposing || view.composing
+        },
         pointerdown() {
           selectAllCount = 0
           return false
@@ -234,12 +249,40 @@ export function mountEditor(owner, element, options) {
       },
       attributes: { class: 'outline-prose', 'aria-label': '容器正文', spellcheck: 'false' },
       handleKeyDown(view, event) {
+        if (event.isComposing || view.composing) return false
         if (event.key.toLowerCase() !== 'a' || !(event.ctrlKey || event.metaKey)) selectAllCount = 0
         if (event.ctrlKey || event.metaKey || event.altKey) options.boundary?.()
+        // Chinese layouts can report 。 instead of .; use the physical punctuation key too.
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey &&
+            (['Period', 'Slash'].includes(event.code) || ['.', '/', '。'].includes(event.key))) {
+          event.preventDefault()
+          event.stopPropagation()
+          if (event.code === 'Slash' || event.key === '/') editor.commands.toggleOrderedList()
+          else editor.commands.toggleBulletList()
+          return true
+        }
+        if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.key.startsWith('Arrow')) {
+          event.preventDefault()
+          event.stopPropagation()
+          if (event.key === 'ArrowLeft') indent(-1)
+          if (event.key === 'ArrowRight') indent(1)
+          if (event.key === 'ArrowUp') moveParagraph(-1)
+          if (event.key === 'ArrowDown') moveParagraph(1)
+          return true
+        }
         options.keydown?.(event)
         return false
       },
       handlePaste(view, event) {
+        // Office/OneNote may include an image representation alongside editable text.
+        // Let ProseMirror insert the text once; only upload a file-only clipboard.
+        if (event.defaultPrevented) return true
+        const clipboard = event.clipboardData
+        const html = clipboard?.getData('text/html') || ''
+        const text = clipboard?.getData('text/plain') || ''
+        const parsed = html ? new DOMParser().parseFromString(html, 'text/html') : null
+        parsed?.querySelectorAll('style,script').forEach(node => node.remove())
+        if (text.trim() || parsed?.body.textContent.trim()) return false
         const files = [...(event.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'))
         if (files.length) {
           event.preventDefault()

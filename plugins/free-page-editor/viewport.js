@@ -1,7 +1,9 @@
 // Coordinates are stored in document units; zoom changes only the viewport.
 export function createViewport(viewport, stage, paper, bounds, save) {
   let zoom = 1,
-    pending = null
+    pending = null,
+    animation = null,
+    frame = 0
   const finite = (value, fallback = 0) => (Number.isFinite(Number(value)) ? Number(value) : fallback)
   const layout = () => {
     if (!viewport.isConnected || !viewport.clientWidth || !viewport.clientHeight) return
@@ -21,30 +23,66 @@ export function createViewport(viewport, stage, paper, bounds, save) {
     }
   }
   const snapshot = () => (pending ? { ...pending, zoom } : { left: viewport.scrollLeft, top: viewport.scrollTop, zoom })
+  const cancel = () => {
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+    animation = null
+    paper.style.willChange = ''
+  }
+  const applyZoom = (value, anchor) => {
+    zoom = value
+    pending = { left: Math.max(0, anchor.worldX * zoom - anchor.x), top: Math.max(0, anchor.worldY * zoom - anchor.y) }
+    layout()
+  }
+  const animate = (time) => {
+    const a = animation
+    if (!a) return
+    if (a.start == null) a.start = time
+    const t = Math.min(1, (time - a.start) / 160), eased = 1 - (1 - t) ** 3
+    applyZoom(a.from + (a.to - a.from) * eased, a)
+    if (t < 1) frame = requestAnimationFrame(animate)
+    else { cancel(); save(snapshot()) }
+  }
+  const finishZoom = () => {
+    if (!animation) return
+    const a = animation
+    cancel()
+    applyZoom(a.to, a)
+    save(snapshot())
+  }
   return {
     layout,
     snapshot,
+    finishZoom,
+    destroy: cancel,
     restore(value = {}) {
+      cancel()
       zoom = Math.max(0.25, Math.min(3, finite(value.zoom, 1) || 1))
       pending = { left: Math.max(0, finite(value.left)), top: Math.max(0, finite(value.top)) }
       layout()
     },
-    setZoom(value, point) {
+    setZoom(value, point, smooth = false) {
       const next = Math.max(0.25, Math.min(3, finite(value, 1))),
         rect = viewport.getBoundingClientRect(),
         x = point ? point.x - rect.left : viewport.clientWidth / 2,
         y = point ? point.y - rect.top : viewport.clientHeight / 2
-      pending = {
-        left: Math.max(0, ((viewport.scrollLeft + x) / zoom) * next - x),
-        top: Math.max(0, ((viewport.scrollTop + y) / zoom) * next - y),
+      const anchor = {
+        x, y,
+        worldX: ((pending?.left ?? viewport.scrollLeft) + x) / zoom,
+        worldY: ((pending?.top ?? viewport.scrollTop) + y) / zoom,
       }
-      zoom = next
-      layout()
-      save(snapshot())
+      cancel()
+      if (smooth && typeof requestAnimationFrame === 'function' &&
+          !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches && Math.abs(next - zoom) > 0.0001) {
+        animation = { ...anchor, from: zoom, to: next, start: null }
+        paper.style.willChange = 'transform'
+        frame = requestAnimationFrame(animate)
+      } else { applyZoom(next, anchor); save(snapshot()) }
     },
     get zoom() {
       return zoom
     },
+    get targetZoom() { return animation?.to ?? zoom },
     point(event) {
       const rect = viewport.getBoundingClientRect()
       return {
@@ -53,7 +91,7 @@ export function createViewport(viewport, stage, paper, bounds, save) {
       }
     },
     scrolled() {
-      if (!pending && viewport.isConnected && viewport.clientWidth && viewport.clientHeight) {
+      if (!animation && !pending && viewport.isConnected && viewport.clientWidth && viewport.clientHeight) {
         layout()
         save(snapshot())
       }

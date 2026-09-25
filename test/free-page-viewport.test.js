@@ -102,3 +102,47 @@ test('缩放保持指针下的文档坐标，恢复保存的缩放和滚动', ()
   f.camera.setZoom(99)
   assert.equal(f.camera.zoom, 3)
 })
+
+test('滚轮缩放逐帧插值，连续输入累积目标且切页和销毁取消动画', t => {
+  const previous = new Map(), frames = new Map()
+  let id = 0
+  for (const [key, value] of Object.entries({
+    requestAnimationFrame: fn => { frames.set(++id, fn); return id },
+    cancelAnimationFrame: id => frames.delete(id),
+    matchMedia: () => ({ matches: false }),
+  })) {
+    previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+    Object.defineProperty(globalThis, key, { value, configurable: true })
+  }
+  t.after(() => { for (const [key, descriptor] of previous) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+    else delete globalThis[key]
+  } })
+  const tick = time => { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(time)) }
+  const f = fixture(); f.show(); f.ready()
+  f.camera.restore({ left: 600, top: 900, zoom: 1 })
+  const pointer = { clientX: 110, clientY: 100 }, anchor = { x: 110, y: 100 }
+  const world = f.camera.point(pointer)
+  const checkAnchor = () => {
+    const actual = f.camera.point(pointer)
+    assert.ok(Math.abs(actual.x - world.x) < 1e-8 && Math.abs(actual.y - world.y) < 1e-8)
+  }
+  f.camera.setZoom(2, anchor, true)
+  assert.equal(f.camera.zoom, 1)
+  tick(0); tick(80)
+  assert.ok(f.camera.zoom > 1 && f.camera.zoom < 2)
+  checkAnchor()
+  f.camera.setZoom(f.camera.targetZoom * 1.1, anchor, true)
+  assert.equal(f.camera.targetZoom, 2.2)
+  tick(90); tick(250)
+  assert.equal(f.camera.zoom, 2.2)
+  assert.equal(frames.size, 0)
+  checkAnchor()
+  f.camera.setZoom(3, anchor, true)
+  f.camera.restore({ zoom: 1, left: 0, top: 0 })
+  tick(500)
+  assert.equal(f.camera.zoom, 1)
+  f.camera.setZoom(2, anchor, true)
+  f.camera.destroy()
+  assert.equal(frames.size, 0)
+})

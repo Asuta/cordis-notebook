@@ -328,7 +328,7 @@ export function mountControls(ctx, root, api, sdk) {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>自由页面快捷键</DialogTitle>
-              <DialogDescription>文字操作作用于当前选区；按 Esc 选择整个容器。</DialogDescription>
+              <DialogDescription>点击顶部操作柄或按 Esc 选择整个容器，再按 Delete 删除；点击正文恢复文字编辑。</DialogDescription>
             </DialogHeader>
             <dl className="outline-shortcuts">
               {[
@@ -337,6 +337,8 @@ export function mountControls(ctx, root, api, sdk) {
                 ['Ctrl+1 / 2 / 3', '待办 / 重要 / 问题'],
                 ['Ctrl+. / Ctrl+/', '项目符号 / 编号'],
                 ['Tab / Shift+Tab', '段落缩进；表格中切换单元格'],
+                ['Backspace（行首）', '减少一级缩进；列表中提升一级'],
+                ['操作柄 / Esc，随后 Delete', '选中并删除整个容器；Ctrl+Z 可恢复'],
                 ['Alt+Shift+↑ / ↓', '上移 / 下移段落'],
                 ['Ctrl+A，再按 Ctrl+A', '文字全选 → 容器；Esc 后 Ctrl+A 全选容器'],
                 ['Ctrl+Z / Ctrl+Y', '撤销 / 重做文字和布局操作'],
@@ -352,6 +354,7 @@ export function mountControls(ctx, root, api, sdk) {
                 </React.Fragment>
               ))}
             </dl>
+            <p className="outline-shortcut-note">编辑区会拦截收到的编辑快捷键及 Alt+Shift+I。浏览器或系统优先保留的组合可能无法由网页屏蔽；段落操作也可使用上方工具栏。</p>
           </DialogContent>
         </Dialog>
       </>
