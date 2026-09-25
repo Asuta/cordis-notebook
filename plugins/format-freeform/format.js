@@ -38,9 +38,9 @@ export const blocksText = (blocks) =>
 export const createFreeformFormat = (richText) => ({
   type: 'freeform',
   label: '自由页面',
-  icon: '▧',
+  icon: 'LayoutDashboard',
   editor: 'freeform',
-  editorClass: 'is-freeform',
+  editorLayout: 'wide',
   fields: ['blocks', 'page', 'version'],
   defaults: () => ({ blocks: [], version: 2, page: { color: '#ffffff', rule: 'none' } }),
   normalize(data) {

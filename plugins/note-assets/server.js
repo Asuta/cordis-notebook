@@ -1,12 +1,19 @@
 import { Service } from 'cordis'
 import { mkdir, writeFile, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 const types = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
 export const noteAssets = {
-  inject: ['http', 'storage'],
-  apply(ctx) {
-    const dir = join(dirname(ctx.storage.file), 'note-assets')
+  inject: ['http'],
+  apply(ctx, config, runtime) {
+    const dir = runtime.dataDir
+    // New writes belong to this plugin. Keep old URLs readable without moving files
+    // or asking the current note storage implementation for a filesystem path.
+    const directories = [...new Set([
+      dir,
+      ...(runtime.legacyFile ? [join(dirname(resolve(runtime.legacyFile)), 'note-assets')] : []),
+      join(runtime.appDataDir, 'note-assets'),
+    ].map(path => resolve(path)))]
     Object.assign(new Service(ctx, 'noteAssets'), { directory: dir })
     ctx.http.route(ctx, 'POST', /^\/api\/note-assets$/, async ({ req }) => {
       const { data } = await ctx.http.body(req)
@@ -32,9 +39,12 @@ export const noteAssets = {
       return { src: '/api/note-assets/' + name }
     })
     ctx.http.route(ctx, 'GET', /^\/api\/note-assets\/([a-f0-9]{64}\.(png|jpg|gif|webp))$/, async ({ res, match }) => {
-      const bytes = await readFile(join(dir, match[1])).catch(() => {
-        throw Object.assign(Error('图片不存在'), { status: 404 })
-      })
+      let bytes
+      for (const directory of directories) {
+        try { bytes = await readFile(join(directory, match[1])); break }
+        catch (error) { if (error.code !== 'ENOENT') throw error }
+      }
+      if (!bytes) throw Object.assign(Error('图片不存在'), { status: 404 })
       res.writeHead(200, {
         'Content-Type': types[match[2]],
         'X-Content-Type-Options': 'nosniff',

@@ -5,6 +5,9 @@ export interface NoteFormat {
   readonly label: string
   readonly icon?: string
   readonly editor: string
+  /** Editor shell presentation; omitted or unrecognized values use the standard layout. */
+  readonly editorLayout?: 'standard' | 'wide'
+  /** Legacy custom hook. Builtin formats use editorLayout instead. */
   readonly editorClass?: string
   readonly fields: readonly string[]
   defaults(): Record<string, unknown>

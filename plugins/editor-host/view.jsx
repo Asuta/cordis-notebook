@@ -40,7 +40,8 @@ export function mountEditorHost(ctx, sdk, root, content, views) {
     }
     return (
       <>
-        <div className={'writing editor-writing ' + (format?.editorClass || '')} hidden={!note}>
+        <div className={'writing editor-writing ' + (format?.editorClass || '')}
+          data-editor-layout={format?.editorLayout === 'wide' ? 'wide' : 'standard'} hidden={!note}>
           <div className="note-heading">
             <div className="note-meta">
               <span>{format?.label || '格式未启用'}</span>

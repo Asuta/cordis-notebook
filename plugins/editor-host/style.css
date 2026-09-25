@@ -18,6 +18,13 @@
 .editor-writing {
   overflow: hidden;
 }
+.editor-writing[data-editor-layout='wide'] > .note-heading {
+  max-width: none;
+  padding: 24px 30px 16px;
+}
+.editor-writing[data-editor-layout='wide'] > .note-heading > #title {
+  font-size: 27px;
+}
 .note-heading {
   padding: 32px 48px 18px;
   flex-shrink: 0;
@@ -97,6 +104,9 @@
   }
 }
 @media (max-width: 620px) {
+.editor-writing[data-editor-layout='wide'] > .note-heading {
+    padding: 20px 20px 13px;
+  }
 .note-heading {
     padding: 24px 22px 14px;
   }

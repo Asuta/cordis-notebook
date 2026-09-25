@@ -14,8 +14,7 @@
     "description": "保存和读取本地图片资源，以内容哈希去重。",
     "requires": {
       "server": [
-        "http",
-        "storage"
+        "http"
       ],
       "client": []
     },

@@ -12,8 +12,6 @@ export function mountNoteList(ctx, sdk, root, filters) {
     DropdownMenuItem
   } = ctx.ui
   const Fragment = React.Fragment
-  const icon = (type) =>
-    type === 'markdown' ? 'FileCode2' : type === 'freeform' ? 'LayoutDashboard' : 'FileText'
   const run = (action) =>
     Promise.resolve()
       .then(action)
@@ -46,7 +44,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
                   disabled={model.busy}
                   onSelect={() => run(() => model.create(format.type))}
                 >
-                  <Icon name={icon(format.type)} />
+                  <Icon name={format.icon || 'FileText'} />
                   <span>{format.label}</span>
                 </DropdownMenuItem>
               ))}
@@ -64,7 +62,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
               onClick={() => run(() => model.choose(note.id))}
             >
               <div className="card-title">
-                <Icon name={icon(ctx.noteFormats.typeOf(note))} />
+                <Icon name={ctx.noteFormats.get(ctx.noteFormats.typeOf(note))?.icon || 'FileText'} />
                 <span>{note.title || '无标题笔记'}</span>
                 {note.pinned && <Icon name="Pin" size={13} />}
               </div>

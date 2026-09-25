@@ -2,6 +2,8 @@
 
 内置插件现在是 `plugins/*` 下的 pnpm workspace 包。插件自己声明入口、服务、配置、公开资源和构建任务；宿主扫描 JSON 清单，不维护业务注册表。第三方 API v1 安装包继续沿用原协议。
 
+关于如何划分职责、减少隐含耦合并保留插件灵活性，另见 [插件设计与协作指南](插件设计与协作指南.md)。该指南提供设计建议，不增加强制检查。
+
 ## 1. 新增一个普通插件
 
 新增 `plugins/note-caption/package.json`：
@@ -181,7 +183,7 @@ export default function (ctx: ServerContext, config: Record<string, unknown>, ru
 
 正式配置仍写入 `plugins-config.json`，启停状态仍写入 `plugins-state.json`。预览失败、页面确认超时或写盘失败时，后端重建为原配置，前端恢复正式快照；恢复失败会明确报错。后端预览期间服务已使用候选设置，但尚未写入正式配置，其他页面不会主动挂载该未确认后端代次。这不是跨所有页面、数据库和外部副作用的原子事务；插件自己的文件写入或外部命令不能靠配置回滚自动撤销。
 
-新插件将私有数据存入 `runtime.dataDir`。原存储插件继续读取 `<dataDir>/notes.json`，图片目录及第三方 v1 数据路径不改。`createApp({file})` 仍作为兼容入口，通过 `runtime.legacyFile` 交给存储插件处理；通常使用 `createApp({dataDir})` 即可。不要把旧数据迁入新目录来“统一格式”。
+新插件将私有数据存入 `runtime.dataDir`。原存储插件继续读取 `<dataDir>/notes.json`，第三方 v1 数据路径不改。图片插件的新文件写入 `<dataDir>/plugin-data/note-assets/`，旧 `<dataDir>/note-assets/` 及自定义 file 旁的 note-assets/ 保留兼容读取，不迁移或删除。`createApp({file})` 仍作为兼容入口，通过 `runtime.legacyFile` 供相关插件兼容旧路径；通常使用 `createApp({dataDir})` 即可。自定义旧路径仍有图片时，保留该入口或先显式处理旧图片。
 
 ## 8. 界面挂载与样式所有权
 
