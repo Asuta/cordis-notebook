@@ -215,13 +215,9 @@
 .free-page[data-tool='pan'] .free-block-body {
   pointer-events: none;
 }
-.free-page[data-tool='select'] .free-block-body {
-  pointer-events: none;
-}
 .free-page[data-tool='pan'] .free-page-viewport {
   touch-action: none;
 }
-.free-page[data-tool='select'] .free-page-paper,
 .free-page[data-tool='space'] .free-page-paper {
   cursor: crosshair;
 }

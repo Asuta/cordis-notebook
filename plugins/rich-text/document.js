@@ -17,6 +17,8 @@ export const safeLink = (value) =>
 export const safeImage = (value) =>
   typeof value === 'string' && /^\/api\/note-assets\/[a-f0-9]{64}\.(png|jpg|gif|webp)$/.test(value) ? value : null
 const number = (v, min, max, fallback) => (Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : fallback)
+// Indentation is a distance, not recursive document nesting. Do not cap it at eight steps.
+export const normalizeIndent = value => Math.round(number(value, 0, Number.MAX_SAFE_INTEGER / 24, 0))
 export function normalizeDocument(input) {
   if (!input || input.version !== 1 || !Array.isArray(input.elements)) throw Error('富文本文档版本或结构无效')
   let count = 0,
@@ -31,7 +33,7 @@ export function normalizeDocument(input) {
       ids.add(id)
       const node = { id, kind: value.kind }
       if (textTypes.has(node.kind)) {
-        node.indent = Math.round(number(value.indent, 0, 8, 0))
+        node.indent = normalizeIndent(value.indent)
         node.align = ['left', 'center', 'right', 'justify'].includes(value.align) ? value.align : 'left'
         node.tag = ['todo', 'important', 'question', 'definition', 'idea'].includes(value.tag) ? value.tag : null
         node.checked = !!value.checked
@@ -54,6 +56,7 @@ export function normalizeDocument(input) {
           return { text: run.text, ...(Object.keys(format).length ? { format } : {}) }
         })
       } else if (childrenTypes[node.kind]) {
+        if (node.kind === 'item' && normalizeIndent(value.indent)) node.indent = normalizeIndent(value.indent)
         node.children = read(value.children, childrenTypes[node.kind], depth + 1)
         if (!node.children.length) throw Error('列表或表格不能缺少子节点')
         if (node.kind === 'list') {

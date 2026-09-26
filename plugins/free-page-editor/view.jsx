@@ -263,17 +263,11 @@ export function mountControls(ctx, root, api, sdk) {
           )}
         </div>
         <div className="outline-modebar">
-          {btn('文字输入', () => api.setTool('type'), {
+          {btn('编辑与框选', () => api.setTool('type'), {
             disabled: !state.editable,
             active: state.tool === 'type',
-            text: '文字',
+            text: '编辑',
             icon: 'FileText',
-          })}
-          {btn('框选容器', () => api.setTool('select'), {
-            disabled: !state.editable,
-            active: state.tool === 'select',
-            text: '选择',
-            icon: 'MousePointer2',
           })}
           {btn('平移画布', () => api.setTool('pan'), {
             disabled: false,
@@ -291,11 +285,9 @@ export function mountControls(ctx, root, api, sdk) {
           <span className="outline-mode-hint">
             {state.tool === 'pan'
               ? '拖动画布浏览'
-              : state.tool === 'select'
-                ? '拖出矩形选择多个容器'
-                : state.tool === 'space'
+              : state.tool === 'space'
                   ? '向下拖动插入空白'
-                  : '点击空白处开始书写'}
+                  : '空白处：单击书写，拖动框选'}
           </span>
         </div>
         <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
@@ -336,6 +328,7 @@ export function mountControls(ctx, root, api, sdk) {
                 ['Ctrl+K', '插入链接'],
                 ['Ctrl+1 / 2 / 3', '待办 / 重要 / 问题'],
                 ['Ctrl+. / Ctrl+/', '项目符号 / 编号'],
+                ['Ctrl+Shift+8 / Ctrl+Shift+7', '项目符号 / 编号（中文输入法下的替代键）'],
                 ['Tab / Shift+Tab', '段落缩进；表格中切换单元格'],
                 ['Backspace（行首）', '减少一级缩进；列表中提升一级'],
                 ['操作柄 / Esc，随后 Delete', '选中并删除整个容器；Ctrl+Z 可恢复'],
@@ -346,6 +339,7 @@ export function mountControls(ctx, root, api, sdk) {
                 ['Ctrl+滚轮 / Ctrl+加减', '缩放页面；Ctrl+0 恢复 100%'],
                 ['空格（非输入时）/ 中键', '临时平移画布'],
                 ['Shift+拖动容器', '合并到目标容器；Ctrl+Z 可撤销'],
+                ['空白处拖动 / 单击', '框选容器 / 松开后新建输入框；Esc 取消拖动'],
                 ['方向键 / Shift+方向键', '操作柄上移动 1 / 10 单位'],
               ].map(([keys, label]) => (
                 <React.Fragment key={keys}>
@@ -354,7 +348,7 @@ export function mountControls(ctx, root, api, sdk) {
                 </React.Fragment>
               ))}
             </dl>
-            <p className="outline-shortcut-note">编辑区会拦截收到的编辑快捷键及 Alt+Shift+I。浏览器或系统优先保留的组合可能无法由网页屏蔽；段落操作也可使用上方工具栏。</p>
+            <p className="outline-shortcut-note">微软拼音会占用 Ctrl+句号切换标点，可切到英文输入或用 Ctrl+Shift+8。编辑区会拦截收到的编辑快捷键及 Alt+Shift+I；浏览器或系统优先保留的组合无法保证由网页屏蔽。</p>
           </DialogContent>
         </Dialog>
       </>

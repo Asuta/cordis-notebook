@@ -134,6 +134,7 @@ const focus = (f, id) => {
 test('空容器离开时清理，工具栏操作和上传中的容器不被误删', async t => {
   const f = fixture(t)
   f.pointer('pointerdown', '.free-page-paper', 200, 300)
+  f.pointer('pointerup', null, 200, 300)
   const id = f.note.blocks.at(-1).id
   const api = focus(f, id)
   const toolbar = f.root.querySelector('.free-page-controls')
@@ -141,6 +142,7 @@ test('空容器离开时清理，工具栏操作和上传中的容器不被误�
   await Promise.resolve()
   assert.equal(f.note.blocks.length, 3)
   f.pointer('pointerdown', '.free-page-paper', 300, 400)
+  f.pointer('pointerup', null, 300, 400)
   assert.equal(f.note.blocks.length, 3)
   assert.ok(!f.note.blocks.some(b => b.id === id))
   assert.ok(api.editor.isDestroyed)
@@ -238,4 +240,97 @@ test('Office 多格式剪贴板只粘贴一次文字，纯图片仍上传，已�
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(f.note.blocks.length, 2)
   assert.equal(f.root.querySelectorAll('.outline-prose img').length, 1)
+})
+
+test('默认空白处按下不创建容器，原地松开新建，拖动框选后可整组删除和撤销', t => {
+  const f = fixture(t), before = f.note
+  assert.ok(!f.commands.has('框选容器'), '不再保留单独的选择模式')
+  f.pointer('pointerdown', '.free-page-paper', 200, 300)
+  assert.deepEqual(f.note, before)
+  f.pointer('pointerup', null, 202, 302)
+  assert.equal(f.note.blocks.length, 3)
+  assert.equal(f.note.blocks.at(-1).x, 200)
+  assert.equal(f.note.blocks.at(-1).y, 300)
+  // Leaving the new empty block cleans it up; a fast drag must not create a fourth block.
+  f.pointer('pointerdown', '.free-page-paper', 35, 35)
+  f.pointer('pointerup', null, 780, 150)
+  assert.equal(f.note.blocks.length, 2)
+  assert.equal(f.root.querySelectorAll('.free-block.selected').length, 2)
+  key(f, document.activeElement, 'Delete')
+  assert.equal(f.note.blocks.length, 0)
+  f.undo()
+  assert.deepEqual(f.note.blocks, before.blocks)
+})
+
+test('拖出后返回原点仍是拖动，Esc、失焦与指针取消均不创建容器', t => {
+  const f = fixture(t), before = f.note
+  f.pointer('pointerdown', '.free-page-paper', 200, 300)
+  f.pointer('pointermove', null, 300, 300)
+  f.pointer('pointerup', null, 200, 300)
+  assert.deepEqual(f.note, before)
+  for (const action of ['escape', 'blur', 'pointercancel', 'lostpointercapture']) {
+    f.pointer('pointerdown', '.free-page-paper', 200, 300)
+    if (action === 'escape') key(f, f.root, 'Escape')
+    else if (action === 'blur') f.window.dispatchEvent(new f.window.Event('blur'))
+    else f.pointer(action, null, 200, 300)
+    f.pointer('pointerup', null, 200, 300)
+    assert.deepEqual(f.note, before, action)
+  }
+})
+
+test('Shift 框选追加原有选择，取消手势及不相关指针不会误建框', t => {
+  const f = fixture(t)
+  f.pointer('pointerdown', '[data-block-id=one] .free-block-handle', 50, 45)
+  f.pointer('pointerup', null, 50, 45)
+  f.pointer('pointerdown', '.free-page-paper', 430, 35, true)
+  f.pointer('pointerup', null, 780, 150, true)
+  assert.equal(f.root.querySelectorAll('.free-block.selected').length, 2)
+  f.pointer('pointerdown', '.free-page-paper', 200, 300)
+  f.root.dispatchEvent(new f.window.PointerEvent('pointerup', { bubbles: true, pointerId: 2, clientX: 200, clientY: 300 }))
+  assert.equal(f.note.blocks.length, 2)
+  f.pointer('pointercancel', null, 200, 300)
+})
+
+for (const ordered of [false, true]) test(`${ordered ? '编号' : '项目符号'}首项与嵌套项可连续缩进超过八级并反向退回`, t => {
+  const f = fixture(t), api = focus(f, 'one'), dom = api.editor.view.dom
+  const tag = ordered ? 'ol' : 'ul'
+  api.editor.commands.setContent(`<${tag}><li><p>首项</p></li><li><p>第二项</p></li></${tag}>`)
+  const setAt = text => {
+    let at
+    api.editor.state.doc.descendants((n, pos) => { if (n.type.name === 'paragraph' && n.textContent === text) at = pos + 1 })
+    api.editor.commands.setTextSelection(at)
+  }
+  setAt('首项')
+  for (let i = 0; i < 24; i++) key(f, dom, 'Tab')
+  assert.equal(api.document.elements[0].children[0].indent, 24)
+  assert.equal(api.document.elements[0].children.length, 2, '不制造空父项')
+  assert.deepEqual(documentService.fromEditor(documentService.toEditor(api.document)), api.document)
+  assert.equal(f.note.blocks[0].outline.elements[0].children[0].indent, 24)
+  for (let i = 0; i < 12; i++) key(f, dom, 'Tab', { shiftKey: true })
+  for (let i = 0; i < 12; i++) key(f, dom, 'Backspace')
+  assert.equal(api.document.elements[0].children[0].indent || 0, 0)
+  assert.equal(api.document.elements[0].ordered, ordered)
+  setAt('第二项')
+  key(f, dom, 'Tab') // Normal nesting still works when there is a previous item.
+  for (let i = 0; i < 20; i++) key(f, dom, 'Tab')
+  const nested = api.document.elements[0].children[0].children.find(n => n.kind === 'list')
+  assert.equal(nested.children[0].indent, 20)
+  for (let i = 0; i < 21; i++) key(f, dom, 'Tab', { shiftKey: true })
+  assert.equal(api.document.elements[0].children.length, 2)
+})
+
+test('普通段落不再截断八级缩进，替代列表快捷键只执行一次', t => {
+  const f = fixture(t), api = focus(f, 'one'), dom = api.editor.view.dom
+  api.editor.commands.setTextSelection(1)
+  for (let i = 0; i < 24; i++) key(f, dom, 'Tab')
+  assert.equal(api.document.elements[0].indent, 24)
+  assert.equal(f.note.blocks[0].outline.elements[0].indent, 24)
+  api.setDocument(documentService.plain('快捷键'))
+  key(f, dom, '*', { code: 'Digit8', ctrlKey: true, shiftKey: true })
+  assert.equal(api.document.elements[0].kind, 'list')
+  assert.equal(api.document.elements[0].ordered, false)
+  key(f, dom, '*', { code: 'Digit8', ctrlKey: true, shiftKey: true })
+  assert.equal(api.document.elements[0].kind, 'paragraph')
+  key(f, dom, '&', { code: 'Digit7', ctrlKey: true, shiftKey: true })
+  assert.equal(api.document.elements[0].ordered, true)
 })

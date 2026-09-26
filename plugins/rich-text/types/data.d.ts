@@ -7,6 +7,7 @@ export interface OutlineElement {
   readonly kind: 'paragraph' | 'heading' | 'code' | 'quote' | 'list' | 'item' | 'table' | 'row' | 'cell' | 'image' | 'rule'
   readonly runs?: readonly TextRun[]
   readonly children?: readonly OutlineElement[]
+  /** Nonnegative indentation steps for text blocks or a list item (including its marker). */
   readonly indent?: number
   readonly align?: 'left' | 'center' | 'right' | 'justify'
   readonly tag?: 'todo' | 'important' | 'question' | 'definition' | 'idea' | null

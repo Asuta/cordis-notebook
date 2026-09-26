@@ -235,7 +235,13 @@ export default function (ctx, sdk) {
   function cancelGesture() {
     if (frame) cancelAnimationFrame(frame)
     frame = 0
+    if (gesture?.kind === 'marquee') {
+      selection.clear()
+      for (const id of gesture.selected) if (nodes.has(id)) selection.add(id)
+    }
+    const previous = gesture
     gesture = null
+    if (previous?.target.hasPointerCapture?.(previous.pointerId)) previous.target.releasePointerCapture(previous.pointerId)
     marquee.hidden = true
     guide.hidden = true
     for (const item of nodes.values()) item.node.classList.remove('merge-target')
@@ -255,6 +261,9 @@ export default function (ctx, sdk) {
     const point = camera.point(event)
     gesture = {
       kind,
+      pointerId: event.pointerId,
+      target: event.currentTarget,
+      extend: event.shiftKey || event.ctrlKey || event.metaKey,
       id,
       start: point,
       point,
@@ -270,7 +279,11 @@ export default function (ctx, sdk) {
       moved: false,
     }
     event.currentTarget.setPointerCapture(event.pointerId)
-    if (kind === 'marquee' && !event.shiftKey) selection.clear()
+    if (kind === 'marquee') {
+      active = null
+      if (!gesture.extend) selection.clear()
+      update()
+    }
     if (kind === 'space') {
       guide.hidden = false
       guide.style.top = point.y + 'px'
@@ -281,6 +294,12 @@ export default function (ctx, sdk) {
     if (!gesture) return
     const g = gesture,
       r = viewport.getBoundingClientRect()
+    // Measure in screen pixels so click-vs-drag is stable at every zoom level.
+    if (Math.hypot(g.clientX - g.startClientX, g.clientY - g.startClientY) > 4) g.moved = true
+    if (g.kind === 'marquee' && !g.moved) {
+      frame = requestAnimationFrame(tick)
+      return
+    }
     if (g.kind === 'pan') {
       const left = Math.max(0, g.left + g.startClientX - g.clientX),
         top = Math.max(0, g.top + g.startClientY - g.clientY)
@@ -297,7 +316,6 @@ export default function (ctx, sdk) {
       g.point = camera.point(g)
       const dxw = g.point.x - g.start.x,
         dyw = g.point.y - g.start.y
-      if (Math.abs(dxw) + Math.abs(dyw) > 3) g.moved = true
       if (g.kind === 'move')
         for (const b of g.before.blocks)
           if (g.selected.has(b.id)) {
@@ -327,6 +345,7 @@ export default function (ctx, sdk) {
           height: box.height + 'px',
         })
         selection.clear()
+        if (g.extend) for (const id of g.selected) if (nodes.has(id)) selection.add(id)
         for (const b of blocks())
           if (
             b.x < box.x + box.width &&
@@ -353,7 +372,7 @@ export default function (ctx, sdk) {
     )
   }
   function finish(event) {
-    if (!gesture) return
+    if (!gesture || (event && event.pointerId !== gesture.pointerId)) return
     cancelAnimationFrame(frame)
     if (event) {
       gesture.clientX = event.clientX
@@ -365,6 +384,7 @@ export default function (ctx, sdk) {
     cancelAnimationFrame(frame)
     frame = 0
     gesture = null
+    if (g.target.hasPointerCapture?.(g.pointerId)) g.target.releasePointerCapture(g.pointerId)
     marquee.hidden = true
     guide.hidden = true
     const dx = g.point.x - g.start.x,
@@ -372,7 +392,9 @@ export default function (ctx, sdk) {
     // Gestures own geometry only. Uploads and edits may have changed content
     // since pointerdown; preserve current blocks, including additions/removals.
     const before = new Map(g.before.blocks.map((b) => [b.id, b]))
-    if (g.moved && g.kind === 'move') {
+    if (g.kind === 'marquee' && !g.moved && !g.extend && editable()) {
+      add(g.start.x, g.start.y)
+    } else if (g.moved && g.kind === 'move') {
       const target = g.shift && blocks().find((b) => !g.selected.has(b.id) && hit(g.point, b.id))
       if (target) {
         const merged = {
@@ -592,6 +614,7 @@ export default function (ctx, sdk) {
     redo: () => travel('redo'),
     run,
     setTool: (value) => {
+      if (gesture) cancelGesture()
       tool = value
       update()
       viewport.focus()
@@ -646,9 +669,8 @@ export default function (ctx, sdk) {
     const leave = (event) => {
       if (disposed || !active || gesture || nodes.get(active)?.node.contains(event.target) ||
           controls.contains(event.target) || event.target.closest?.('[role=dialog]') ||
-          ((event.ctrlKey || event.metaKey) && root.contains(event.target))) return
+          ((event.ctrlKey || event.metaKey || event.shiftKey) && root.contains(event.target))) return
       const id = active
-      selection.delete(id)
       removeEmpty(id)
       if (!root.contains(event.target)) { selection.clear(); active = null; update() }
     }
@@ -658,26 +680,17 @@ export default function (ctx, sdk) {
   sdk.listen(paper, 'pointerdown', (event) => {
     if (event.defaultPrevented) return
     if (event.button === 1 || tool === 'pan') return begin(event, 'pan')
-    const block = event.target.closest('.free-block')
-    if (block && tool === 'select' && event.button === 0) {
-      event.preventDefault()
-      select(block.dataset.blockId, event.ctrlKey || event.metaKey)
-      return
-    }
     if (event.target !== paper && event.target !== stage) return
-    if (tool === 'select') begin(event, 'marquee')
-    else if (tool === 'space') begin(event, 'space')
-    else if (event.button === 0 && editable()) {
-      camera.finishZoom()
-      const p = camera.point(event)
-      add(p.x, p.y)
-    }
+    if (tool === 'space') begin(event, 'space')
+    else if (event.button === 0) begin(event, 'marquee')
   })
   sdk.listen(root, 'pointermove', (event) => {
-    if (gesture) {
+    if (gesture && event.pointerId === gesture.pointerId) {
       gesture.clientX = event.clientX
       gesture.clientY = event.clientY
       gesture.shift = event.shiftKey
+      if (Math.hypot(event.clientX - gesture.startClientX, event.clientY - gesture.startClientY) > 4)
+        gesture.moved = true
     }
   })
   sdk.listen(root, 'pointerup', finish)
@@ -685,6 +698,7 @@ export default function (ctx, sdk) {
   sdk.listen(root, 'lostpointercapture', () => {
     if (gesture) cancelGesture()
   })
+  sdk.listen(window, 'blur', () => { if (gesture) cancelGesture() })
   sdk.listen(viewport, 'scroll', () => camera.scrolled())
   const wheel = (event) => {
     if (event.ctrlKey) {

@@ -182,12 +182,17 @@ test('本地图片与富文本文档保存重启后可读取，无效数据不�
     )
     const created = await (await request('/api/notes', 'POST', { type: 'freeform' })).json()
     const outline = plainDocument('富文本正文')
+    outline.elements[0].indent = 30
     outline.elements.push({ id: 'img', kind: 'image', src: asset.src, alt: '本地图片', width: 320 })
+    outline.elements.push({ id: 'list', kind: 'list', ordered: true, start: 1,
+      children: [{ id: 'item', kind: 'item', indent: 24, children: plainDocument('深缩进列表', 'nested').elements }] })
     const blocks = [{ id: 'a', x: 240, y: 300, width: 420, text: '不可相信的缓存', outline }]
     const saved = await (
       await request('/api/notes/' + created.id, 'PATCH', { blocks, page: { rule: 'grid', color: '#fffedd' } })
     ).json()
-    assert.equal(saved.content, '富文本正文\n本地图片')
+    assert.equal(saved.content, '富文本正文\n本地图片\n深缩进列表')
+    assert.equal(saved.blocks[0].outline.elements[0].indent, 30)
+    assert.equal(saved.blocks[0].outline.elements[2].children[0].indent, 24)
     assert.equal(saved.version, 2)
     assert.equal(
       (

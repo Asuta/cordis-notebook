@@ -9,7 +9,7 @@ import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { toEditor, fromEditor, safeLink, safeImage } from './document.js'
+import { toEditor, fromEditor, safeLink, safeImage, normalizeIndent } from './document.js'
 
 const uid = () => crypto.randomUUID()
 const elementTypes = [
@@ -40,11 +40,37 @@ export function mountEditor(owner, element, options) {
     view.dispatch(tr)
     return true
   }
+  const selectedItems = () => {
+    const { doc, selection: { from, to } } = editor.state, items = new Map()
+    doc.nodesBetween(from, to, (node, pos) => {
+      if (!node.isTextblock) return
+      const at = doc.resolve(pos)
+      for (let d = at.depth; d > 0; d--) if (at.node(d).type.name === 'listItem') {
+        items.set(at.before(d), at.node(d))
+        break
+      }
+    })
+    return items
+  }
   const indent = (delta) => {
-    if (editor.isActive('listItem'))
-      return delta > 0 ? editor.commands.sinkListItem('listItem') : editor.commands.liftListItem('listItem')
+    if (editor.isActive('listItem')) {
+      const items = selectedItems(), extra = [...items.values()].some(n => n.attrs.indent > 0)
+      // Keep normal list hierarchy where possible, but do not require a previous sibling
+      // or manufacture empty parent items to indent the first/only item repeatedly.
+      let room = true
+      editor.state.doc.descendants((n, pos) => {
+        if (!n.isText && editor.state.doc.resolve(pos).depth > 14) room = false
+      })
+      if (!extra && delta > 0 && room && editor.commands.sinkListItem('listItem')) return true
+      if (!extra && delta < 0) return editor.commands.liftListItem('listItem')
+      const tr = editor.state.tr
+      for (const [pos, node] of items) tr.setNodeMarkup(pos, undefined,
+        { ...node.attrs, indent: normalizeIndent((node.attrs.indent || 0) + delta) })
+      editor.view.dispatch(tr)
+      return true
+    }
     return paragraphCommand((n, p, tr) =>
-      tr.setNodeMarkup(p, undefined, { ...n.attrs, indent: Math.max(0, Math.min(8, (n.attrs.indent || 0) + delta)) }),
+      tr.setNodeMarkup(p, undefined, { ...n.attrs, indent: normalizeIndent((n.attrs.indent || 0) + delta) }),
     )
   }
   const backspaceIndent = () => {
@@ -54,7 +80,7 @@ export function mountEditor(owner, element, options) {
       tr.setNodeMarkup(p, undefined, { ...n.attrs, indent: Math.max(0, (n.attrs.indent || 0) - 1) }))
     // Only lift at the beginning of an item; later paragraphs should merge normally.
     if ($from.depth > 1 && $from.node(-1).type.name === 'listItem' && $from.index(-1) === 0)
-      return editor.commands.liftListItem('listItem')
+      return indent(-1)
     return false
   }
   const tag = (value) =>
@@ -87,6 +113,14 @@ export function mountEditor(owner, element, options) {
     addGlobalAttributes() {
       return [
         {
+          types: ['listItem'],
+          attributes: { indent: {
+            default: 0,
+            parseHTML: e => normalizeIndent(Number(e.getAttribute('data-indent'))),
+            renderHTML: a => ({ 'data-indent': a.indent, style: `margin-left:${a.indent * 24}px` }),
+          } },
+        },
+        {
           types: elementTypes,
           attributes: {
             id: { default: null, parseHTML: () => null, renderHTML: (a) => ({ 'data-element-id': a.id }) },
@@ -97,7 +131,7 @@ export function mountEditor(owner, element, options) {
           attributes: {
             indent: {
               default: 0,
-              parseHTML: (e) => Number(e.getAttribute('data-indent')) || 0,
+              parseHTML: (e) => normalizeIndent(Number(e.getAttribute('data-indent'))),
               renderHTML: (a) => ({ 'data-indent': a.indent, style: `margin-left:${a.indent * 24}px` }),
             },
             noteTag: {
@@ -253,11 +287,16 @@ export function mountEditor(owner, element, options) {
         if (event.key.toLowerCase() !== 'a' || !(event.ctrlKey || event.metaKey)) selectAllCount = 0
         if (event.ctrlKey || event.metaKey || event.altKey) options.boundary?.()
         // Chinese layouts can report 。 instead of .; use the physical punctuation key too.
-        if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey &&
-            (['Period', 'Slash'].includes(event.code) || ['.', '/', '。'].includes(event.key))) {
+        const listShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && (
+          (!event.shiftKey && (['Period', 'NumpadDecimal', 'Slash'].includes(event.code) ||
+            ['.', '/', '。', '．', 'Decimal'].includes(event.key) || [190, 110].includes(event.keyCode))) ||
+          (event.shiftKey && (['Digit7', 'Digit8'].includes(event.code) || ['&', '*', '7', '8'].includes(event.key))))
+        if (listShortcut) {
+          options.boundary?.()
           event.preventDefault()
           event.stopPropagation()
-          if (event.code === 'Slash' || event.key === '/') editor.commands.toggleOrderedList()
+          if (event.code === 'Slash' || event.key === '/' || event.code === 'Digit7' ||
+              (event.shiftKey && ['7', '&'].includes(event.key))) editor.commands.toggleOrderedList()
           else editor.commands.toggleBulletList()
           return true
         }
