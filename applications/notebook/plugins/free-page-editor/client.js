@@ -3,6 +3,18 @@ import { createViewport } from './viewport.js'
 import { mountControls } from './view.jsx'
 
 export default function (ctx, sdk) {
+  const session = sdk.storage?.session || sessionStorage
+  if (sdk.application?.legacyBrowserStorage && sdk.storage) {
+    try {
+      if (!session.getItem('legacy-imported')) {
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i)
+          if (/^cordis-page-(view|scroll)-/.test(key) && session.getItem(key) === null) session.setItem(key, sessionStorage.getItem(key))
+        }
+        session.setItem('legacy-imported', '1')
+      }
+    } catch {}
+  }
   const model = ctx.notebook,
     rich = ctx.richText,
     states = new Map(),
@@ -43,8 +55,8 @@ export default function (ctx, sdk) {
       let view = { left: 0, top: 0, zoom: 1 }
       try {
         const v = JSON.parse(
-          sessionStorage.getItem('cordis-page-view-' + noteId) ||
-            sessionStorage.getItem('cordis-page-scroll-' + noteId),
+          session.getItem('cordis-page-view-' + noteId) ||
+            session.getItem('cordis-page-scroll-' + noteId),
         )
         if (Array.isArray(v)) view = { left: v[0], top: v[1], zoom: 1 }
         else if (v) view = v
@@ -57,7 +69,7 @@ export default function (ctx, sdk) {
     if (!noteId) return
     state().view = value
     try {
-      sessionStorage.setItem('cordis-page-view-' + noteId, JSON.stringify(value))
+      session.setItem('cordis-page-view-' + noteId, JSON.stringify(value))
     } catch {}
   }
   const camera = createViewport(

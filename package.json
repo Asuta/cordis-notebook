@@ -5,6 +5,7 @@
   "scripts": {
     "build": "node scripts/build.js",
     "export:plugins": "node scripts/export-plugins.js",
+    "export:app": "node scripts/export-application.js",
     "start:runtime": "node server/server.js",
     "dev": "pnpm build && node --watch server/server.js",
     "start": "pnpm build && node server/server.js",

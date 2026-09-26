@@ -82,10 +82,15 @@ test('启动修复互斥冲突；依赖保护和 Cordis 服务唯一性阻止不
     assert.equal(app.manager.serialize().plugins.filter(p => p.exclusiveGroup && p.enabled).length, 1)
     await assert.rejects(app.manager.start('theme-blue'), /theme|registered/i)
     assert.equal(app.ctx.theme.id, 'theme-night')
-    app.manager.records.set('theme-dependent', { manifest: { id: 'theme-dependent', name: '主题依赖测试', dependencies: ['theme-night'] }, state: 'enabled', enabled: true, logs: [] })
+    app.manager.records.set('theme-dependent', {
+      manifest: { id: 'theme-dependent', name: '主题依赖测试', requires: { server: ['theme'], client: [] } },
+      state: 'disabled', enabled: true, server: { inject: ['theme'], apply(ctx) { assert.equal(ctx.theme.id, 'theme-night') } },
+    })
+    await app.manager.start('theme-dependent')
     await assert.rejects(app.manager.toggle('theme', true), /仍有插件依赖/)
     assert.equal(app.ctx.theme.id, 'theme-night')
     assert.equal(app.manager.pendingSwitch, null)
+    await app.manager.stop('theme-dependent')
     app.manager.records.delete('theme-dependent')
   } finally { if (app) await app.close(); await rm(dir, { recursive: true, force: true }) }
 })

@@ -7,11 +7,11 @@ import { join } from 'node:path'
 import { createApp } from '../server/server.js'
 import { builtins } from '../server/builtins.js'
 import { ClientPlugins } from '../client/host/plugin-host.js'
-import { noteFormats } from '../plugins/note-formats/server.js'
+import { noteFormats } from '../applications/notebook/plugins/note-formats/server.js'
 
 const spec = id => ({ ...builtins.find(item => item.manifest.id === id).manifest, enabled: true, state: 'enabled', serverState: 'not-applicable', generation: 1 })
 const sdkFor = ctx => ({ provide(name, value) { return Object.assign(new Service(ctx, name), value) } })
-const hostFor = root => new ClientPlugins(root, { sdkFor, load: p => import(`../plugins/${p.id}/dist/client.js`) })
+const hostFor = root => new ClientPlugins(root, { sdkFor, load: p => import(`../applications/notebook/plugins/${p.id}/dist/client.js`) })
 
 test('能力插件受依赖保护，Markdown 服务消失时撤销格式，恢复后保留原笔记并可继续保存', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-capability-'))

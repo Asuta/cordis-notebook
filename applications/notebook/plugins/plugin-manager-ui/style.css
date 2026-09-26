@@ -203,36 +203,6 @@
   font-size: 11px;
   color: var(--theme-muted);
 }
-.install-panel {
-  padding: 18px;
-  background: var(--theme-panel);
-  border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  margin-bottom: 20px;
-}
-.install-panel h3 {
-  font-size: 15px;
-  font-weight: 500;
-}
-.install-panel p {
-  font-size: 12px;
-  color: var(--theme-muted);
-  line-height: 1.8;
-  margin: 10px 0;
-}
-.install-panel input[type='file'] {
-  display: block;
-  margin: 12px 0;
-  width: 100%;
-  font-size: 13px;
-}
-.trust-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  margin: 12px 0;
-}
 .manager-error {
   display: flex;
   gap: 8px;
@@ -244,18 +214,6 @@
   border-radius: 6px;
   margin-bottom: 15px;
   font-size: 13px;
-}
-.plugin-danger-zone {
-  border-top: 1px solid var(--theme-border);
-  padding-top: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.plugin-danger-zone label {
-  font-size: 12px;
-  line-height: 1.8;
-  width: 100%;
 }
 @media (max-width: 760px) {
 .manager-browser {

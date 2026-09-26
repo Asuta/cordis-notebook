@@ -8,13 +8,7 @@ export default function (ctx, sdk) {
         reader.onerror = reject
         reader.readAsDataURL(file)
       })
-      const response = await fetch('/api/note-assets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data }),
-      })
-      const result = await response.json()
-      if (!response.ok) throw Error(result.error)
+      const result = await sdk.request('/api/note-assets', 'POST', { data })
       return result.src
     },
   })

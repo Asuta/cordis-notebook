@@ -1,0 +1,21 @@
+{
+  "name": "@applications/notebook",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordisApp": {
+    "id": "notebook",
+    "name": "笔记",
+    "description": "普通笔记、自由页面与 Markdown。",
+    "icon": "assets/icon.svg",
+    "default": true,
+    "legacyData": [
+      "notes.json",
+      "plugins-state.json",
+      "plugins-config.json",
+      "plugin-data",
+      "note-assets"
+    ],
+    "legacyBrowserStorage": true
+  }
+}

@@ -3,14 +3,14 @@ import assert from 'node:assert/strict'
 import { Context, Service } from 'cordis'
 import { Plugins } from '../server/host/plugins.js'
 import { ClientPlugins } from '../client/host/plugin-host.js'
-import { provideMounts } from '../plugins/layout/mounts.js'
+import { provideMounts } from '../applications/notebook/plugins/layout/mounts.js'
 import { dependencyGraph } from '../client/host/dependency-graph.js'
 import { createApp } from '../server/server.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const spec = (id, requires = [], provides = []) => ({ id, name: id, builtin: true, dependencies: [], enabled: true, state: 'enabled', serverState: 'not-applicable', client: id + '.js', generation: 1, requires: { server: [], client: requires }, provides: { server: [], client: provides } })
+const spec = (id, requires = [], provides = []) => ({ id, name: id, enabled: true, state: 'enabled', serverState: 'not-applicable', client: id + '.js', generation: 1, requires: { server: [], client: requires }, provides: { server: [], client: provides } })
 const sdkFor = ctx => ({ provide(name, value) { const service = new Service(ctx, name); Object.assign(service, value); return service } })
 
 test('后端状态随 Cordis 等待、激活、服务消失及重启失败变化', async () => {
@@ -20,7 +20,7 @@ test('后端状态随 Cordis 等待、激活、服务消失及重启失败变化
     await ctx.plugin(Plugins, { dataDir: process.cwd(), file: 'unused' })
     const manager = ctx.plugins
     let runs = 0
-    const record = { manifest: { ...spec('consumer'), client: null, requires: { server: ['testService'], client: [] } }, enabled: true, state: 'disabled', logs: [], server: { inject: ['testService'], apply() { if (++runs === 2) throw new Error('恢复失败') } } }
+    const record = { manifest: { ...spec('consumer'), client: null, requires: { server: ['testService'], client: [] } }, enabled: true, state: 'disabled', server: { inject: ['testService'], apply() { if (++runs === 2) throw new Error('恢复失败') } } }
     manager.records.set('consumer', record)
     await manager.start('consumer')
     assert.equal(record.state, 'waiting'); assert.equal(runs, 0)
@@ -96,7 +96,7 @@ test('实际笔记服务等待存储并自动恢复，插件包依赖不强制�
     assert.equal(notes.state, 'enabled'); assert.equal(api.state, 'enabled')
     assert.ok(notes.generation > before)
     assert.equal(app.ctx.notes.list()[0].title, '生命周期保存验证')
-    const packageOnly = { manifest: { ...spec('package-only'), client: null, dependencies: ['search'] }, enabled: true, state: 'disabled', logs: [], server: { apply() {} } }
+    const packageOnly = { manifest: { ...spec('package-only'), client: null, packageDependencies: { '@cordis-notebook/search': 'workspace:*' } }, enabled: true, state: 'disabled', server: { apply() {} } }
     manager.records.set('package-only', packageOnly)
     await manager.toggle('search', false); await manager.start('package-only')
     assert.equal(packageOnly.state, 'enabled')
@@ -105,17 +105,18 @@ test('实际笔记服务等待存储并自动恢复，插件包依赖不强制�
   } finally { await app.close(); await rm(dir, { recursive: true, force: true }) }
 })
 
-test('兼容插件只在后端就绪后导入，前端重试使用新的模块尝试号', async () => {
+test('模块导入后等待后端就绪，加载失败重试使用新的尝试号', async () => {
   const root = new Context(), attempts = []
-  let broken = true
-  const host = new ClientPlugins(root, { sdkFor, load: async p => { attempts.push(p.attempt); if (broken) throw new Error('模块加载失败'); return { default() {} } } })
-  const plugin = { ...spec('external'), builtin: false, serverState: 'starting', state: 'starting' }
+  let broken = false, starts = 0
+  const host = new ClientPlugins(root, { sdkFor, load: async p => { attempts.push(p.attempt); if (broken) throw new Error('模块加载失败'); return { default() { starts++ } } } })
+  const plugin = { ...spec('workspace'), serverState: 'starting', state: 'starting' }
   try {
-    await host.sync([plugin]); assert.equal(attempts.length, 0); assert.equal(host.state(plugin.id), 'waiting')
+    await host.sync([plugin]); assert.equal(attempts.length, 1); assert.equal(host.state(plugin.id), 'waiting'); assert.equal(starts, 0)
+    broken = true
     const ready = { ...plugin, serverState: 'enabled', state: 'enabled', generation: 2 }
-    await host.sync([ready]); assert.equal(host.state(plugin.id), 'failed')
+    await host.sync([ready]); assert.equal(host.state(plugin.id), 'failed'); assert.equal(starts, 0)
     broken = false; await host.retry(plugin.id)
-    assert.equal(host.state(plugin.id), 'enabled'); assert.equal(new Set(attempts).size, 2)
+    assert.equal(host.state(plugin.id), 'enabled'); assert.equal(new Set(attempts).size, 3); assert.equal(starts, 1)
   } finally { await root.fiber.dispose() }
 })
 
@@ -160,8 +161,8 @@ test('重试加载期间远端停用插件，迟到模块不会注册服务且�
     await host.sync([disabled])
     assert.equal(starts, 0)
     assert.equal(root.get('retryService'), undefined)
-    assert.equal(root.get('plugin:' + plugin.id), undefined)
-    assert.equal(root.get('plugin:' + backend.id), undefined)
+    assert.equal(root.get('backend:' + plugin.id), undefined)
+    assert.equal(root.get('backend:' + backend.id), undefined)
     assert.equal(host.entries.has(plugin.id), false)
     assert.equal(host.state(plugin.id), 'disabled')
     await host.sync([plugin])

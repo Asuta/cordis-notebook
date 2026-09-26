@@ -16,7 +16,7 @@ function boundaries(entry, task) {
         if (!inside(entry.sourceRoot, resolve(args.resolveDir,args.path))) throw new Error('禁止跨插件或宿主目录导入实现：'+args.path)
       } else if (!args.path.startsWith('.') && !args.path.startsWith('/')) {
         const name = packageName(args.path)
-        if (args.path.startsWith('@cordis-notebook/')) throw new Error('workspace 包仅允许 import type；运行时请使用 ctx 服务：'+args.path)
+        if (entry.package.dependencies?.[name]?.startsWith('workspace:')) throw new Error('workspace 包仅允许 import type；运行时请使用 ctx 服务：'+args.path)
         const owner = entry.runtimeOwners.get(name)
         if (owner && owner !== entry.manifest.id) throw new Error(`${name} 运行时由 ${owner} 提供，请声明服务依赖`)
         if (own && !isBuiltin(args.path) && !Object.hasOwn(entry.package.dependencies || {},name)) throw new Error(`代码包依赖未声明：${name}`)

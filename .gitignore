@@ -3,13 +3,13 @@ data/
 work/
 *.log
 public/runtime.js
-plugins/markdown/parser.bundle.js
-plugins/*/view.bundle.js
-plugins/ui/runtime.bundle.js
-plugins/rich-text/engine.bundle.js
-plugins/ui/style.css
+applications/*/plugins/markdown/parser.bundle.js
+applications/*/plugins/*/view.bundle.js
+applications/*/plugins/ui/runtime.bundle.js
+applications/*/plugins/rich-text/engine.bundle.js
+applications/*/plugins/ui/style.css
 .env
 .env.*
 !.env.example
 
-plugins/*/dist/
+applications/*/plugins/*/dist/

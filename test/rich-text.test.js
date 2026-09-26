@@ -12,9 +12,9 @@ import {
   toEditor,
   fromEditor,
   documentService,
-} from '../plugins/rich-text/document.js'
-import { createFreeformFormat } from '../plugins/format-freeform/format.js'
-import { mountEditor } from '../plugins/rich-text/engine.js'
+} from '../applications/notebook/plugins/rich-text/document.js'
+import { createFreeformFormat } from '../applications/notebook/plugins/format-freeform/format.js'
+import { mountEditor } from '../applications/notebook/plugins/rich-text/engine.js'
 
 test('富文本格式、段落属性、列表和表格往返编辑器后保持语义', () => {
   const p = (id, text) => ({ id, kind: 'paragraph', runs: [{ text }] })

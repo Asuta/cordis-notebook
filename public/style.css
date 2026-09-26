@@ -53,23 +53,6 @@ button {
   border-bottom: 1px solid var(--theme-border);
   background: var(--theme-surface);
 }
-.host-brand {
-  font-family: serif;
-  font-size: 23px;
-  color: var(--theme-text);
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.host-brand span {
-  font-family: 'Segoe UI', sans-serif;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--theme-muted);
-  border-left: 1px solid var(--theme-border);
-  padding-left: 12px;
-}
 .host-bar > div {
   display: flex;
   gap: 18px;
@@ -144,58 +127,6 @@ dialog::backdrop {
   font-size: 10px;
   letter-spacing: 0.14em;
   color: var(--theme-muted);
-}
-.trust-notice {
-  font-size: 12px;
-  line-height: 1.8;
-  padding: 14px;
-  background: var(--theme-panel);
-  border: 1px solid var(--theme-border);
-  border-radius: 6px;
-  color: var(--theme-muted);
-}
-.install-box {
-  padding: 20px 0;
-  border-bottom: 1px solid var(--theme-border);
-}
-.install-label {
-  display: inline-block;
-  position: relative;
-  background: var(--theme-accent);
-  color: white;
-  padding: 10px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.install-label input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  width: 100%;
-  cursor: pointer;
-}
-.install-box > span {
-  font-size: 12px;
-  color: var(--theme-muted);
-  margin-left: 12px;
-}
-#install-preview {
-  padding: 16px;
-  background: var(--theme-panel);
-  margin-top: 12px;
-  border-radius: 6px;
-}
-#install-preview p {
-  margin-bottom: 12px;
-}
-#install-plugin {
-  display: block;
-  margin-top: 12px;
-  background: var(--theme-accent);
-  color: white;
-  padding: 8px 14px;
-  border-radius: 6px;
 }
 #plugin-list {
   display: grid;
@@ -599,7 +530,6 @@ dialog::backdrop {
 .host-bar {
     padding: 0 16px;
   }
-.host-brand span,
 #connection {
     display: none;
   }
@@ -608,14 +538,10 @@ dialog::backdrop {
     max-height: 94dvh;
     padding: 20px;
   }
-#plugin-list {
+  #plugin-list {
     grid-template-columns: 1fr;
   }
-.install-box > span {
-    display: block;
-    margin: 12px 0 0;
-  }
-.settings-field {
+  .settings-field {
     grid-template-columns: 1fr;
   }
 .settings-field input:not([type='checkbox']),
@@ -631,3 +557,18 @@ dialog::backdrop {
     transition-duration: 0.01ms !important;
   }
 }
+
+#application-picker { width: min(780px, 94vw); max-height: 90dvh; padding: 28px; overflow: auto; }
+#application-picker .manager-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+#application-picker h2 { margin: 0; }
+#application-picker .manager-header p { color: var(--theme-muted); margin-bottom: 0; }
+#close-applications { border: 0; background: transparent; color: var(--theme-text); font-size: 22px; cursor: pointer; padding: 0 4px; }
+#application-picker .manager-footer { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--theme-border); }
+#application-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 24px; }
+.application-card { border: 1px solid var(--theme-border); border-radius: 12px; padding: 20px; }
+.application-title { display: flex; align-items: center; gap: 10px; }
+.application-title h3 { margin: 0; }
+.application-card p { color: var(--theme-muted); line-height: 1.7; }
+.application-card button, #manage-applications, #stop-application { border: 1px solid var(--theme-border); background: var(--theme-panel); color: var(--theme-text); border-radius: 6px; padding: 7px 12px; }
+#application-error { color: #ad4538; white-space: pre-wrap; }
+#current-application { font-weight: 600; }

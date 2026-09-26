@@ -78,7 +78,7 @@ test('配置 HTTP 接口执行校验及并发版本保护', async t => {
 test('前端即时配置保留插件实例，失败可补偿恢复，重启与依赖恢复使用最新配置', async t => {
   const root = new Context(); t.after(() => root.fiber.dispose())
   let starts = 0, cleanups = 0, shown, callbackCount = 0
-  const plugin = { id: 'sample', name: 'sample', builtin: true, client: 'sample.js', enabled: true, state: 'enabled', serverState: 'not-applicable', generation: 1, dependencies: [], requires: { client: ['provider'] }, settings: { mode: 'live' }, configRevision: 0, config: { value: 1 } }
+  const plugin = { id: 'sample', name: 'sample', client: 'sample.js', enabled: true, state: 'enabled', serverState: 'not-applicable', generation: 1, requires: { client: ['provider'] }, settings: { mode: 'live' }, configRevision: 0, config: { value: 1 } }
   const host = new ClientPlugins(root, { sdkFor: () => ({}), load: async () => ({ default(ctx, sdk) {
     starts++; shown = sdk.config.value
     if (shown === 99) throw new Error('启动拒绝')

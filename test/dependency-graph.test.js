@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { dependencyGraph } from '../client/host/dependency-graph.js'
 
-const plugin = (id, dependencies = []) => ({ id, dependencies })
+const plugin = (id, dependencies = []) => ({ id, requires: { client: dependencies }, provides: { client: [id] }, bindings: { client: Object.fromEntries(dependencies.map(name => [name, name])) } })
 test('共享依赖保留所有边，间接影响只计数一次', () => {
   const graph = dependencyGraph([plugin('storage'), plugin('layout'), plugin('notes', ['storage']), plugin('api', ['notes']), plugin('notebook', ['api', 'layout']), plugin('editor', ['notebook']), plugin('lab', ['layout', 'notes'])])
   assert.deepEqual(graph.roots, ['storage', 'layout'])

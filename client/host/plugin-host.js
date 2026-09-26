@@ -22,7 +22,7 @@ export class ClientPlugins {
   }
   state(id) {
     const entry = this.entries.get(id)
-    return entry?.configError ? 'failed' : entry?.deferred ? 'waiting' : entry?.fiber ? runtimeState(entry.fiber) : entry?.error ? 'failed' : entry?.loading ? 'starting' : 'disabled'
+    return entry?.configError ? 'failed' : entry?.fiber ? runtimeState(entry.fiber) : entry?.error ? 'failed' : entry?.loading ? 'starting' : 'disabled'
   }
   describe(plugin) {
     const entry = this.entries.get(plugin.id), clientState = !plugin.client ? 'not-applicable' : !plugin.enabled ? 'disabled' : entry ? this.state(plugin.id) : 'starting'
@@ -33,7 +33,6 @@ export class ClientPlugins {
       : states.includes('disabled') ? 'disabled' : plugin.enabled ? 'enabled' : 'disabled'
     const waitingFor = [...(plugin.waitingFor || []).map(name => '后端 ' + name)]
     if (clientState === 'waiting') {
-      if (entry.deferred) waitingFor.push('后端就绪')
       for (const name of entry.requires) if (!this.root[name]) waitingFor.push('前端 ' + name)
       if (entry.gate && !this.root[entry.gate]) waitingFor.push('后端就绪')
     }
@@ -48,15 +47,14 @@ export class ClientPlugins {
     // Backend readiness is a transport boundary, represented as an injected gate.
     for (const [id, item] of this.gates) {
       if (!isCurrent()) return
-      const legacy = id.startsWith('legacy:')
-      const p = legacy ? plugins.find(p => p.id === id.slice(7) && !p.client && p.enabled) : wanted.get(id)
-      if (!p || (legacy ? p.state : p.serverState) !== 'enabled' || p.generation !== item.generation) { this.gates.delete(id); await item.fiber.dispose() }
+      const p = wanted.get(id)
+      if (!p || p.serverState !== 'enabled' || p.generation !== item.generation) { this.gates.delete(id); await item.fiber.dispose() }
     }
     for (const [id, entry] of [...this.entries].reverse()) {
       if (!isCurrent()) return
       const next = wanted.get(id), changed = next && (next.configRevision ?? 0) !== entry.configRevision
       if (next) entry.plugin = next
-      if (!next || next.generation !== entry.generation || entry.deferred && next.state === 'enabled' || changed && next.settings?.mode === 'restart') {
+      if (!next || next.generation !== entry.generation || changed && next.settings?.mode === 'restart') {
         this.entries.delete(id); if (entry.fiber) await entry.fiber.dispose()
       } else if (changed) {
         entry.configRevision = next.configRevision ?? 0
@@ -77,19 +75,16 @@ export class ClientPlugins {
       if (this.entries.has(plugin.id)) return
       const entry = { plugin, configRevision: plugin.configRevision ?? 0, generation: plugin.generation, requires: [], error: '', fiber: null, loading: true }
       this.entries.set(plugin.id, entry)
-      if (!plugin.builtin && plugin.state !== 'enabled') { entry.deferred = true; return }
       try {
         const module = await deadline(this.load({ ...plugin, attempt: ++this.attempt }))
         // A remote stop, replacement, or host disposal can invalidate this load.
         if (this.entries.get(plugin.id) !== entry) return
         if (typeof module.default !== 'function') throw new Error('前端入口需要导出 default 函数')
-        const declared = plugin.builtin ? plugin.requires.client : module.inject || []
+        const declared = plugin.requires.client
         entry.requires = Array.isArray(declared) ? declared : Object.keys(declared)
         entry.gate = plugin.serverState === 'not-applicable' ? null : 'backend:' + plugin.id
         const inject = { ...(Array.isArray(declared) ? Object.fromEntries(declared.map(name => [name, null])) : declared) }
         if (entry.gate) inject[entry.gate] = null
-        // Preserve API v1 dependency gating without adding it to builtin service contracts.
-        if (!plugin.builtin) for (const id of plugin.dependencies) inject['plugin:' + id] = null
         entry.fiber = this.root.plugin({ name: plugin.name, inject, apply: async ctx => {
           entry.config = configBinding(ctx, entry.plugin.config)
           entry.configError = ''
@@ -100,24 +95,11 @@ export class ClientPlugins {
           sdk.onConfig = callback => binding.onChange(callback)
           await this.stylesFor(ctx, entry.plugin)
           await activate(ctx, sdk, module.default, this.startupTimeoutMs)
-          new Service(ctx, 'plugin:' + plugin.id)
         } })
         entry.loading = false
         await entry.fiber
       } catch (error) { entry.loading = false; entry.error = error.message }
     }))
-    // Pure backend dependencies of API v1 packages also expose a compatibility gate.
-    if (!isCurrent()) return
-    for (const p of plugins.filter(p => !p.client && p.enabled && p.state === 'enabled')) {
-      if (!isCurrent()) return
-      // The transport gates above are only for frontend entries; these markers have
-      // the same owned lifetime as their backend status snapshot.
-      const key = 'legacy:' + p.id
-      if (!this.gates.has(key)) {
-        const fiber = this.root.plugin(ctx => { new Service(ctx, 'plugin:' + p.id) })
-        this.gates.set(key, { fiber, generation: p.generation }); await fiber
-      }
-    }
     await Promise.all([...this.entries.values()].map(entry => entry.fiber?.await().catch(error => { entry.error = error.message })))
     if (isCurrent()) this.onChange()
   }

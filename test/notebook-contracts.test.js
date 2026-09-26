@@ -1,15 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context, Service } from 'cordis'
-import { createNotebook } from '../plugins/notebook/model.js'
+import { createNotebook } from '../applications/notebook/plugins/notebook/model.js'
 import { StopCoordinator } from '../client/host/stop-coordinator.js'
-import summary from '../plugins/note-summary/client.js'
-import { noteFormats } from '../plugins/note-formats/server.js'
-import { formatPlain } from '../plugins/format-plain/server.js'
-import { formatFreeform } from '../plugins/format-freeform/server.js'
-import { richText } from '../plugins/rich-text/server.js'
-import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
-import { createMarkdown } from '../plugins/markdown/parser.js'
+import summary from '../applications/notebook/plugins/note-summary/client.js'
+import { noteFormats } from '../applications/notebook/plugins/note-formats/server.js'
+import { formatPlain } from '../applications/notebook/plugins/format-plain/server.js'
+import { formatFreeform } from '../applications/notebook/plugins/format-freeform/server.js'
+import { richText } from '../applications/notebook/plugins/rich-text/server.js'
+import { createMarkdownFormat } from '../applications/notebook/plugins/format-markdown/format.js'
+import { createMarkdown } from '../applications/notebook/plugins/markdown/parser.js'
 const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
 
 const note = (id, title, pinned = false) => ({ id, title, content: '正文 ' + title, pinned, createdAt: '2026-01-01', updatedAt: '2026-01-01' })

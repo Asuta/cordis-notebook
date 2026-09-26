@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
-import freePage from '../plugins/free-page-editor/dist/client.js'
-import { mountEditor } from '../plugins/rich-text/engine.js'
-import { documentService } from '../plugins/rich-text/document.js'
-import { createFreeformFormat } from '../plugins/format-freeform/format.js'
+import freePage from '../applications/notebook/plugins/free-page-editor/dist/client.js'
+import { mountEditor } from '../applications/notebook/plugins/rich-text/engine.js'
+import { documentService } from '../applications/notebook/plugins/rich-text/document.js'
+import { createFreeformFormat } from '../applications/notebook/plugins/format-freeform/format.js'
 
 function fixture(t) {
   const window = new Window(), previous = new Map(), cleanups = [], commands = new Map(), editors = new Map()

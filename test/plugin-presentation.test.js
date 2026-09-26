@@ -25,13 +25,13 @@ test('新格式的图标和宽版布局由声明驱动，缺失格式回退且�
     button(name, text, fn) { const button = document.createElement('button'); button.textContent = text; button.onclick = fn; return this.mount(name, button) },
   })
   try {
-    const {default: ui} = await import('../plugins/ui/dist/client.js')
+    const {default: ui} = await import('../applications/notebook/plugins/ui/dist/client.js')
     await root.plugin(ctx => ui(ctx, sdkFor(ctx)))
     Object.assign(new Service(root,'notebook'), {notes, current:()=>selected, visible:()=>notes, observe, busy:false, editable:true})
     Object.assign(new Service(root,'noteFormats'), {get:type=>formats.get(type), list:()=>[...formats.values()], typeOf:note=>note?.type, observe})
     new Service(root,'shell')
-    const {default: list} = await import('../plugins/note-list/dist/client.js')
-    const {default: editorHost} = await import('../plugins/editor-host/dist/client.js')
+    const {default: list} = await import('../applications/notebook/plugins/note-list/dist/client.js')
+    const {default: editorHost} = await import('../applications/notebook/plugins/editor-host/dist/client.js')
     const listFiber = root.plugin({inject:['ui','notebook','noteFormats','shell'], apply:ctx => list(ctx, sdkFor(ctx))})
     const editorFiber = root.plugin({inject:['ui','notebook','noteFormats'], apply:ctx => editorHost(ctx, sdkFor(ctx))})
     await listFiber; await editorFiber

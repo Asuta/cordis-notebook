@@ -12,12 +12,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
     const [tab, setTab] = React.useState('all'),
       [query, setQuery] = React.useState(''),
       [selected, setSelected] = React.useState(null)
-    const [installOpen, setInstallOpen] = React.useState(false),
-      [pkg, setPackage] = React.useState(null),
-      [trust, setTrust] = React.useState(false),
-      [error, setError] = React.useState('')
-    const [confirmation, setConfirmation] = React.useState(''),
-      [clearOpen, setClearOpen] = React.useState(false)
+    const [error, setError] = React.useState('')
     const visible = plugins.filter(
       (p) =>
         (tab === 'all' || category(p) === tab) &&
@@ -30,29 +25,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
         .then(action)
         .catch((e) => setError(e.message))
     }
-    const select = (id) => {
-      setSelected(id)
-      setClearOpen(false)
-      setConfirmation('')
-    }
-    const load = async (event) => {
-      setPackage(null)
-      setTrust(false)
-      setError('')
-      const file = event.target.files[0]
-      if (!file) return
-      try {
-        if (file.size > 2 * 1024 * 1024) throw Error('插件包不能超过 2 MB')
-        const value = JSON.parse(await file.text())
-        if (!value || !value.files || typeof value.files !== 'object' ||
-          !['id', 'name', 'version'].every(key => typeof value.manifest?.[key] === 'string')) {
-          throw Error('请选择有效的 .cordis-plugin.json 文件')
-        }
-        setPackage(value)
-      } catch (e) {
-        setError(e.message)
-      }
-    }
+    const select = (id) => setSelected(id)
     return (
       <>
         <div className="manager-hero">
@@ -61,14 +34,10 @@ export function mountManager(ctx, sdk, root, dependencies) {
             <h2>插件中心</h2>
             <p>
               {plugins.filter((p) => p.state === 'enabled').length} 个运行中 <span> / </span> {plugins.length}{' '}
-              个已安装
+              个已发现
             </p>
           </div>
           <div className="manager-hero-actions">
-            <Button variant="outline" disabled={busy} onClick={() => setInstallOpen(!installOpen)}>
-              <Icon name="Plus" />
-              安装插件
-            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -80,43 +49,6 @@ export function mountManager(ctx, sdk, root, dependencies) {
             </Button>
           </div>
         </div>
-        {installOpen && (
-          <section className="install-panel">
-            <h3>安装本地插件包</h3>
-            <p>第三方插件以当前账户权限访问文件、网络并执行命令。只安装你信任的来源。</p>
-            <input type="file" accept=".json" aria-label="选择插件安装包" disabled={busy} onChange={load} />
-            {pkg && (
-              <>
-                <p>
-                  <strong>{pkg.manifest.name}</strong> · {pkg.manifest.id} · v{pkg.manifest.version}
-                </p>
-                <label className="trust-check">
-                  <input
-                    type="checkbox"
-                    checked={trust}
-                    disabled={busy}
-                    onChange={(e) => setTrust(e.target.checked)}
-                  />
-                  我信任此插件，并允许它运行前后端代码。
-                </label>
-                <Button
-                  disabled={!trust || busy}
-                  onClick={() =>
-                    run(async () => {
-                      await api.install(pkg)
-                      setPackage(null)
-                      setTrust(false)
-                      setInstallOpen(false)
-                      sdk.toast('安装完成，可在列表中启用。')
-                    })
-                  }
-                >
-                  确认安装
-                </Button>
-              </>
-            )}
-          </section>
-        )}
         {error && (
           <div className="manager-error" role="alert">
             <Icon name="AlertCircle" />
@@ -201,7 +133,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
                       <h3>{plugin.name}</h3>
                       <p>{plugin.description}</p>
                       <span className="detail-version">
-                        v{plugin.version} · {plugin.builtin ? '内置插件' : '第三方插件'}
+                        v{plugin.version} · workspace 插件
                       </span>
                       <div className="detail-actions">
                         <Button
@@ -265,59 +197,10 @@ export function mountManager(ctx, sdk, root, dependencies) {
                             {!r.host && !r.bound ? '（等待绑定）' : ''}
                           </p>
                         ))}
-                        {plugin.dependencies.length > 0 && (
-                          <p>插件包依赖：{plugin.dependencies.join('、')}</p>
+                        {Object.keys(plugin.packageDependencies || {}).length > 0 && (
+                          <p>代码包依赖：{Object.keys(plugin.packageDependencies).join('、')}</p>
                         )}
                       </details>
-                      {plugin.logs?.length > 0 && (
-                        <details className="technical-details">
-                          <summary>运行日志</summary>
-                          <pre>{plugin.logs.join('')}</pre>
-                        </details>
-                      )}
-                      {!plugin.builtin && (
-                        <div className="plugin-danger-zone">
-                          <Button
-                            variant="outline"
-                            disabled={busy || plugin.state !== 'disabled'}
-                            onClick={() => run(() => api.uninstall(plugin))}
-                          >
-                            卸载并保留数据
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            disabled={busy || plugin.state !== 'disabled'}
-                            onClick={() => setClearOpen(!clearOpen)}
-                          >
-                            清理数据…
-                          </Button>
-                          {clearOpen && (
-                            <>
-                              <label>
-                                输入插件 ID「{plugin.id}」确认永久删除其数据
-                                <Input
-                                  aria-label="确认清理的插件 ID"
-                                  value={confirmation}
-                                  onChange={(e) => setConfirmation(e.target.value)}
-                                />
-                              </label>
-                              <Button
-                                variant="destructive"
-                                disabled={busy || plugin.state !== 'disabled' || confirmation !== plugin.id}
-                                onClick={() =>
-                                  run(async () => {
-                                    await api.clearData(plugin, confirmation)
-                                    setClearOpen(false)
-                                    setConfirmation('')
-                                  })
-                                }
-                              >
-                                永久清理
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      )}
                     </>
                   )}
                 </aside>

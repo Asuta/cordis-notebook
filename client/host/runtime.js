@@ -7,18 +7,23 @@ import { createSettingsView } from './settings-view.js'
 import { applyConfiguration } from './config-transaction.js'
 import { createMounts } from './mounts.js'
 import { mountStyles } from './styles.js'
+import { applicationStorage } from './application-storage.js'
+import { applicationView } from './application-view.js'
+let application = await (await fetch('/api/applications')).json()
+const pageSession = application.session
+let leaving = false
 const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), mounts = createMounts()
-mounts.register(root, 'app', $('#app'), { provider: true })
+mounts.register(root, 'app', $('#app'))
 const updatePlaceholder = () => { $('#app-placeholder').hidden = $('#app').childElementCount > 0 }
 new MutationObserver(updatePlaceholder).observe($('#app'), { childList: true })
 updatePlaceholder()
 const stopping = new StopCoordinator(root, error => toast(error.message))
-let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false, installPackage = null
+let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false
 async function request(path, method = 'GET', data, signal) {
-  const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
+  const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json', 'X-Application-Session': pageSession }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
   const result = await response.json(); if (!response.ok) throw new Error(result.error || '请求失败'); return result
 }
-function toast(message) { const node = $('#toast'); if ($('#plugin-manager').open) $('#plugin-manager').append(node); else document.body.append(node); node.textContent = message; node.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => node.hidden = true, 6000) }
+function toast(message) { const node = $('#toast'); const dialog = [...document.querySelectorAll('dialog[open]')].at(-1); (dialog || document.body).append(node); node.textContent = message; node.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => node.hidden = true, 6000) }
 function el(tag, props = {}, text) {
   const node = document.createElement(tag)
   for (const [key, value] of Object.entries(props)) { if (key === 'class') node.className = value; else if (key.startsWith('aria-')) node.setAttribute(key, value); else node[key] = value }
@@ -28,30 +33,32 @@ function sdkFor(ctx, plugin) {
   const controller = new AbortController(); ctx.effect(() => () => controller.abort())
   const sdk = {
     id: plugin.id, el, toast,
+    application: application.current,
+    storage: { local: applicationStorage(localStorage, application.current.id, plugin.id), session: applicationStorage(sessionStorage, application.current.id, plugin.id) },
     request: (path, method, data) => request(path, method, data, controller.signal),
-    rpc: (method, args) => request(`/api/plugins/${plugin.id}/rpc`, 'POST', { method, args }, controller.signal),
     provide(name, value) { return new class extends Service { constructor() { super(ctx, name); Object.defineProperties(this, Object.getOwnPropertyDescriptors(value)) } }() },
     service: name => ctx[name], effect: callback => ctx.effect(callback),
     listen(target, event, handler) { target.addEventListener(event, handler); ctx.effect(() => () => target.removeEventListener(event, handler)) },
     guard(callback) { return ctx.on('plugins/before-stop', async () => { await callback() }) },
-    slot(name, target) { mounts.register(ctx, name, target, { provider: plugin.builtin }) },
-    mount(name, node) { return mounts.mount(ctx, name, node, { provider: plugin.builtin }) },
+    slot(name, target) { mounts.register(ctx, name, target) },
+    mount(name, node) { return mounts.mount(ctx, name, node) },
     watch(service, handler) { if (service.observe) return service.observe(ctx, handler); service.addEventListener('change', handler); ctx.effect(() => () => service.removeEventListener('change', handler)); handler() },
     button(slot, label, handler) { const button = el('button', {}, label); sdk.listen(button, 'click', () => Promise.resolve().then(handler).catch(error => toast(error.message))); return sdk.mount(slot, button) },
   }; return sdk
 }
 const host = new ClientPlugins(root, {
-  stylesFor: mountStyles,
-  sdkFor, load: plugin => import((plugin.builtin ? '/builtin/' : '/plugins/') + plugin.id + '/' + plugin.client + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt),
+  stylesFor: (ctx, plugin) => mountStyles(ctx, { ...plugin, resourceQuery: 'appSession=' + pageSession }),
+  sdkFor, load: plugin => import('/builtin/' + plugin.id + '/' + plugin.client + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt + '&appSession=' + pageSession),
   onChange: () => queueMicrotask(renderManager),
 })
 const settingsView = createSettingsView({ el, getSnapshot: () => snapshot, save: (plugin, config) => operate(() => saveConfig(plugin, config), true) })
+const applicationsView = applicationView({ el, change: id => operate(() => switchApplication(id)) })
 const labels = { waiting: '等待服务', 'not-applicable': '无需运行', enabled: '运行中', disabled: '已停用', starting: '启动中', stopping: '停止中', failed: '运行失败' }
 const managerListeners = new Set()
 const management = new Service(root, 'pluginManagement')
 Object.assign(management, {
   labels,
-  current: () => ({ ...snapshot, plugins: snapshot.plugins.map(p => host.describe(p)), working }),
+  current: () => ({ ...snapshot, plugins: snapshot.plugins.map(p => host.describe(p)), working: working || application.phase !== 'idle' }),
   observe(owner, handler) { return owner.effect(() => { managerListeners.add(handler); handler(); return () => managerListeners.delete(handler) }) },
   attach(owner, node) { return owner.effect(() => {
     const dialog = $('#plugin-manager')
@@ -64,9 +71,6 @@ Object.assign(management, {
   retry(plugin) { return operate(() => retryPlugin(plugin), true) },
   settings(plugin) { settingsView.open(plugin) },
   relations(plugin) { return serviceRelations(plugin, snapshot.plugins.map(p => host.describe(p))) },
-  uninstall(plugin) { return operate(() => request(`/api/plugins/${plugin.id}`, 'DELETE'), true) },
-  clearData(plugin, confirmation) { return operate(() => request(`/api/plugins/${plugin.id}/clear-data`, 'POST', { confirmation }), true) },
-  install(pkg) { return operate(() => request('/api/plugins/install', 'POST', { package: pkg, trust: true }), true) },
   dependencyTree(owner) {
     const view = createDependencyView({ el, card: pluginCard, labels, failures }); view.host.id = 'react-dependency-view'; view.host.hidden = false
     management.observe(owner, () => view.render(snapshot.plugins.map(p => host.describe(p))))
@@ -74,22 +78,23 @@ Object.assign(management, {
   },
 })
 let managerView = 'cards'
-try { if (localStorage.getItem('cordis-manager-view') === 'tree') managerView = 'tree' } catch {}
+try { if (localStorage.getItem('cordis-manager-view-' + (application.current?.id || 'host')) === 'tree') managerView = 'tree' } catch {}
 const viewBar = el('div', { class: 'manager-viewbar', 'aria-label': '插件显示方式' }), viewButtons = el('div', { class: 'manager-view-switch' })
 const cardsButton = el('button', { 'aria-pressed': 'true' }, '▦ 卡片视图'), treeButton = el('button', { 'aria-pressed': 'false' }, '⑂ 依赖树')
 viewButtons.append(cardsButton, treeButton); viewBar.append(el('span', {}, '浏览插件'), viewButtons)
 const dependencyView = createDependencyView({ el, card: pluginCard, labels, failures })
 $('#plugin-list').before(viewBar, dependencyView.host)
-function setManagerView(view) { managerView = view; try { localStorage.setItem('cordis-manager-view', view) } catch {}; renderManager() }
+function setManagerView(view) { managerView = view; try { localStorage.setItem('cordis-manager-view-' + (application.current?.id || 'host'), view) } catch {}; renderManager() }
 cardsButton.onclick = () => setManagerView('cards'); treeButton.onclick = () => setManagerView('tree')
 function renderManager() {
+  applicationsView.render(application, working)
   settingsView.update(snapshot, working)
   $('#close-manager').disabled = working
   const visiblePlugins = snapshot.plugins.map(p => host.describe(p))
   failures.clear()
   for (const p of visiblePlugins) if (p.clientState === 'failed') failures.set(p.id, { message: p.error })
   $('#plugin-list').replaceChildren()
-  $('#plugin-summary').textContent = `${visiblePlugins.filter(p => p.state === 'enabled').length} 个运行中 / ${snapshot.plugins.length} 个已安装 · Cordis 双端插件运行时`
+  $('#plugin-summary').textContent = `${visiblePlugins.filter(p => p.state === 'enabled').length} 个运行中 / ${snapshot.plugins.length} 个已发现 · Cordis 双端插件运行时`
   const tree = managerView === 'tree'
   $('#plugin-list').hidden = tree; dependencyView.host.hidden = !tree
   cardsButton.setAttribute('aria-pressed', String(!tree)); treeButton.setAttribute('aria-pressed', String(tree))
@@ -98,12 +103,12 @@ function renderManager() {
   for (const handler of managerListeners) handler()
 }
 function pluginCard(plugin, id = 'plugin-' + plugin.id) {
-    const exclusive = plugin.builtin && plugin.exclusiveGroup
-    const busy = working || !!snapshot.pendingSwitch || !!snapshot.pendingConfig
+    const exclusive = plugin.exclusiveGroup
+    const busy = working || application.phase !== 'idle' || !!snapshot.pendingSwitch || !!snapshot.pendingConfig
     const card = el('article', { class: 'plugin-card', id }), top = el('div', { class: 'plugin-heading' })
     top.append(el('strong', {}, plugin.name), el('span', { class: 'plugin-status ' + (failures.has(plugin.id) ? 'failed' : plugin.state) }, failures.has(plugin.id) ? '前端失败' : labels[plugin.state]))
-    card.append(top, el('p', {}, plugin.description), el('small', {}, `${plugin.id} · v${plugin.version} · ${plugin.builtin ? '内置插件' : '第三方 · 完全信任'}${plugin.pid ? ' · PID ' + plugin.pid : ''}`))
-    if (plugin.dependencies.length) card.append(el('small', {}, (plugin.builtin ? '插件包依赖：' : '兼容插件依赖：') + plugin.dependencies.join('、')))
+    card.append(top, el('p', {}, plugin.description), el('small', {}, `${plugin.id} · v${plugin.version} · workspace 插件`))
+    if (Object.keys(plugin.packageDependencies || {}).length) card.append(el('small', {}, '代码包依赖：' + Object.keys(plugin.packageDependencies).join('、')))
     if (exclusive) {
       const group = el('div', { class: 'theme-group' }), swatch = el('i', { class: 'theme-swatch', 'aria-hidden': 'true' })
       swatch.style.background = plugin.swatch
@@ -124,7 +129,6 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     const error = failures.get(plugin.id)?.message || plugin.error
     if (error) card.append(el('pre', { class: 'plugin-error' }, error))
     if (plugin.configError) card.append(el('p', { class: 'plugin-error' }, plugin.configError))
-    if (plugin.logs?.length) { const details = el('details'); details.append(el('summary', {}, '后端日志'), el('pre', {}, plugin.logs.join(''))); card.append(details) }
     const actions = el('div', { class: 'plugin-actions' }), on = plugin.enabled && plugin.state !== 'failed'
     const toggle = el('button', { disabled: busy || ['starting', 'stopping'].includes(plugin.state), 'aria-label': `${on ? '停用' : exclusive ? '使用' : '启用'}${plugin.name}` }, exclusive ? on ? '停用此插件' : '使用此插件' : on ? '停用' : plugin.state === 'failed' ? '重新启动' : '启用')
     toggle.onclick = () => operate(() => failures.has(plugin.id) && plugin.enabled ? retryPlugin(plugin) : changePlugin(plugin, !on)); actions.append(toggle)
@@ -134,12 +138,6 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     }
     if (plugin.state === 'failed' && !exclusive) { const stop = el('button', { disabled: busy }, '停用'); stop.onclick = () => operate(() => changePlugin(plugin, false)); actions.append(stop) }
     if (plugin.enabled && ['failed', 'disabled'].includes(plugin.clientState)) { const retry = el('button', { disabled: busy }, '重载前端'); retry.onclick = () => operate(() => retryPlugin(plugin)); actions.append(retry) }
-    if (!plugin.builtin) {
-      const remove = el('button', { disabled: working || plugin.state !== 'disabled', 'aria-label': `卸载${plugin.name}` }, '卸载（保留数据）')
-      remove.onclick = () => operate(() => request(`/api/plugins/${plugin.id}`, 'DELETE')); actions.append(remove)
-      const clear = el('button', { disabled: working || plugin.state !== 'disabled' }, '清理数据')
-      clear.onclick = () => { const confirmation = window.prompt(`将永久删除 ${plugin.name} 在专属数据目录内的文件。输入插件 ID ${plugin.id} 确认：`); if (confirmation === plugin.id) operate(async () => { await request(`/api/plugins/${plugin.id}/clear-data`, 'POST', { confirmation }); toast('插件专属数据已清理') }) }; actions.append(clear)
-    }
     card.append(actions); return card
 }
 async function changePlugin(plugin, enabled) {
@@ -192,7 +190,12 @@ async function operate(fn, propagate = false) {
   try { await fn() } catch (error) { toast(error.message); if (propagate) throw error } finally { working = false; await scheduleSync() }
 }
 async function synchronize() {
+  if (leaving) return
   const next = await request('/api/plugins')
+  if (next.application.session !== pageSession) return followApplication()
+  application = next.application
+  applicationsView.render(application, working)
+  if (application.phase !== 'idle') return
   // A remote stop is already committed: disposal must not start another save
   // against disappearing services. Edits are backed up when they occur.
   if (next.pendingConfig?.backend) return
@@ -202,26 +205,36 @@ async function synchronize() {
   await host.sync(snapshot.plugins)
   renderManager()
 }
+async function followApplication() {
+  if (leaving) return
+  leaving = true
+  document.querySelector('#app').inert = true
+  try {
+    await root.parallel('plugins/remote-stop', { targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) })
+  } catch (error) { toast(error.message) }
+  try { await host.sync([]) } finally { location.reload() }
+}
+async function switchApplication(id) {
+  if (leaving) return
+  await stopping.run({ reason: 'application', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, async () => {
+    await request('/api/applications/switch', 'POST', { id, session: pageSession })
+    await followApplication()
+  })
+}
 function scheduleSync() { const task = syncQueue.then(synchronize); syncQueue = task.catch(error => { $('#connection').textContent = '连接中断'; toast(error.message) }); return syncQueue }
 $('#manage-plugins').onclick = () => { $('#plugin-manager').showModal(); scheduleSync() }
 $('#close-manager').onclick = () => $('#plugin-manager').close()
 $('#plugin-manager').addEventListener('cancel', event => { if (working) event.preventDefault() })
 $('#plugin-manager').addEventListener('close', () => { document.body.append($('#toast')); $('#toast').hidden = true })
-$('#plugin-file').onchange = async event => {
-  installPackage = null; $('#install-preview').hidden = true; $('#trust-plugin').checked = false; $('#install-plugin').disabled = true
-  const file = event.target.files[0]; if (!file) return
-  try {
-    if (file.size > 2 * 1024 * 1024) throw new Error('插件包不能超过 2 MB')
-    const pkg = JSON.parse(await file.text()); if (!pkg.manifest?.id || !pkg.files) throw new Error('请选择 .cordis-plugin.json 插件包')
-    installPackage = pkg; $('#install-description').textContent = `${pkg.manifest.name} · ${pkg.manifest.id} · v${pkg.manifest.version}`; $('#install-preview').hidden = false
-  } catch (error) { toast(error.message) }
-}
-$('#trust-plugin').onchange = event => $('#install-plugin').disabled = !event.target.checked
-$('#install-plugin').onclick = () => operate(async () => {
-  if (!installPackage || !$('#trust-plugin').checked) return
-  await request('/api/plugins/install', 'POST', { package: installPackage, trust: true }); installPackage = null; $('#install-preview').hidden = true; $('#plugin-file').value = ''; toast('安装完成。点击启用以启动插件。')
-})
+$('#application-picker').addEventListener('close', () => { document.body.append($('#toast')); $('#toast').hidden = true })
 const events = new EventSource('/api/events')
+events.addEventListener('applications', event => {
+  const next = JSON.parse(event.data)
+  if (next.session !== pageSession && next.phase === 'idle') { void followApplication(); return }
+  application = next; applicationsView.render(application, working)
+})
 events.addEventListener('plugins', () => { $('#connection').textContent = '本地连接正常'; scheduleSync() })
 events.onerror = () => { $('#connection').textContent = '正在重新连接…' }
 await scheduleSync()
+
+if (!application.current && !leaving) applicationsView.open()

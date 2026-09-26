@@ -1,12 +1,14 @@
 # Workspace 插件开发指南
 
-内置插件现在是 `plugins/*` 下的 pnpm workspace 包。插件自己声明入口、服务、配置、公开资源和构建任务；宿主扫描 JSON 清单，不维护业务注册表。第三方 API v1 安装包继续沿用原协议。
+插件位于 `applications/<app>/plugins/*`，各自是 pnpm workspace 包。本文以笔记应用 `applications/notebook/plugins/` 为例；新增应用见 [应用开发与切换指南](应用开发与切换指南.md)。插件自己声明入口、服务、配置、公开资源和构建任务；宿主扫描 JSON 清单，不维护业务注册表。当前只保留 workspace 插件体系；旧第三方 API v1 的安装和执行路径已移除。
+
+宿主页面不再固定显示笔记应用品牌，浏览器默认标题为「插件应用」，顶栏只保留连接状态和插件管理入口。应用名称与品牌展示应归属具体界面插件。
 
 关于如何划分职责、减少隐含耦合并保留插件灵活性，另见 [插件设计与协作指南](插件设计与协作指南.md)。该指南提供设计建议，不增加强制检查。
 
 ## 1. 新增一个普通插件
 
-新增 `plugins/note-caption/package.json`：
+新增 `applications/notebook/plugins/note-caption/package.json`：
 
 ```json
 {
@@ -38,7 +40,7 @@
 }
 ```
 
-再新增 `plugins/note-caption/client.ts`：
+再新增 `applications/notebook/plugins/note-caption/client.ts`：
 
 ```ts
 import type { ClientContext, ClientSDK } from '@cordis-notebook/host'
@@ -66,9 +68,9 @@ export default function (ctx: ClientContext, sdk: ClientSDK) {
 
 | 字段 | 含义 |
 | --- | --- |
-| package `name` / `version` / `type` | `@cordis-notebook/<id>`、`x.y.z`、`module` |
+| package `name` / `version` / `type` | 有效且全 workspace 唯一的 npm 包名、`x.y.z`、`module`；笔记继续使用 `@cordis-notebook/<id>` |
 | package `dependencies` | 实际代码包依赖、公开类型所在的 workspace 包；交给 pnpm 安装 |
-| `cordis.schemaVersion` | 当前固定为 1，与第三方 API v1 是不同协议 |
+| `cordis.schemaVersion` | 当前清单格式版本固定为 1 |
 | `id` / `name` / `description` | 持久身份、显示名、描述；改 ID 会改变启停及配置键，不宜随意修改 |
 | `order` | 可选显示排序，默认 1000；不决定依赖调度顺序 |
 | `defaultEnabled` | 新安装默认是否启用，省略视为 true；已有用户保存的选择优先 |
@@ -86,11 +88,13 @@ export default function (ctx: ClientContext, sdk: ClientSDK) {
 
 清单中不写任意 shell 命令。当前支持指定的一套构建方式；新增通用构建方式才需要扩展执行器。
 
-发现器逐个读取 `plugins/*/package.json`。未知字段、无效版本、重复 ID、非法路径或公开后端入口都会使发现失败，并指出插件名称。构建模式额外检查输入文件、公开资源的构建来源及 Node 产物；运行模式只要求清单和已构建的入口、公开文件，不读取源码，也允许清单省略 build。不会悄悄跳过损坏的插件。目录符号链接及越出插件根目录的文件链接不被接受。
+发现器只读取所选应用的 `plugins/*/package.json`。未知字段、无效版本、重复 ID、非法路径或公开后端入口都会使发现失败，并指出插件名称。构建模式额外检查输入文件、公开资源的构建来源及 Node 产物；运行模式只要求清单和已构建的入口、公开文件，不读取源码，也允许清单省略 build。不会悄悄跳过损坏的插件。目录符号链接及越出插件根目录的文件链接不被接受。
 
-宿主 API 的 `packageDependencies` 展示代码包依赖；内置插件的旧 `dependencies` 数组保持为空，第三方 v1 则继续用它表达原有插件 ID 依赖。代码包关系不会进入服务启动拓扑，也不会因为一个公开类型引用就禁止停用对应插件。
+宿主 API 的 `packageDependencies` 展示代码包依赖，`requires` / `provides` 展示运行时服务需求与能力。代码包关系不会进入服务启动拓扑，也不会因为一个公开类型引用就禁止停用对应插件。
 
 ## 3. 通用构建
+
+`pnpm build` 构建全部应用，`pnpm build drawing` 只构建指定应用；二者均构建宿主入口。每个应用独立校验共享运行时提供者。
 
 所有 `input` 相对插件源码目录，`output` 相对插件 `dist/`。构建前清理该插件的 dist；不要在 dist 存放手工文件。宿主浏览器入口仍生成到 `public/runtime.js`。
 
@@ -107,7 +111,7 @@ bundle 支持 `minify` 和 `jsx: { "factory":"h", "fragment":"Fragment" }`。JSX
 
 构建器检查本包直接导入的 npm 包是否声明 dependencies；拒绝跨插件或宿主目录实现导入、workspace 包运行时导入、从浏览器入口导入后端入口，以及不属于本插件的共享运行时包。**类型引用使用 `import type`，运行时协作使用 `ctx`。** 这些是架构约束，不构成恶意代码沙箱。
 
-`/builtin/<id>/<资源路径>` 对应 `plugins/<目录>/dist/<资源路径>`。只有 public 中的文件可以访问；即使 dist 中有 server.js 或未公开 JSON，HTTP 也返回 404。源码、package.json、类型文件和 source map 不会因为在插件目录中就自动公开。新增静态资源需要同时声明构建任务及 public。
+`/builtin/<id>/<资源路径>` 对应当前应用的 `plugins/<目录>/dist/<资源路径>`。前端宿主加载模块和样式时附加 appSession，过期页面资源请求被拒绝。只有 public 中的文件可以访问；即使 dist 中有 server.js 或未公开 JSON，HTTP 也返回 404。源码、package.json、类型文件和 source map 不会因为在插件目录中就自动公开。新增静态资源需要同时声明构建任务及 public。
 
 ## 4. 类型归属与前后端隔离
 
@@ -141,13 +145,13 @@ declare module '@cordis-notebook/host' {
 
 后端使用 `ServerServices`。使用服务的一方引用提供者的 `/client` 或 `/server` 类型入口，使用 `ClientContext` 或 `ServerContext`。不要再把业务属性直接合并到全局 Cordis Context，否则同名服务的前后端接口会混在一起。业务事件声明保留在其所有者插件中；宿主只声明通用生命周期事件。
 
-类型检查自动收集 `plugins/*/types/*.d.ts` 和 `plugins/*/test/*.types.ts`，因此新插件不需要加入类型总表。现有根类型测试是类型的消费者，其 imports 对应根包 devDependencies；这不是运行时插件注册机制。esbuild 会移除 TS 类型，但不负责类型检查；插件作者应在自己的 test/*.types.ts 中引用并检验实现或契约。
+类型检查自动收集 `applications/*/plugins/*/types/*.d.ts` 和 `applications/*/plugins/*/test/*.types.ts`，因此新插件不需要加入类型总表。现有根类型测试是类型的消费者，其 imports 对应根包 devDependencies；这不是运行时插件注册机制。esbuild 会移除 TS 类型，但不负责类型检查；插件作者应在自己的 test/*.types.ts 中引用并检验实现或契约。
 
 ## 5. 加载与兼容
 
 发现阶段不 import 后端入口，即使扫描一个默认关闭的插件，其顶层代码也不会运行。先读已保存启停选择，启用记录才进入 Cordis；后端服务依赖满足后才导入 dist 入口并执行 apply。等待服务时仍保留启用选择。Node 会缓存模块，启停用于释放/重新创建插件实例，修改后端代码后需构建并重启进程。
 
-这次保留了所有原有插件 ID、显示顺序、服务需求、默认启用选择、主题组、配置字段及版本、笔记结构、图片与插件专属数据路径。迁移不需要重写 data。第三方安装包的校验、独立进程、RPC 和完全信任模式保持不变。
+应用目录迁移保留原有插件 ID、服务、启用选择、配置与笔记结构。笔记数据根目录改为 `data/apps/notebook/`；首次使用复制旧数据且保留原件，应用内相对路径不变。旧 API v1 插件不再加载，磁盘上的旧安装文件和专属数据不会自动删除。Workspace 后端仍在宿主进程内按完全信任模式执行。
 
 ## 6. 验收与排查
 
@@ -158,7 +162,7 @@ pnpm test
 
 `test/plugin-workspace.test.js` 在独立临时 workspace 中新增插件，验证发现不执行代码、独立类型扩展、构建及 HTTP 白名单、前端卸载、后端启停与重启恢复，并核对宿主注册/类型/构建入口未改变。它也验证包依赖不启用服务、等待恢复、损坏清单和实现导入边界。
 
-`test/service-sides.types.ts` 验证前后端同名能力不会串用：后端不能挂载 DOM 编辑器，前端不能取得本地图片存储目录。原有笔记、富文本、React 生命周期、配置、主题及 API v1 回归继续运行。
+`test/service-sides.types.ts` 验证前后端同名能力不会串用：后端不能挂载 DOM 编辑器，前端不能取得本地图片存储目录。原有笔记、富文本、React 生命周期、配置、主题回归继续运行；`test/plugins.test.js` 验证旧安装记录不执行、旧数据保留和已移除路由返回 404。
 
 清单错误先检查 package.json；模块加载失败先运行 pnpm install 和 pnpm build，再看插件后端错误与浏览器控制台；不要用手改 dist 来掩盖源码或清单问题。完整构建与类型检查通过后，再验证真实页面中的输入、主题和插件启停。
 
@@ -169,7 +173,7 @@ pnpm test
 ```ts
 import type { ServerContext, ServerRuntime } from '@cordis-notebook/host/server'
 export default function (ctx: ServerContext, config: Record<string, unknown>, runtime: ServerRuntime) {
-  // runtime.dataDir 已存在：<dataDir>/plugin-data/<插件 ID>
+  // runtime.dataDir 已存在：<宿主 dataDir>/apps/<应用 ID>/plugin-data/<插件 ID>
   // runtime.config 始终返回当前设置；config 是本次激活的初始设置。
   ctx.http.route(ctx, 'GET', /^\/api\/counter$/, () => ({ value: runtime.config.value }))
   runtime.onConfig(async (next, signal) => {
@@ -183,13 +187,13 @@ export default function (ctx: ServerContext, config: Record<string, unknown>, ru
 
 正式配置仍写入 `plugins-config.json`，启停状态仍写入 `plugins-state.json`。预览失败、页面确认超时或写盘失败时，后端重建为原配置，前端恢复正式快照；恢复失败会明确报错。后端预览期间服务已使用候选设置，但尚未写入正式配置，其他页面不会主动挂载该未确认后端代次。这不是跨所有页面、数据库和外部副作用的原子事务；插件自己的文件写入或外部命令不能靠配置回滚自动撤销。
 
-新插件将私有数据存入 `runtime.dataDir`。原存储插件继续读取 `<dataDir>/notes.json`，第三方 v1 数据路径不改。图片插件的新文件写入 `<dataDir>/plugin-data/note-assets/`，旧 `<dataDir>/note-assets/` 及自定义 file 旁的 note-assets/ 保留兼容读取，不迁移或删除。`createApp({file})` 仍作为兼容入口，通过 `runtime.legacyFile` 供相关插件兼容旧路径；通常使用 `createApp({dataDir})` 即可。自定义旧路径仍有图片时，保留该入口或先显式处理旧图片。
+新插件将私有数据存入 `runtime.dataDir`。本段的 `<dataDir>` 指应用数据根目录，默认笔记是 `data/apps/notebook/`。原存储插件读取该目录的 `notes.json`。图片插件的新文件写入 `<dataDir>/plugin-data/note-assets/`，旧 `<dataDir>/note-assets/` 及自定义 file 旁的 note-assets/ 保留兼容读取，不迁移或删除。`createApp({file})` 仍作为兼容入口，通过 `runtime.legacyFile` 供相关插件兼容旧路径；默认运行使用 `createHost({dataDir})`，会再按应用划分数据；`createApp({dataDir})` 是保留原根目录语义的单应用测试适配器。自定义旧路径仍有图片时，保留该入口或先显式处理旧图片。
 
 ## 8. 界面挂载与样式所有权
 
 宿主只提供通用的命名挂载注册表，不认识 shell、noteListUI 或特定布局插件 ID。提供者用 `sdk.slot(name, element)` 或 `sdk.slot(name, (consumer, node) => …)` 注册挂载点，消费者用 `sdk.mount(name, node)` 挂载。注册与节点随各自的 Cordis 上下文释放。消费者仍须在 requires 中声明提供该插槽的服务；插槽名称本身不参与依赖调度。
 
-布局插件声明 sidebar/editor/toolbar/footer 等挂载点，列表插件声明 list-filters。复杂扩展也可以继续通过服务的 mount 方法使用。第三方 v1 自定义插槽的优先级保持兼容。
+布局插件声明 sidebar/editor/toolbar/footer 等挂载点，列表插件声明 list-filters。复杂扩展也可以继续通过服务的 mount 方法使用。挂载点由提供者拥有，同名挂载点不可重复注册；提供者停用后可由其他插件重新提供。
 
 业务插件自己订阅 `plugins/before-stop` 保护操作；宿主通过 `plugins/remote-stop` 并行通知其他页面或远端触发的移除，事件参数是 `{targets: string[]}`。笔记草稿提示由 notebook 插件处理，宿主不读取 notebook 的内部状态。
 
@@ -218,6 +222,8 @@ pnpm start:runtime
 
 导出目标必须尚不存在，父目录须存在。每个插件只携带 package.json 和 dist；删除 build、类型 exports、devDependencies 与 workspace 类型/样式开发依赖。普通 npm dependencies 保留，由导出目录自己的 pnpm workspace 安装，后端依赖不借用原源码插件的 node_modules。需要可复现部署时，保存首次安装生成的锁文件，后续用 `--frozen-lockfile`。
 
-运行仍需要宿主的 server/client-host/shared/public 文件及其生产依赖；这是插件运行包导出，不是整个应用的单文件发行包。`start:runtime` 不构建；`start` 与 `dev` 仍是源码开发入口。清单发现会验证 dist 文件存在，公开资源继续受 public 白名单限制。此机制不修改第三方 `.cordis-plugin.json` 安装协议，也不支持在管理页面直接安装 workspace 导出包。
+运行仍需要宿主的 server/client-host/shared/public 文件及其生产依赖；这是插件运行包导出，不是整个应用的单文件发行包。`start:runtime` 不构建；`start` 与 `dev` 仍是源码开发入口。清单发现会验证 dist 文件存在，公开资源继续受 public 白名单限制。管理页面不提供安装功能；workspace 导出包通过 `PLUGINS_DIR` 接入。
 
 实际验收覆盖新增自定义分类、声明 CSS、纯后端设置、独立数据目录、配置失败回滚及移除源码后的启动恢复。新普通插件使用现有构建方式时，只需添加自身目录、清单与依赖，不需要再维护宿主业务注册列表。
+
+新增应用优先使用 `pnpm export:app <应用ID> <新目录>`，将应用清单、图标及插件运行包一并交付；上文 `export:plugins` / `PLUGINS_DIR` 保留为单目录开发入口。前端业务请求用 `sdk.request()`，浏览器持久化用 `sdk.storage.local/session`，避免不同应用的草稿和偏好混用。

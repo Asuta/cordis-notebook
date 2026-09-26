@@ -1,0 +1,72 @@
+{
+  "name": "@cordis-drawing/canvas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cordis": "4.0.0-rc.10"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "canvas",
+    "name": "画布与画笔",
+    "description": "画图应用独立插件。",
+    "defaultEnabled": true,
+    "order": 1,
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "requires": {
+      "server": [
+        "drawingStorage",
+        "http"
+      ],
+      "client": []
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "client": "client.js",
+    "settings": {
+      "mode": "live",
+      "fields": {
+        "brushSize": {
+          "type": "number",
+          "label": "默认画笔粗细",
+          "default": 6,
+          "min": 1,
+          "max": 40,
+          "integer": true
+        }
+      }
+    }
+  }
+}

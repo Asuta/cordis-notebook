@@ -58,7 +58,7 @@ export class PluginSettings {
       this.assertIdle()
       if (this.manager.pendingSwitch) throw fail(409, '正在确认插件切换，请稍后再试')
       const record = this.manager.records.get(id)
-      if (!record?.manifest.builtin || !record.manifest.settings) throw fail(400, '此插件尚未提供配置声明')
+      if (!record?.manifest.settings) throw fail(400, '此插件尚未提供配置声明')
       const previous = this.describe(record)
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== previous.configRevision) throw fail(409, '配置已在其他页面更新，请载入最新设置后重试')
       let value

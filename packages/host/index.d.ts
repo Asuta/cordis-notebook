@@ -24,7 +24,7 @@ export interface ClientContext extends ScopedContext, ClientServices {}
 export interface ServerContext extends ScopedContext, ServerServices {}
 export type Validation = void | string | false | null
 export interface StopChange {
-  readonly reason: 'disable' | 'reload' | 'switch' | 'configure'
+  readonly reason: 'disable' | 'reload' | 'switch' | 'configure' | 'application'
   /** Direct operation targets. All preparation listeners may protect their state. */
   readonly targets: readonly string[]
 }
@@ -34,13 +34,14 @@ export interface StopRequest extends StopChange {
 }
 export interface ClientSDK {
   readonly id: string
+  readonly application: { id: string; name: string; legacyBrowserStorage?: boolean }
+  readonly storage: { local: Storage; session: Storage }
   /** Aborted on startup timeout or activation disposal. */
   readonly signal: AbortSignal
   readonly config: Readonly<Record<string, string | number | boolean>>
   onConfig(callback: (config: Readonly<Record<string, string | number | boolean>>, signal: AbortSignal) => void | Promise<void>): () => unknown
   provide<T extends object>(name: string, value: T): T
   request<T = unknown>(path: string, method?: string, data?: unknown): Promise<T>
-  rpc<T = unknown>(method: string, args?: unknown): Promise<T>
   service<K extends keyof ClientServices>(name: K): ClientServices[K]
   effect(callback: () => void | (() => void | Promise<void>)): () => unknown
   listen(target: EventTarget, event: string, handler: EventListener): void

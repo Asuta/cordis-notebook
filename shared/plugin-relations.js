@@ -1,4 +1,4 @@
-// Package requirements are explicit IDs. Service requirements are scoped names.
+// Service requirements are scoped names; package dependencies do not determine runtime activation.
 // This projection is for inspection/protection only, never for startup ordering.
 export function serviceRelations(plugin, plugins) {
   const result = []
@@ -13,5 +13,5 @@ export function serviceRelations(plugin, plugins) {
   return result
 }
 export function dependencyIds(plugin, plugins) {
-  return [...new Set([...(plugin.dependencies || []), ...serviceRelations(plugin, plugins).map(r => r.provider).filter(Boolean)])]
+  return [...new Set(serviceRelations(plugin, plugins).map(r => r.provider).filter(Boolean))]
 }

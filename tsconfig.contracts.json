@@ -14,8 +14,8 @@
   "include": [
     "packages/*/*.d.ts",
     "client/contracts/*.d.ts",
-    "plugins/*/types/*.d.ts",
-    "plugins/*/test/*.types.ts",
+    "applications/*/plugins/*/types/*.d.ts",
+    "applications/*/plugins/*/test/*.types.ts",
     "test/*.types.ts"
   ]
 }

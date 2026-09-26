@@ -3,7 +3,7 @@ import { dependencyGraph } from './dependency-graph.js'
 export function createDependencyView({ el, card, labels, failures }) {
   const host = el('section', { id: 'dependency-view', 'aria-label': '插件依赖树', hidden: true })
   const controls = el('div', { class: 'dependency-controls' }), tools = el('div')
-  controls.append(el('p', {}, '下级依赖上级提供的服务或兼容插件。服务绑定与插件包依赖分别显示在详情中；↗ 表示共享引用。'), tools)
+  controls.append(el('p', {}, '下级依赖上级提供的服务。服务绑定与代码包依赖分别显示在详情中；↗ 表示共享引用。'), tools)
   const expand = el('button', {}, '全部展开'), collapse = el('button', {}, '全部收起'); tools.append(expand, collapse)
   const legend = el('div', { class: 'dependency-legend' })
   for (const [state, label] of [['enabled', '运行中'], ['waiting', '等待服务'], ['disabled', '已停用'], ['failed', '失败']]) { const item = el('span'); item.append(el('i', { class: 'dependency-dot ' + state }), document.createTextNode(label)); legend.append(item) }
@@ -39,8 +39,8 @@ export function createDependencyView({ el, card, labels, failures }) {
     detail.replaceChildren(); const plugin = graph.byId.get(selected)
     if (!plugin) { detail.append(el('p', {}, '选择一个插件查看依赖关系。')); return }
     detail.append(card(plugin, 'dependency-selected-card'))
-    if (plugin.builtin && plugin.exclusiveGroup) detail.append(relations('同组候选（只能启用一个，不是依赖关系）', plugins.filter(p => p.exclusiveGroup === plugin.exclusiveGroup && p.id !== plugin.id).map(p => p.id), '没有其他候选'))
-    detail.append(relations('关联的服务提供者 / 兼容插件', graph.dependencies.get(selected), '无插件关联；宿主服务和缺失服务请查看上方声明'))
+    if (plugin.exclusiveGroup) detail.append(relations('同组候选（只能启用一个，不是依赖关系）', plugins.filter(p => p.exclusiveGroup === plugin.exclusiveGroup && p.id !== plugin.id).map(p => p.id), '没有其他候选'))
+    detail.append(relations('关联的服务提供者', graph.dependencies.get(selected), '无插件关联；宿主服务和缺失服务请查看上方声明'))
     detail.append(relations('直接依赖它的插件', graph.dependents.get(selected), '没有其他插件直接依赖它'))
     const indirect = [...graph.downstream(selected)].filter(id => !graph.dependents.get(selected).includes(id))
     if (indirect.length) detail.append(relations('间接依赖它的插件', indirect, ''))
@@ -83,7 +83,7 @@ export function createDependencyView({ el, card, labels, failures }) {
     }
     for (const id of graph.roots) list.append(branch(id, false, id))
     tree.append(list)
-    if (!items.length) tree.append(el('p', { class: 'dependency-empty' }, '还没有已安装的插件。'))
+    if (!items.length) tree.append(el('p', { class: 'dependency-empty' }, '还没有发现插件。'))
     if (graph.cycles.size) tree.append(el('p', { class: 'dependency-impact' }, '发现循环依赖，相关节点已拆开显示；原始依赖保留在详情中。'))
     renderDetail()
     if (focused) [...tree.querySelectorAll('[data-focus-key]')].find(node => node.dataset.focusKey === focused)?.focus({ preventScroll: true })

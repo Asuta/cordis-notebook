@@ -10,7 +10,7 @@ test('每个内置插件聚合在同名目录，浏览器入口、相对依赖�
   const dir = await mkdtemp(join(tmpdir(), 'cordis-assets-'))
   let app
   try {
-    const folders = (await readdir('plugins', { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name)
+    const folders = (await readdir('applications/notebook/plugins', { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name)
     assert.deepEqual(folders.sort(), builtins.map(item => item.manifest.id).sort())
     app = await createApp({ port: 0, file: join(dir, 'notes.json') })
     const base = `http://127.0.0.1:${app.server.address().port}`, seen = new Set()
@@ -30,7 +30,7 @@ test('每个内置插件聚合在同名目录，浏览器入口、相对依赖�
       for (const [, stylesheet] of source.matchAll(/href:\s*['"]([^'"]+\.css)['"]/g)) await visit(new URL(stylesheet, url).href)
     }
     for (const { manifest, server, clientAssets } of builtins) {
-      if (server) await access(`plugins/${manifest.id}/server.js`)
+      if (server) await access(`applications/notebook/plugins/${manifest.id}/server.js`)
       if (manifest.client) {
         assert.equal(manifest.client, 'client.js')
         await visit(`${base}/builtin/${manifest.id}/${manifest.client}`)
@@ -46,7 +46,7 @@ test('每个内置插件聚合在同名目录，浏览器入口、相对依赖�
 
 test('插件源码只能导入自身实现或外部包，宿主与其他插件能力通过服务使用', async () => {
   for (const { manifest } of builtins) {
-    const root = resolve('plugins', manifest.id)
+    const root = resolve('applications/notebook/plugins', manifest.id)
     for (const name of await readdir(root)) {
       if (!name.endsWith('.js') || name.endsWith('.bundle.js')) continue
       const file = join(root, name), source = await readFile(file, 'utf8')

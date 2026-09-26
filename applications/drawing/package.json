@@ -1,0 +1,12 @@
+{
+  "name": "@applications/drawing",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordisApp": {
+    "id": "drawing",
+    "name": "画图",
+    "description": "独立的画布、画笔和作品存储。",
+    "icon": "assets/icon.svg"
+  }
+}

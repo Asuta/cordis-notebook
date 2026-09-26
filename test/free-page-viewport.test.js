@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createViewport } from '../plugins/free-page-editor/viewport.js'
+import { createViewport } from '../applications/notebook/plugins/free-page-editor/viewport.js'
 
 function fixture() {
   let visible = false,

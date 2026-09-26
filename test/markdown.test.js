@@ -4,8 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../server/server.js'
-import { createMarkdownFormat } from '../plugins/format-markdown/format.js'
-import { createMarkdown } from '../plugins/markdown/parser.js'
+import { createMarkdownFormat } from '../applications/notebook/plugins/format-markdown/format.js'
+import { createMarkdown } from '../applications/notebook/plugins/markdown/parser.js'
 const markdown = createMarkdown(), markdownFormat = createMarkdownFormat(markdown)
 const { render: renderMarkdown, toText: markdownText } = markdown
 

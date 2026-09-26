@@ -1,0 +1,41 @@
+{
+  "name": "@cordis-drawing/storage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cordis": "4.0.0-rc.10"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "storage",
+    "name": "作品存储",
+    "description": "画图应用独立插件。",
+    "defaultEnabled": true,
+    "order": 0,
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "requires": {
+      "server": [],
+      "client": []
+    },
+    "provides": {
+      "server": [
+        "drawingStorage"
+      ],
+      "client": []
+    },
+    "public": [],
+    "styles": [],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ]
+  }
+}

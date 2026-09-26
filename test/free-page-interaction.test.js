@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
-import freePage from '../plugins/free-page-editor/dist/client.js'
-import { documentService } from '../plugins/rich-text/document.js'
-import { createFreeformFormat } from '../plugins/format-freeform/format.js'
+import freePage from '../applications/notebook/plugins/free-page-editor/dist/client.js'
+import { documentService } from '../applications/notebook/plugins/rich-text/document.js'
+import { createFreeformFormat } from '../applications/notebook/plugins/format-freeform/format.js'
 
 test('容器快速拖动与缩放坐标正确，Shift 合并保留富文本且一次撤销恢复', async () => {
   const window = new Window(),

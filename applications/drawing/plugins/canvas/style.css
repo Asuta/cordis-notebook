@@ -1,0 +1,10 @@
+.drawing-app { padding: 28px clamp(16px, 4vw, 64px); max-width: 1500px; margin: auto; color: #302b40; }
+.drawing-app h1 { font-size: 28px; font-weight: 600; margin: 0 0 8px; }
+.drawing-hint { color: #787186; margin: 0 0 22px; }
+.drawing-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.drawing-toolbar input, .drawing-toolbar button { border: 1px solid #d9d4e6; padding: 8px 12px; background: white; border-radius: 7px; color: #443557; }
+.drawing-toolbar input[type="color"] { padding: 3px; width: 44px; height: 36px; }
+.drawing-toolbar input[type="range"] { width: 110px; accent-color: #7260ad; }
+.drawing-toolbar input[aria-label="作品标题"] { width: min(220px, 100%); margin-right: auto; }
+.drawing-toolbar button:hover { background: #eee9f6; }
+.drawing-app canvas { display: block; width: 100%; height: auto; background: white; border: 1px solid #d9d4e6; border-radius: 8px; touch-action: none; cursor: crosshair; box-shadow: 0 8px 32px #32224909; }

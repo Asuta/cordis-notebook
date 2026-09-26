@@ -28,7 +28,7 @@ test('Cordis 笔记服务：增改查删、并发写入、持久化与生命周�
     assert.equal((await fetch(base + '/shared/config-schema.js')).status, 404)
     assert.equal((await fetch(base + '/builtin/format-plain/client.js')).status, 200)
     assert.equal((await fetch(base + '/builtin/note-formats/client.js')).status, 200)
-    assert.equal((await fetch(base + '/server/host/worker.js')).status, 404)
+    assert.equal((await fetch(base + '/server/host/plugins.js')).status, 404)
     await app.close(); assert.equal(app.server.listening, false)
     app = await createApp({ port: 0, file }); base = `http://127.0.0.1:${app.server.address().port}`
     const saved = await (await request()).json()

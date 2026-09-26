@@ -4,12 +4,14 @@ import { fileURLToPath } from 'node:url'
 import { discoverBuiltins, defaultPluginsDir } from '../server/plugin-discovery.js'
 
 /** Export built runtime packages only. Destination must not already exist. */
-export async function exportPlugins(destination, pluginsDir = defaultPluginsDir) {
+export async function exportPlugins(destination, pluginsDir = defaultPluginsDir, { workspace = true } = {}) {
   const entries = await discoverBuiltins(pluginsDir, { mode: 'runtime' })
   const output = resolve(destination)
   await mkdir(output, { recursive: false })
-  await writeFile(join(output, 'package.json'), JSON.stringify({ name:'cordis-runtime-plugins', private:true, type:'module' }, null, 2) + '\n')
-  await writeFile(join(output, 'pnpm-workspace.yaml'), "packages:\n  - '*'\n")
+  if (workspace) {
+    await writeFile(join(output, 'package.json'), JSON.stringify({ name:'cordis-runtime-plugins', private:true, type:'module' }, null, 2) + '\n')
+    await writeFile(join(output, 'pnpm-workspace.yaml'), "packages:\n  - '*'\n")
+  }
   for (const entry of entries) {
     const folder = join(output, entry.manifest.id)
     await mkdir(folder)

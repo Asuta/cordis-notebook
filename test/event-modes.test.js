@@ -18,9 +18,9 @@ function violations(source, modes) {
 
 test('业务事件声明分发模式，源码调用与契约一致', async () => {
   const paths = ['packages/host/index.d.ts']
-  for (const entry of await readdir('plugins')) {
-    const files = await readdir(`plugins/${entry}/types`).catch(() => [])
-    paths.push(...files.filter(name => name.endsWith('.d.ts')).map(name => `plugins/${entry}/types/${name}`))
+  for (const entry of await readdir('applications/notebook/plugins')) {
+    const files = await readdir(`applications/notebook/plugins/${entry}/types`).catch(() => [])
+    paths.push(...files.filter(name => name.endsWith('.d.ts')).map(name => `applications/notebook/plugins/${entry}/types/${name}`))
   }
   const declarations = (await Promise.all(paths.map(path => readFile(path, 'utf8')))).join('\n')
   const modes = new Map([...declarations.matchAll(/@mode\s+(\w+)\s*\*\/\s*'([^']+)'/g)].map(([, mode, event]) => [event, mode]))
@@ -33,7 +33,7 @@ test('业务事件声明分发模式，源码调用与契约一致', async () =>
     const source = await readFile(`client/${file}`, 'utf8')
     assert.deepEqual(violations(source, modes), [], file)
   }
-  const model = await readFile('plugins/notebook/model.js', 'utf8')
+  const model = await readFile('applications/notebook/plugins/notebook/model.js', 'utf8')
   assert.match(model, /const publish = \(name, value\) => \{ void ctx\.parallel\(name, value\)/)
   assert.deepEqual(violations(await readFile('test/contracts.types.ts', 'utf8'), modes), [])
   // Prove the check catches loss of awaiting for validation and notification drift.

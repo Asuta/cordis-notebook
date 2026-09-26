@@ -5,24 +5,21 @@ import { Window } from 'happy-dom'
 import { createMounts } from '../client/host/mounts.js'
 import { mountStyles } from '../client/host/styles.js'
 
-test('挂载点由服务提供者声明，替换提供者不依赖插件 ID，并保留 v1 自定义插槽', async () => {
-  const root = new Context(), mounts = createMounts(), original = new Set(), replacement = new Set(), custom = new Set()
-  const node = { remove() { original.delete(node); replacement.delete(node); custom.delete(node) } }
+test('挂载点由服务提供者声明，替换提供者不依赖插件 ID，同名挂载点不可重复占用', async () => {
+  const root = new Context(), mounts = createMounts(), original = new Set(), replacement = new Set()
+  const node = { remove() { original.delete(node); replacement.delete(node) } }
   const target = set => ({ append(value) { set.add(value) } })
-  const consumer = root.plugin({ inject:['shell'], apply(ctx) { mounts.mount(ctx, 'toolbar', node, { provider: true }) } })
+  const consumer = root.plugin({ inject:['shell'], apply(ctx) { mounts.mount(ctx, 'toolbar', node) } })
   try {
-    const first = root.plugin(ctx => { mounts.register(ctx, 'toolbar', target(original), { provider:true }); new Service(ctx,'shell') })
+    const first = root.plugin(ctx => { mounts.register(ctx, 'toolbar', target(original)); new Service(ctx,'shell') })
     await first; await consumer
     assert.ok(original.has(node))
     await first.dispose(); assert.equal(original.size,0)
-    const second = root.plugin(ctx => { mounts.register(ctx, 'toolbar', target(replacement), { provider:true }); new Service(ctx,'shell') })
+    const second = root.plugin(ctx => { mounts.register(ctx, 'toolbar', target(replacement)); new Service(ctx,'shell') })
     await second; await consumer
     assert.ok(replacement.has(node))
-    const override = root.plugin(ctx => mounts.register(ctx,'toolbar',target(custom)))
-    await override
-    const legacy = root.plugin(ctx => { mounts.mount(ctx,'toolbar',node) })
-    await legacy; assert.ok(custom.has(node))
-    await legacy.dispose(); await override.dispose(); await second.dispose()
+    assert.throws(() => mounts.register(root, 'toolbar', target(new Set())), /插槽已被占用/)
+    await second.dispose(); assert.equal(replacement.size, 0)
     assert.throws(()=>mounts.mount(root,'toolbar',node),/缺少界面扩展/)
   } finally {await root.fiber.dispose()}
 })

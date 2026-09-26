@@ -17,25 +17,25 @@ importers:
         version: link:packages/host
       '@cordis-notebook/markdown':
         specifier: workspace:*
-        version: link:plugins/markdown
+        version: link:applications/notebook/plugins/markdown
       '@cordis-notebook/note-assets':
         specifier: workspace:*
-        version: link:plugins/note-assets
+        version: link:applications/notebook/plugins/note-assets
       '@cordis-notebook/note-formats':
         specifier: workspace:*
-        version: link:plugins/note-formats
+        version: link:applications/notebook/plugins/note-formats
       '@cordis-notebook/notebook':
         specifier: workspace:*
-        version: link:plugins/notebook
+        version: link:applications/notebook/plugins/notebook
       '@cordis-notebook/notes':
         specifier: workspace:*
-        version: link:plugins/notes
+        version: link:applications/notebook/plugins/notes
       '@cordis-notebook/rich-text':
         specifier: workspace:*
-        version: link:plugins/rich-text
+        version: link:applications/notebook/plugins/rich-text
       '@cordis-notebook/theme-engine':
         specifier: workspace:*
-        version: link:plugins/theme-engine
+        version: link:applications/notebook/plugins/theme-engine
       '@tailwindcss/cli':
         specifier: ^4.3.3
         version: 4.3.3
@@ -52,17 +52,23 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  packages/host:
+  applications/drawing: {}
+
+  applications/drawing/plugins/canvas:
     dependencies:
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.4
 
-  plugins/editor:
+  applications/drawing/plugins/storage:
+    dependencies:
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  applications/notebook: {}
+
+  applications/notebook/plugins/editor:
     dependencies:
       '@cordis-notebook/ui':
         specifier: workspace:*
@@ -71,11 +77,11 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/editor-host:
+  applications/notebook/plugins/editor-host:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/ui':
         specifier: workspace:*
         version: link:../ui
@@ -86,13 +92,13 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/export: {}
+  applications/notebook/plugins/export: {}
 
-  plugins/format-freeform:
+  applications/notebook/plugins/format-freeform:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/notes':
         specifier: workspace:*
         version: link:../notes
@@ -103,11 +109,11 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/format-markdown: {}
+  applications/notebook/plugins/format-markdown: {}
 
-  plugins/format-plain: {}
+  applications/notebook/plugins/format-plain: {}
 
-  plugins/free-page-editor:
+  applications/notebook/plugins/free-page-editor:
     dependencies:
       '@cordis-notebook/ui':
         specifier: workspace:*
@@ -116,11 +122,11 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/layout:
+  applications/notebook/plugins/layout:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/ui':
         specifier: workspace:*
         version: link:../ui
@@ -131,11 +137,11 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/markdown:
+  applications/notebook/plugins/markdown:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
@@ -143,7 +149,7 @@ importers:
         specifier: 15.0.2
         version: 15.0.2
 
-  plugins/markdown-editor:
+  applications/notebook/plugins/markdown-editor:
     dependencies:
       '@cordis-notebook/ui':
         specifier: workspace:*
@@ -152,20 +158,20 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/note-assets:
+  applications/notebook/plugins/note-assets:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/note-formats:
+  applications/notebook/plugins/note-formats:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/notes':
         specifier: workspace:*
         version: link:../notes
@@ -173,11 +179,11 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/note-list:
+  applications/notebook/plugins/note-list:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/ui':
         specifier: workspace:*
         version: link:../ui
@@ -188,13 +194,13 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/note-summary: {}
+  applications/notebook/plugins/note-summary: {}
 
-  plugins/notebook:
+  applications/notebook/plugins/notebook:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/notes':
         specifier: workspace:*
         version: link:../notes
@@ -202,20 +208,20 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/notes:
+  applications/notebook/plugins/notes:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/notes-api:
+  applications/notebook/plugins/notes-api:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/notes':
         specifier: workspace:*
         version: link:../notes
@@ -223,9 +229,9 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/pin: {}
+  applications/notebook/plugins/pin: {}
 
-  plugins/plugin-manager-ui:
+  applications/notebook/plugins/plugin-manager-ui:
     dependencies:
       '@cordis-notebook/ui':
         specifier: workspace:*
@@ -234,11 +240,11 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/rich-text:
+  applications/notebook/plugins/rich-text:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@tiptap/core':
         specifier: ^3.31.3
         version: 3.31.3(@tiptap/pm@3.31.3)
@@ -273,7 +279,7 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/search:
+  applications/notebook/plugins/search:
     dependencies:
       '@cordis-notebook/ui':
         specifier: workspace:*
@@ -282,22 +288,22 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
 
-  plugins/stats: {}
+  applications/notebook/plugins/stats: {}
 
-  plugins/storage:
+  applications/notebook/plugins/storage:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/theme:
+  applications/notebook/plugins/theme:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/theme-engine':
         specifier: workspace:*
         version: link:../theme-engine
@@ -305,11 +311,11 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/theme-blue:
+  applications/notebook/plugins/theme-blue:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/theme-engine':
         specifier: workspace:*
         version: link:../theme-engine
@@ -317,20 +323,20 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/theme-engine:
+  applications/notebook/plugins/theme-engine:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/theme-night:
+  applications/notebook/plugins/theme-night:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@cordis-notebook/theme-engine':
         specifier: workspace:*
         version: link:../theme-engine
@@ -338,11 +344,11 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
-  plugins/ui:
+  applications/notebook/plugins/ui:
     dependencies:
       '@cordis-notebook/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: link:../../../../packages/host
       '@radix-ui/react-dialog':
         specifier: ^1.1.23
         version: 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -392,6 +398,16 @@ importers:
       '@types/react-dom':
         specifier: ^19.3.0
         version: 19.3.0(@types/react@19.3.0)
+
+  packages/host:
+    dependencies:
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.4
 
 packages:
 
