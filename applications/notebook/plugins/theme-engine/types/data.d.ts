@@ -4,4 +4,4 @@ export interface ThemePreset {
   readonly colors: readonly [string, string, string, string, string, string, string, string]
   readonly dark?: boolean
 }
-export interface ThemeSelection { readonly id: string }
+export interface ThemeSelection { readonly id: string; readonly dark?: boolean }

@@ -10,6 +10,9 @@ import Superscript from '@tiptap/extension-superscript'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { toEditor, fromEditor, safeLink, safeImage, normalizeIndent } from './document.js'
+import { outlineEntries, selectedOutline } from './outline.js'
+import { moveAcrossOutlineBoundary } from './outline-move.js'
+import { readableInk } from './colors.js'
 
 const uid = () => crypto.randomUUID()
 const elementTypes = [
@@ -29,7 +32,9 @@ const elementTypes = [
 ]
 export function mountEditor(owner, element, options) {
   let applying = false,
-    selectAllCount = 0
+    selectAllCount = 0,
+    editor
+  let appearance = options.appearance
   const paragraphCommand = (fn) => {
     const { state, view } = editor,
       tr = state.tr,
@@ -87,24 +92,83 @@ export function mountEditor(owner, element, options) {
     paragraphCommand((n, p, tr) =>
       tr.setNodeMarkup(p, undefined, { ...n.attrs, noteTag: n.attrs.noteTag === value ? null : value, checked: false }),
     )
+  const toggleList = (ordered) => {
+    const chain = editor.chain().focus(), selected = new Map()
+    const baseIndent = at => {
+      let base = 0
+      for (let depth = 1; depth <= at.depth; depth++) {
+        const node = at.node(depth)
+        if (['bulletList', 'orderedList'].includes(node.type.name)) base++
+        if (node.type.name === 'listItem') base += node.attrs.indent || 0
+      }
+      return base
+    }
+    editor.state.doc.nodesBetween(editor.state.selection.from, editor.state.selection.to, (node, pos) => {
+      if (!node.isTextblock) return
+      const at = editor.state.doc.resolve(pos)
+      selected.set(node.attrs.id, { column: Math.max(1, baseIndent(at) + (node.attrs.indent || 0)),
+        collapsed: node.attrs.collapsed || (at.parent.firstChild === node && at.parent.attrs.collapsed) })
+    })
+    chain[ordered ? 'toggleOrderedList' : 'toggleBulletList']()
+    return chain.command(({ tr }) => {
+      // The list marker consumes one existing indentation step. Removing the
+      // marker also preserves the text position, including after a nested lift.
+      tr.doc.descendants((node, pos) => {
+        const target = selected.get(node.attrs.id)
+        if (!node.isTextblock || !target) return
+        const at = tr.doc.resolve(pos), parent = at.parent
+        if (parent.type.name === 'listItem' && at.index() === 0) {
+          tr.setNodeMarkup(at.before(), undefined, { ...parent.attrs,
+            indent: normalizeIndent(target.column - baseIndent(at) + (parent.attrs.indent || 0)),
+            collapsed: !!target.collapsed })
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: 0, collapsed: false })
+        } else tr.setNodeMarkup(pos, undefined, { ...node.attrs,
+          indent: normalizeIndent(target.column - baseIndent(at)), collapsed: !!target.collapsed })
+      })
+      return true
+    }).run()
+  }
   const moveParagraph = (direction) => {
-    const { state, view } = editor,
-      { $from } = state.selection
-    if ($from.depth < 1) return false
-    const index = $from.index(0),
-      nodes = []
-    state.doc.forEach((n) => nodes.push(n))
-    const other = index + direction
-    if (other < 0 || other >= nodes.length) return false
-    const pos = nodes.slice(0, index).reduce((n, v) => n + v.nodeSize, 0),
-      target = nodes.slice(0, other).reduce((n, v) => n + v.nodeSize, 0)
-    const lo = Math.min(pos, target),
-      hi = Math.max(pos + nodes[index].nodeSize, target + nodes[other].nodeSize)
-    const pair = direction < 0 ? [nodes[index], nodes[other]] : [nodes[other], nodes[index]]
-    const tr = state.tr.replaceWith(lo, hi, pair),
-      next = direction < 0 ? target : pos + nodes[other].nodeSize
-    tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(next + 1, tr.doc.content.size))))
-    view.dispatch(tr)
+    const { state, view } = editor
+    const selected = selectedOutline(outlineEntries(state.doc), state.selection)
+    const crossBoundary = () => {
+      const tr = moveAcrossOutlineBoundary(state, direction)
+      if (!tr) return false
+      view.dispatch(tr)
+      return true
+    }
+    if (!selected.length) return crossBoundary()
+    const first = selected[0], last = selected.at(-1)
+    const siblings = first.group.filter(e => e.parent === first.parent && e.indent === first.indent)
+    const other = siblings[siblings.indexOf(direction < 0 ? first : last) + direction]
+    if (!other || (direction < 0 ? other.end !== first.pos : last.end !== other.pos)) return crossBoundary()
+    const selectedContent = state.doc.slice(first.pos, last.end).content
+    const neighbor = state.doc.slice(other.pos, other.end).content
+    const lo = Math.min(first.pos, other.pos), hi = Math.max(last.end, other.end)
+    const content = direction < 0 ? selectedContent.append(neighbor) : neighbor.append(selectedContent)
+    const delta = direction < 0 ? other.pos - first.pos : other.end - last.end
+    const tr = state.tr.replaceWith(lo, hi, content)
+    tr.setSelection(TextSelection.create(tr.doc, state.selection.anchor + delta, state.selection.head + delta))
+    view.dispatch(tr.scrollIntoView())
+    return true
+  }
+  const fold = (collapsed, position) => {
+    if (!editor.isEditable) return false
+    const { state, view } = editor, entries = outlineEntries(state.doc)
+    const targets = (position == null ? selectedOutline(entries, state.selection) : entries.filter(e => e.pos === position))
+      .filter(e => e.header?.isTextblock && e.hasChildren)
+    if (!targets.length) return false
+    options.boundary?.()
+    const tr = state.tr
+    for (const entry of targets) {
+      const value = collapsed ?? !entry.node.attrs.collapsed
+      tr.setNodeMarkup(entry.pos, undefined, { ...entry.node.attrs, collapsed: value })
+      if (value && entry.hidden.some(({ node, pos }) =>
+        state.selection.from < pos + node.nodeSize && state.selection.to > pos)) {
+        tr.setSelection(TextSelection.near(tr.doc.resolve(entry.headerPos + 1)))
+      }
+    }
+    view.dispatch(tr.scrollIntoView())
     return true
   }
   const Meta = Extension.create({
@@ -118,6 +182,9 @@ export function mountEditor(owner, element, options) {
             default: 0,
             parseHTML: e => normalizeIndent(Number(e.getAttribute('data-indent'))),
             renderHTML: a => ({ 'data-indent': a.indent, style: `margin-left:${a.indent * 24}px` }),
+          }, collapsed: {
+            default: false, parseHTML: () => false,
+            renderHTML: a => ({ 'data-collapsed': String(a.collapsed) }),
           } },
         },
         {
@@ -170,8 +237,9 @@ export function mountEditor(owner, element, options) {
         'Mod-1': () => tag('todo'),
         'Mod-2': () => tag('important'),
         'Mod-3': () => tag('question'),
-        'Mod-.': () => editor.commands.toggleBulletList(),
-        'Mod-/': () => editor.commands.toggleOrderedList(),
+        'Alt-.': () => toggleList(false),
+        'Mod-.': () => toggleList(false),
+        'Mod-/': () => toggleList(true),
         'Mod-k': () => {
           options.link?.()
           return true
@@ -229,15 +297,40 @@ export function mountEditor(owner, element, options) {
           props: {
             decorations(state) {
               const decorations = []
-              let folded = null
-              state.doc.forEach((node, pos) => {
-                const level = node.attrs.indent || 0
-                if (folded !== null && level > folded)
+              for (const entry of outlineEntries(state.doc)) {
+                if (!entry.header?.isTextblock || !entry.hasChildren) continue
+                const collapsed = !!entry.node.attrs.collapsed
+                if (collapsed) for (const { node, pos } of entry.hidden)
                   decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: 'outline-folded' }))
-                else {
-                  folded = null
-                  if (node.attrs.collapsed) folded = level
-                }
+                decorations.push(Decoration.node(entry.headerPos, entry.headerPos + entry.header.nodeSize,
+                  { class: 'outline-parent' }))
+                decorations.push(Decoration.widget(entry.headerPos + 1, () => {
+                  const button = document.createElement('button')
+                  button.type = 'button'
+                  button.className = 'outline-fold-toggle'
+                  button.contentEditable = 'false'
+                  button.textContent = collapsed ? '+' : '−'
+                  button.setAttribute('aria-label', collapsed ? '展开子内容' : '折叠子内容')
+                  button.setAttribute('aria-expanded', String(!collapsed))
+                  button.disabled = !(editor?.isEditable ?? options.editable !== false)
+                  button.onpointerdown = event => { event.preventDefault(); event.stopPropagation() }
+                  button.onclick = event => {
+                    event.preventDefault(); event.stopPropagation()
+                    fold(!collapsed, entry.pos)
+                    editor.view.focus()
+                  }
+                  return button
+                }, { side: -1, stopEvent: () => true }))
+              }
+              if (appearance) state.doc.descendants((node, pos) => {
+                if (!node.isText) return
+                const ink = node.marks.find(m => m.type.name === 'textStyle')?.attrs.color
+                const highlight = node.marks.find(m => m.type.name === 'highlight')?.attrs.color
+                const original = ink || (highlight ? appearance.foreground : null)
+                if (!original) return
+                const display = readableInk(original, highlight || appearance.background)
+                if (display !== original || highlight) decorations.push(Decoration.inline(pos, pos + node.nodeSize,
+                  { class: 'outline-contrast', style: `--outline-readable-ink:${display}` }))
               })
               return DecorationSet.create(state.doc, decorations)
             },
@@ -251,7 +344,7 @@ export function mountEditor(owner, element, options) {
       return [{ tag: 'img[src]', getAttrs: (e) => (safeImage(e.getAttribute('src')) ? null : false) }]
     },
   })
-  const editor = new Editor({
+  editor = new Editor({
     element,
     content: toEditor(options.document),
     editable: options.editable !== false,
@@ -274,7 +367,18 @@ export function mountEditor(owner, element, options) {
       handleDOMEvents: {
         keydown(view, event) {
           // Keep native IME input, but do not pass composing keys to later shortcut plugins.
-          return event.isComposing || view.composing
+          if (event.isComposing || view.composing) return true
+          // Some IMEs report Process/229 even for a modifier chord. Handle the
+          // physical punctuation key before ProseMirror's generic 229 guard.
+          const period = ['Period', 'NumpadDecimal'].includes(event.code) ||
+            ['.', '。', '．', 'Decimal'].includes(event.key) || [190, 110].includes(event.keyCode)
+          if (period && !event.shiftKey && ((event.altKey && !event.ctrlKey && !event.metaKey) ||
+              ((event.ctrlKey || event.metaKey) && !event.altKey))) {
+            event.preventDefault(); event.stopPropagation()
+            if (!event.repeat && view.editable) { options.boundary?.(); toggleList(false) }
+            return true
+          }
+          return false
         },
         pointerdown() {
           selectAllCount = 0
@@ -287,17 +391,25 @@ export function mountEditor(owner, element, options) {
         if (event.key.toLowerCase() !== 'a' || !(event.ctrlKey || event.metaKey)) selectAllCount = 0
         if (event.ctrlKey || event.metaKey || event.altKey) options.boundary?.()
         // Chinese layouts can report 。 instead of .; use the physical punctuation key too.
-        const listShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && (
-          (!event.shiftKey && (['Period', 'NumpadDecimal', 'Slash'].includes(event.code) ||
-            ['.', '/', '。', '．', 'Decimal'].includes(event.key) || [190, 110].includes(event.keyCode))) ||
-          (event.shiftKey && (['Digit7', 'Digit8'].includes(event.code) || ['&', '*', '7', '8'].includes(event.key))))
+        const period = ['Period', 'NumpadDecimal'].includes(event.code) ||
+          ['.', '。', '．', 'Decimal'].includes(event.key) || [190, 110].includes(event.keyCode)
+        const listShortcut = (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && period) ||
+          ((event.ctrlKey || event.metaKey) && !event.altKey && (
+          (!event.shiftKey && (event.code === 'Slash' || event.key === '/')) ||
+          (event.shiftKey && (['Digit7', 'Digit8'].includes(event.code) || ['&', '*', '7', '8'].includes(event.key)))))
         if (listShortcut) {
           options.boundary?.()
           event.preventDefault()
           event.stopPropagation()
           if (event.code === 'Slash' || event.key === '/' || event.code === 'Digit7' ||
-              (event.shiftKey && ['7', '&'].includes(event.key))) editor.commands.toggleOrderedList()
-          else editor.commands.toggleBulletList()
+              (event.shiftKey && ['7', '&'].includes(event.key))) toggleList(true)
+          else toggleList(false)
+          return true
+        }
+        if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey &&
+            (['Minus', 'Equal', 'NumpadSubtract', 'NumpadAdd'].includes(event.code) || ['-', '_', '+', '='].includes(event.key))) {
+          event.preventDefault(); event.stopPropagation()
+          fold(['Minus', 'NumpadSubtract'].includes(event.code) || ['-', '_'].includes(event.key))
           return true
         }
         if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.key.startsWith('Arrow')) {
@@ -380,6 +492,11 @@ export function mountEditor(owner, element, options) {
     },
     focus: (where) => editor.commands.focus(where),
     setEditable: (value) => editor.setEditable(value, false),
+    setAppearance(value) {
+      if (appearance?.background === value.background && appearance?.foreground === value.foreground) return
+      appearance = value
+      editor.view.dispatch(editor.state.tr.setMeta('appearance', true))
+    },
     setDocument(doc) {
       applying = true
       try {
@@ -401,10 +518,8 @@ export function mountEditor(owner, element, options) {
       if (command === 'tag') return tag(value)
       if (command === 'checked')
         return paragraphCommand((n, p, tr) => tr.setNodeMarkup(p, undefined, { ...n.attrs, checked: !n.attrs.checked }))
-      if (command === 'collapse')
-        return paragraphCommand((n, p, tr) =>
-          tr.setNodeMarkup(p, undefined, { ...n.attrs, collapsed: !n.attrs.collapsed }),
-        )
+      if (command === 'collapse') return fold(value)
+      if (command === 'bullet' || command === 'number') return toggleList(command === 'number')
       if (command === 'moveParagraph') return moveParagraph(value)
       const chain = editor.chain().focus()
       const toggles = {
@@ -414,8 +529,6 @@ export function mountEditor(owner, element, options) {
         strike: 'toggleStrike',
         superscript: 'toggleSuperscript',
         subscript: 'toggleSubscript',
-        bullet: 'toggleBulletList',
-        number: 'toggleOrderedList',
         quote: 'toggleBlockquote',
         code: 'toggleCodeBlock',
       }

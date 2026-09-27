@@ -128,7 +128,7 @@ export function mountControls(ctx, root, api, sdk) {
                     </option>
                   ))}
                 </select>
-                {run('项目符号', 'bullet', null, { text: '• 列表' })}
+                {run('项目符号', 'bullet', null, { text: '• 列表', hint: '项目符号 Ctrl+句号 · 备用 Alt+句号' })}
                 {run('编号列表', 'number', null, { text: '1. 列表' })}
                 {run('减少缩进', 'indent', -1, { text: '←' })}
                 {run('增加缩进', 'indent', 1, { text: '→' })}
@@ -175,7 +175,7 @@ export function mountControls(ctx, root, api, sdk) {
                 {run('代码段落', 'code', null, { text: '代码' })}
                 {run('上移段落', 'moveParagraph', -1, { text: '上移' })}
                 {run('下移段落', 'moveParagraph', 1, { text: '下移' })}
-                {run('折叠子段落', 'collapse', null, { text: '折叠 / 展开' })}
+                {run('折叠子段落', 'collapse', null, { text: '折叠 / 展开', hint: '折叠 Alt+Shift+减号 · 展开 Alt+Shift+加号' })}
                 {btn('拆出当前段落', api.split, { text: '拆分' })}
                 {btn('复制格式', api.copyFormat)}
                 {btn('应用格式', api.pasteFormat)}
@@ -327,12 +327,14 @@ export function mountControls(ctx, root, api, sdk) {
                 ['Ctrl+B / I / U', '粗体 / 斜体 / 下划线'],
                 ['Ctrl+K', '插入链接'],
                 ['Ctrl+1 / 2 / 3', '待办 / 重要 / 问题'],
-                ['Ctrl+. / Ctrl+/', '项目符号 / 编号'],
+                ['Ctrl+. / Alt+.', '项目符号（两种按键均可）'],
+                ['Ctrl+/', '编号列表'],
                 ['Ctrl+Shift+8 / Ctrl+Shift+7', '项目符号 / 编号（中文输入法下的替代键）'],
                 ['Tab / Shift+Tab', '段落缩进；表格中切换单元格'],
                 ['Backspace（行首）', '减少一级缩进；列表中提升一级'],
                 ['操作柄 / Esc，随后 Delete', '选中并删除整个容器；Ctrl+Z 可恢复'],
-                ['Alt+Shift+↑ / ↓', '上移 / 下移段落'],
+                ['Alt+Shift+↑ / ↓', '上下移动段落或列表项，可跨列表边界，子项跟随'],
+                ['Alt+Shift+减号 / 加号', '折叠 / 展开当前项的子内容'],
                 ['Ctrl+A，再按 Ctrl+A', '文字全选 → 容器；Esc 后 Ctrl+A 全选容器'],
                 ['Ctrl+Z / Ctrl+Y', '撤销 / 重做文字和布局操作'],
                 ['Ctrl+C / X / V', '复制 / 剪切 / 粘贴文字或容器'],
@@ -348,7 +350,7 @@ export function mountControls(ctx, root, api, sdk) {
                 </React.Fragment>
               ))}
             </dl>
-            <p className="outline-shortcut-note">微软拼音会占用 Ctrl+句号切换标点，可切到英文输入或用 Ctrl+Shift+8。编辑区会拦截收到的编辑快捷键及 Alt+Shift+I；浏览器或系统优先保留的组合无法保证由网页屏蔽。</p>
+            <p className="outline-shortcut-note">项目符号使用 Ctrl+句号，也可用 Alt+句号或 Ctrl+Shift+8；中文输入时按主键盘句号键。组词选词期间不执行快捷键。编辑区会处理收到的编辑快捷键及 Alt+Shift+I；若输入法或浏览器提前截获 Ctrl+句号，请使用备用键或工具栏。</p>
           </DialogContent>
         </Dialog>
       </>

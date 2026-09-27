@@ -57,6 +57,7 @@ export function normalizeDocument(input) {
         })
       } else if (childrenTypes[node.kind]) {
         if (node.kind === 'item' && normalizeIndent(value.indent)) node.indent = normalizeIndent(value.indent)
+        if (node.kind === 'item' && value.collapsed) node.collapsed = true
         node.children = read(value.children, childrenTypes[node.kind], depth + 1)
         if (!node.children.length) throw Error('列表或表格不能缺少子节点')
         if (node.kind === 'list') {

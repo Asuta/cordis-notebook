@@ -5,6 +5,13 @@ export function applyTheme(owner, { id, colors, dark = false }) {
   style.textContent = `:root[data-theme="${id}"]{color-scheme:${dark ? 'dark' : 'light'};--theme-bg:${background};--theme-surface:${surface};--theme-panel:${panel};--theme-text:${text};--theme-muted:${muted};--theme-border:${border};--theme-accent:${accent};--theme-selected:${selected}}`
   return owner.effect(() => {
     document.head.append(style); document.documentElement.dataset.theme = id
-    return () => { style.remove(); if (document.documentElement.dataset.theme === id) delete document.documentElement.dataset.theme }
+    document.documentElement.dataset.themeMode = dark ? 'dark' : 'light'
+    return () => {
+      style.remove()
+      if (document.documentElement.dataset.theme === id) {
+        delete document.documentElement.dataset.theme
+        delete document.documentElement.dataset.themeMode
+      }
+    }
   })
 }

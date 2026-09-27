@@ -1,6 +1,8 @@
 import { createHistory } from './history.js'
 import { createViewport } from './viewport.js'
 import { mountControls } from './view.jsx'
+import { writingOrigin } from './positioning.js'
+import { pageAppearance } from './appearance.js'
 
 export default function (ctx, sdk) {
   const session = sdk.storage?.session || sessionStorage
@@ -48,6 +50,15 @@ export default function (ctx, sdk) {
     blocks = () => current()?.blocks || [],
     page = () => current()?.page || { color: '#ffffff', rule: 'none' }
   const editable = () => !!noteId && !model.busy && model.editable
+  const paint = () => {
+    const dark = document.documentElement.dataset.themeMode === 'dark'
+    const appearance = pageAppearance(page().color, dark)
+    root.dataset.paperMode = dark ? 'dark' : 'light'
+    paper.style.backgroundColor = appearance.background
+    paper.style.color = appearance.foreground
+    paper.style.caretColor = appearance.foreground
+    for (const item of nodes.values()) item.editor.setAppearance(appearance)
+  }
   const data = () => ({ blocks: structuredClone(blocks()), page: structuredClone(page()), version: 2 })
   const outline = (block) => block.outline || rich.plain(block.text || '', block.id)
   const state = () => {
@@ -405,7 +416,8 @@ export default function (ctx, sdk) {
     // since pointerdown; preserve current blocks, including additions/removals.
     const before = new Map(g.before.blocks.map((b) => [b.id, b]))
     if (g.kind === 'marquee' && !g.moved && !g.extend && editable()) {
-      add(g.start.x, g.start.y)
+      const origin = writingOrigin(paper, g.start, camera.zoom)
+      add(origin.x, origin.y)
     } else if (g.moved && g.kind === 'move') {
       const target = g.shift && blocks().find((b) => !g.selected.has(b.id) && hit(g.point, b.id))
       if (target) {
@@ -602,7 +614,7 @@ export default function (ctx, sdk) {
         item.node.style.width = block.width + 'px'
       }
     }
-    paper.style.backgroundColor = page().color
+    paint()
     paper.dataset.rule = page().rule
     if (changed) camera.restore(state().view)
     else if (!gesture) camera.layout()
@@ -849,6 +861,11 @@ export default function (ctx, sdk) {
     for (const item of nodes.values()) item.editor.destroy()
     nodes.clear()
     states.clear()
+  })
+  ctx.effect(() => {
+    const themeObserver = new MutationObserver(paint)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme-mode'] })
+    return () => themeObserver.disconnect()
   })
   model.observe(ctx, render)
 }

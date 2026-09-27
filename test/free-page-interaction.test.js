@@ -13,6 +13,7 @@ test('容器快速拖动与缩放坐标正确，Shift 合并保留富文本且�
     window,
     document: window.document,
     sessionStorage: window.sessionStorage,
+    MutationObserver: window.MutationObserver,
     ResizeObserver: class {
       observe() {}
       unobserve() {}
@@ -71,6 +72,7 @@ test('容器快速拖动与缩放坐标正确，Shift 合并保留富文本且�
               composing: false,
               setEditable() {},
               setDocument() {},
+              setAppearance() {},
               status: () => ({}),
               focus: () => options.focus(),
               destroy: () => destroyed++,

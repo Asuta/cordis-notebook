@@ -131,6 +131,20 @@ const focus = (f, id) => {
   return api
 }
 
+test('主题深浅状态即时改变纸张显示，切回浅色不改笔记和历史', async t => {
+  const f = fixture(t), before = f.note
+  document.documentElement.dataset.themeMode = 'dark'
+  await f.window.happyDOM.whenAsyncComplete()
+  assert.equal(f.root.dataset.paperMode, 'dark')
+  assert.equal(f.root.querySelector('.free-page-paper').style.backgroundColor, '#212121')
+  assert.deepEqual(f.note, before)
+  delete document.documentElement.dataset.themeMode
+  await f.window.happyDOM.whenAsyncComplete()
+  assert.equal(f.root.dataset.paperMode, 'light')
+  assert.equal(f.root.querySelector('.free-page-paper').style.backgroundColor, '#ffffff')
+  assert.deepEqual(f.note, before)
+})
+
 test('空容器离开时清理，工具栏操作和上传中的容器不被误删', async t => {
   const f = fixture(t)
   f.pointer('pointerdown', '.free-page-paper', 200, 300)
@@ -190,12 +204,12 @@ test('行首退格逐级取消 Tab 缩进，正文中不吞退格，中文句号
   assert.equal(api.document.elements[0].indent, 1, '段中退格不修改段落缩进')
   api.editor.commands.setTextSelection(1)
   key(f, dom, 'Backspace')
-  assert.equal(key(f, dom, '。', { code: 'Period', ctrlKey: true }).defaultPrevented, true)
+  assert.equal(key(f, dom, '。', { code: 'Period', altKey: true }).defaultPrevented, true)
   assert.equal(api.document.elements[0].kind, 'list')
   assert.equal(api.document.elements[0].ordered, false)
-  key(f, dom, '.', { code: 'Period', ctrlKey: true })
+  key(f, dom, '.', { code: 'Period', altKey: true })
   assert.equal(api.document.elements[0].kind, 'paragraph')
-  key(f, dom, '.', { code: 'Period', ctrlKey: true, isComposing: true })
+  key(f, dom, '.', { code: 'Period', altKey: true, isComposing: true })
   assert.equal(api.document.elements[0].kind, 'paragraph', '输入法组词期间不处理快捷键')
 })
 
