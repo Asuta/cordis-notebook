@@ -73,6 +73,7 @@ Object.assign(management, {
   relations(plugin) { return serviceRelations(plugin, snapshot.plugins.map(p => host.describe(p))) },
   dependencyTree(owner) {
     const view = createDependencyView({ el, card: pluginCard, labels, failures }); view.host.id = 'react-dependency-view'; view.host.hidden = false
+    owner.effect(() => () => view.destroy())
     management.observe(owner, () => view.render(snapshot.plugins.map(p => host.describe(p))))
     return view.host
   },
@@ -80,9 +81,10 @@ Object.assign(management, {
 let managerView = 'cards'
 try { if (localStorage.getItem('cordis-manager-view-' + (application.current?.id || 'host')) === 'tree') managerView = 'tree' } catch {}
 const viewBar = el('div', { class: 'manager-viewbar', 'aria-label': '插件显示方式' }), viewButtons = el('div', { class: 'manager-view-switch' })
-const cardsButton = el('button', { 'aria-pressed': 'true' }, '▦ 卡片视图'), treeButton = el('button', { 'aria-pressed': 'false' }, '⑂ 依赖树')
+const cardsButton = el('button', { 'aria-pressed': 'true' }, '▦ 卡片视图'), treeButton = el('button', { 'aria-pressed': 'false' }, '⇄ 依赖网图')
 viewButtons.append(cardsButton, treeButton); viewBar.append(el('span', {}, '浏览插件'), viewButtons)
 const dependencyView = createDependencyView({ el, card: pluginCard, labels, failures })
+root.effect(() => () => dependencyView.destroy())
 $('#plugin-list').before(viewBar, dependencyView.host)
 function setManagerView(view) { managerView = view; try { localStorage.setItem('cordis-manager-view-' + (application.current?.id || 'host'), view) } catch {}; renderManager() }
 cardsButton.onclick = () => setManagerView('cards'); treeButton.onclick = () => setManagerView('tree')

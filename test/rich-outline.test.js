@@ -30,6 +30,7 @@ function fixture(t, elements) {
   return { api, el, changes, pos,
     select(id, end = id) { api.editor.commands.setTextSelection({ from: pos(id) + 1, to: pos(end) + api.editor.state.doc.nodeAt(pos(end)).nodeSize - 1 }) },
     key(key, extra = {}) { const e = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra }); api.editor.view.dom.dispatchEvent(e); return e },
+    keyup(key, extra = {}) { const e = new window.KeyboardEvent('keyup', { key, bubbles: true, cancelable: true, ...extra }); api.editor.view.dom.dispatchEvent(e); return e },
   }
 }
 
@@ -232,4 +233,100 @@ test('浅深色显示调整文字对比度而不改写颜色、图片或触发�
   f.api.setAppearance({ background: '#ffffff', foreground: '#252525' })
   assert.equal(f.changes.length, changes)
   assert.deepEqual(f.api.document, before)
+})
+
+test('逐行下移插入 1 和 2 之间，再移动到 2 和 3 之间，保留列表缩进与选区', t => {
+  const f = fixture(t, [list('english-list', [item('english')]), p('111'), list('numbers', [item('222'), item('333')])])
+  const order = () => { const out = []; f.api.editor.state.doc.descendants(n => { if (n.isTextblock) out.push(n.attrs.id) }); return out }
+  f.select('english-text')
+  f.key('ArrowDown', { altKey: true, shiftKey: true })
+  assert.deepEqual(order(), ['111', 'english-text', '222-text', '333-text'])
+  const at = f.api.editor.state.doc.resolve(f.pos('english-text'))
+  assert.equal(at.parent.type.name, 'listItem')
+  assert.equal(at.parent.attrs.indent, 0)
+  assert.equal(f.api.editor.state.doc.textBetween(f.api.editor.state.selection.from, f.api.editor.state.selection.to), 'english-text')
+  f.key('ArrowDown', { altKey: true, shiftKey: true })
+  assert.deepEqual(order(), ['111', '222-text', 'english-text', '333-text'])
+  f.key('ArrowUp', { altKey: true, shiftKey: true })
+  assert.deepEqual(order(), ['111', 'english-text', '222-text', '333-text'])
+})
+
+test('经过展开的列表父项时只经过该行，折叠父项则跳过隐藏内容', t => {
+  const f = fixture(t, [list('L', [item('moving'), item('parent', [list('children', [item('child')])])])])
+  f.select('moving-text'); f.api.exec('moveParagraph', 1)
+  assert.ok(f.pos('moving-text') > f.pos('parent-text') && f.pos('moving-text') < f.pos('child-text'))
+  f.api.setDocument(normalizeDocument({ version: 1, elements: [list('L', [item('moving'),
+    { ...item('parent', [list('children', [item('child')])]), collapsed: true }])] }))
+  f.select('moving-text'); f.api.exec('moveParagraph', 1)
+  assert.ok(f.pos('moving-text') > f.pos('child-text'))
+  f.api.exec('moveParagraph', -1)
+  assert.ok(f.pos('moving-text') < f.pos('parent-text'))
+})
+
+test('句号键仅在 keyup 被识别也能触发，一次按下松开不重复切换', t => {
+  const f = fixture(t, [p('text')]); f.select('text')
+  f.key('Process', { keyCode: 229, ctrlKey: true })
+  assert.equal(f.api.document.elements[0].kind, 'paragraph')
+  assert.equal(f.keyup('.', { code: 'Period', ctrlKey: true }).defaultPrevented, true)
+  assert.equal(f.api.document.elements[0].kind, 'list')
+  f.key('.', { code: 'Period', ctrlKey: true }); f.keyup('.', { code: 'Period', ctrlKey: true })
+  assert.equal(f.api.document.elements[0].kind, 'paragraph')
+  // Some input methods suppress keydown entirely.
+  f.keyup('。', { code: 'Period', ctrlKey: true })
+  assert.equal(f.api.document.elements[0].kind, 'list')
+  f.key('Process', { keyCode: 229, ctrlKey: true })
+  f.keyup('Control'); f.keyup('.', { code: 'Period' })
+  assert.equal(f.api.document.elements[0].kind, 'paragraph')
+  f.key('Process', { keyCode: 229, ctrlKey: true, isComposing: true })
+  f.keyup('.', { code: 'Period', ctrlKey: true })
+  assert.equal(f.api.document.elements[0].kind, 'paragraph', '组词期间按下的键，结束组词后松开也不触发')
+  f.key('.', { code: 'Period' }); f.keyup('.', { code: 'Period' })
+  assert.equal(f.api.document.elements[0].kind, 'paragraph', '普通标点不触发快捷键')
+})
+
+const table = (empty = false) => ({ id: 'table', kind: 'table', children: [{ id: 'row', kind: 'row', children: [
+  { id: 'cell-a', kind: 'cell', children: [{ ...p('a'), runs: empty ? [] : [{ text: '甲' }] }] },
+  { id: 'cell-b', kind: 'cell', children: [{ ...p('b'), runs: empty ? [] : [{ text: '乙' }] }] },
+] }] })
+
+for (const key of ['Delete', 'Backspace']) test(`${key} 删除空表格、选中的整表与图片，不误删普通单元格中的非空表格`, t => {
+  const f = fixture(t, [p('before'), table(), p('after')])
+  const original = f.api.document
+  f.api.editor.commands.setTextSelection(f.pos('a') + 1)
+  // Browser text deletion remains native; our custom handler must not remove the table.
+  f.key(key)
+  assert.ok(f.api.document.elements.some(n => n.kind === 'table'))
+  f.api.setDocument(original)
+  f.api.editor.commands.setTextSelection(f.pos('a') + 1)
+  f.key('Escape')
+  assert.equal(f.api.editor.state.selection.node?.type.name, 'table')
+  f.key(key)
+  assert.deepEqual(f.api.document.elements.map(n => n.id), ['before', 'after'])
+  f.api.setDocument(original)
+  f.el.querySelector('.outline-table-select').click()
+  f.key(key)
+  assert.deepEqual(f.api.document.elements.map(n => n.id), ['before', 'after'])
+  f.api.setDocument(normalizeDocument({ version: 1, elements: [table(true)] }))
+  f.api.editor.commands.setTextSelection(f.pos('a') + 1)
+  f.key(key)
+  assert.equal(f.api.document.elements.some(n => n.kind === 'table'), false)
+  f.api.setDocument(normalizeDocument({ version: 1, elements: [p('before'),
+    { id: 'image', kind: 'image', src: '/api/note-assets/' + 'a'.repeat(64) + '.png' }, p('after')] }))
+  f.api.editor.commands.setNodeSelection(f.pos('image'))
+  f.key(key)
+  assert.deepEqual(f.api.document.elements.map(n => n.id), ['before', 'after'])
+})
+
+test('选择部分单元格只清空内容，整表选择可删除，输入法期间 Delete 不删除对象', t => {
+  const f = fixture(t, [table()])
+  f.api.editor.commands.setCellSelection({ anchorCell: f.pos('cell-a') })
+  f.key('Delete')
+  assert.equal(f.api.document.elements[0].kind, 'table')
+  assert.equal(documentText(f.api.document), '\t乙')
+  f.api.editor.commands.setNodeSelection(f.pos('table'))
+  f.key('Delete', { isComposing: true })
+  assert.equal(f.api.document.elements[0].kind, 'table')
+  f.api.editor.commands.setCellSelection({ anchorCell: f.pos('cell-a'), headCell: f.pos('cell-b') })
+  f.key('Delete')
+  assert.equal(f.api.document.elements.some(n => n.kind === 'table'), false)
 })

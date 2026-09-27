@@ -7,12 +7,13 @@ import { TableKit } from '@tiptap/extension-table'
 import Image from '@tiptap/extension-image'
 import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
-import { Plugin, TextSelection } from '@tiptap/pm/state'
+import { Plugin, TextSelection, NodeSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { toEditor, fromEditor, safeLink, safeImage, normalizeIndent } from './document.js'
 import { outlineEntries, selectedOutline } from './outline.js'
 import { moveAcrossOutlineBoundary } from './outline-move.js'
 import { readableInk } from './colors.js'
+import { createListShortcut } from './list-shortcut.js'
 
 const uid = () => crypto.randomUUID()
 const elementTypes = [
@@ -128,6 +129,42 @@ export function mountEditor(owner, element, options) {
       return true
     }).run()
   }
+  const periodShortcut = createListShortcut({
+    toggle: () => { options.boundary?.(); toggleList(false) },
+    composing: () => editor.view.composing,
+    editable: () => editor.isEditable,
+  })
+  const tableAtCursor = () => {
+    const { $from } = editor.state.selection
+    for (let depth = $from.depth; depth > 0; depth--)
+      if ($from.node(depth).type.name === 'table') return { node: $from.node(depth), pos: $from.before(depth) }
+    return null
+  }
+  const selectTable = (pos = tableAtCursor()?.pos) => {
+    if (pos == null) return false
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)))
+    editor.view.focus()
+    return true
+  }
+  const deleteObject = () => {
+    if (!editor.isEditable) return false
+    const selection = editor.state.selection
+    if (selection instanceof NodeSelection && ['table', 'image', 'horizontalRule'].includes(selection.node.type.name)) {
+      options.boundary?.()
+      return editor.commands.deleteSelection()
+    }
+    const table = selection.empty && tableAtCursor()
+    if (!table) return false
+    let content = false
+    table.node.descendants(node => {
+      if (node.isLeaf || node.attrs.noteTag) content = true
+    })
+    if (content) return false
+    // An entirely empty table has no text to delete. Nonempty tables retain
+    // normal text/cell deletion until the user selects the whole table.
+    options.boundary?.()
+    return editor.commands.deleteTable()
+  }
   const moveParagraph = (direction) => {
     const { state, view } = editor
     const selected = selectedOutline(outlineEntries(state.doc), state.selection)
@@ -141,7 +178,8 @@ export function mountEditor(owner, element, options) {
     const first = selected[0], last = selected.at(-1)
     const siblings = first.group.filter(e => e.parent === first.parent && e.indent === first.indent)
     const other = siblings[siblings.indexOf(direction < 0 ? first : last) + direction]
-    if (!other || (direction < 0 ? other.end !== first.pos : last.end !== other.pos)) return crossBoundary()
+    if (!other || (other.hasChildren && !other.node.attrs.collapsed) ||
+        (direction < 0 ? other.end !== first.pos : last.end !== other.pos)) return crossBoundary()
     const selectedContent = state.doc.slice(first.pos, last.end).content
     const neighbor = state.doc.slice(other.pos, other.end).content
     const lo = Math.min(first.pos, other.pos), hi = Math.max(last.end, other.end)
@@ -251,7 +289,8 @@ export function mountEditor(owner, element, options) {
         'Alt-Shift-ArrowDown': () => moveParagraph(1),
         Tab: () => { editor.isActive('table') ? editor.commands.goToNextCell() : indent(1); return true },
         'Shift-Tab': () => { editor.isActive('table') ? editor.commands.goToPreviousCell() : indent(-1); return true },
-        Backspace: backspaceIndent,
+        Backspace: () => deleteObject() || backspaceIndent(),
+        Delete: deleteObject,
         'Mod-a': () => {
           if (++selectAllCount > 1) {
             options.selectContainer?.()
@@ -260,6 +299,7 @@ export function mountEditor(owner, element, options) {
           return editor.commands.selectAll()
         },
         Escape: () => {
+          if (!(editor.state.selection instanceof NodeSelection) && selectTable()) return true
           options.selectContainer?.()
           return true
         },
@@ -297,6 +337,24 @@ export function mountEditor(owner, element, options) {
           props: {
             decorations(state) {
               const decorations = []
+              state.doc.descendants((node, pos) => {
+                if (node.type.name !== 'table') return
+                decorations.push(Decoration.widget(pos, () => {
+                  const controls = document.createElement('span'), button = document.createElement('button')
+                  controls.className = 'outline-table-controls'
+                  controls.contentEditable = 'false'
+                  button.type = 'button'
+                  button.className = 'outline-table-select'
+                  button.textContent = '⊞'
+                  button.setAttribute('aria-label', '选中表格')
+                  button.title = '选中整个表格，按 Delete 删除；Ctrl+Z 撤销'
+                  button.disabled = !(editor?.isEditable ?? options.editable !== false)
+                  button.onpointerdown = event => { event.preventDefault(); event.stopPropagation() }
+                  button.onclick = event => { event.preventDefault(); event.stopPropagation(); selectTable(pos) }
+                  controls.append(button)
+                  return controls
+                }, { side: -1, stopEvent: () => true }))
+              })
               for (const entry of outlineEntries(state.doc)) {
                 if (!entry.header?.isTextblock || !entry.hasChildren) continue
                 const collapsed = !!entry.node.attrs.collapsed
@@ -357,7 +415,7 @@ export function mountEditor(owner, element, options) {
       TextStyleKit,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Highlight.configure({ multicolor: true }),
-      TableKit.configure({ table: { resizable: true } }),
+      TableKit.configure({ table: { resizable: true, allowTableNodeSelection: true } }),
       LocalImage.configure({ resize: { enabled: true, alwaysPreserveAspectRatio: true } }),
       Subscript,
       Superscript,
@@ -366,20 +424,13 @@ export function mountEditor(owner, element, options) {
     editorProps: {
       handleDOMEvents: {
         keydown(view, event) {
+          if (periodShortcut.keydown(event)) return true
           // Keep native IME input, but do not pass composing keys to later shortcut plugins.
           if (event.isComposing || view.composing) return true
-          // Some IMEs report Process/229 even for a modifier chord. Handle the
-          // physical punctuation key before ProseMirror's generic 229 guard.
-          const period = ['Period', 'NumpadDecimal'].includes(event.code) ||
-            ['.', '。', '．', 'Decimal'].includes(event.key) || [190, 110].includes(event.keyCode)
-          if (period && !event.shiftKey && ((event.altKey && !event.ctrlKey && !event.metaKey) ||
-              ((event.ctrlKey || event.metaKey) && !event.altKey))) {
-            event.preventDefault(); event.stopPropagation()
-            if (!event.repeat && view.editable) { options.boundary?.(); toggleList(false) }
-            return true
-          }
           return false
         },
+        keyup(view, event) { return periodShortcut.keyup(event) },
+        blur() { periodShortcut.reset(); return false },
         pointerdown() {
           selectAllCount = 0
           return false
@@ -502,11 +553,18 @@ export function mountEditor(owner, element, options) {
       try {
         const selection = editor.state.selection
         editor.commands.setContent(toEditor(doc), { emitUpdate: false })
-        if (editor.isFocused)
-          editor.commands.setTextSelection({
-            from: Math.min(selection.from, editor.state.doc.content.size),
-            to: Math.min(selection.to, editor.state.doc.content.size),
+        if (editor.isFocused) {
+          const next = editor.state.doc
+          let nodePos
+          if (selection instanceof NodeSelection) next.descendants((node, pos) => {
+            if (node.attrs.id === selection.node.attrs.id && node.type === selection.node.type) nodePos = pos
           })
+          const restored = nodePos == null
+            ? TextSelection.between(next.resolve(Math.min(selection.anchor, next.content.size)),
+              next.resolve(Math.min(selection.head, next.content.size)))
+            : NodeSelection.create(next, nodePos)
+          editor.view.dispatch(editor.state.tr.setSelection(restored))
+        }
       } finally {
         applying = false
       }
@@ -550,6 +608,7 @@ export function mountEditor(owner, element, options) {
           : chain.unsetLink().run()
       if (command === 'clear') return chain.unsetAllMarks().clearNodes().run()
       if (command === 'table') return chain.insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run()
+      if (command === 'selectTable') return selectTable()
       if (command === 'image') return chain.setImage(value).run()
       if (
         [

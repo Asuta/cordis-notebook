@@ -256,6 +256,10 @@ dialog::backdrop {
 #react-dependency-view {
   padding: 15px 0;
 }
+#plugin-manager:has(#dependency-view:not([hidden])),
+#plugin-manager:has([role='tabpanel'][data-state='active'] #react-dependency-view) {
+  width: min(1440px, 96vw);
+}
 .dependency-controls {
   display: flex;
   justify-content: space-between;
@@ -288,80 +292,97 @@ dialog::backdrop {
 }
 .dependency-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
   gap: 20px;
+  align-items: start;
 }
-.dependency-tree {
+.dependency-network {
+  min-width: 0;
   border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  background: var(--theme-panel);
-  padding: 15px;
-  max-height: 480px;
-  overflow: auto;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--theme-bg);
 }
-.dependency-tree-heading {
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--theme-border);
-  font-size: 12px;
-}
-.dependency-tree-heading span {
-  font-size: 11px;
-  color: var(--theme-muted);
-}
-.dependency-tree ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.dependency-tree li {
-  position: relative;
-  min-width: 180px;
-}
-.dependency-tree li > details > ul {
-  margin-left: 12px;
-  padding-left: 12px;
-  border-left: 1px solid var(--theme-border);
-}
-.dependency-row {
-  padding-left: 18px;
-  position: relative;
-}
-.dependency-tree summary {
-  position: absolute;
-  left: 0;
-  top: 9px;
-  width: 18px;
-  list-style: none;
-  cursor: pointer;
-}
-.branch-arrow {
-  display: block;
-  transition: transform 0.15s;
-}
-.dependency-tree details[open] > summary .branch-arrow {
-  transform: rotate(90deg);
-}
-.dependency-node {
+.dependency-network-heading {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: 100%;
-  text-align: left;
-  padding: 9px 8px;
-  border: 0;
-  background: transparent;
-  font-size: 12px;
-  color: var(--theme-text);
-  border-radius: 5px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 4px;
+  font-size: 13px;
 }
-.dependency-node[aria-pressed='true'],
-.dependency-node:hover {
-  background: var(--theme-selected);
+.dependency-network-heading > span { font-size: 11px; color: var(--theme-muted); }
+.dependency-direction { padding: 0 18px; margin: 4px 0 10px; font-size: 11px; color: var(--theme-muted); }
+.dependency-network-tools { display: flex; align-items: center; gap: 6px; padding: 0 14px 12px; flex-wrap: wrap; }
+.dependency-network-tools button {
+  border: 1px solid var(--theme-border); border-radius: 6px; padding: 5px 9px;
+  color: var(--theme-text); background: var(--theme-panel); font-size: 11px;
 }
+.dependency-network-tools button:disabled { opacity: .4; }
+.dependency-network-tools output { width: 42px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--theme-muted); }
+.dependency-viewport {
+  position: relative; height: clamp(380px, 57vh, 640px); min-height: 300px; overflow: hidden;
+  border-top: 1px solid var(--theme-border); border-bottom: 1px solid var(--theme-border);
+  background-color: var(--theme-panel);
+  background-image: radial-gradient(circle, var(--theme-border) 1px, transparent 1px);
+  background-size: 20px 20px;
+  cursor: grab; touch-action: none; user-select: none; overscroll-behavior: contain;
+}
+.dependency-viewport.panning { cursor: grabbing; }
+.dependency-scene { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.dependency-lines { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.dependency-edge { outline: none; cursor: pointer; }
+.dependency-edge-line { fill: none; stroke: var(--theme-muted); stroke-width: 1.2; pointer-events: none; vector-effect: non-scaling-stroke; }
+.dependency-edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+.dependency-edge.candidate .dependency-edge-line { stroke-dasharray: 5 4; }
+.dependency-edge.cycle .dependency-edge-line { stroke: #bb8436; }
+.dependency-edge.active .dependency-edge-line,
+.dependency-edge:hover .dependency-edge-line,
+.dependency-edge:focus-visible .dependency-edge-line { stroke: var(--theme-accent); stroke-width: 2.5; }
+.dependency-edge.chosen .dependency-edge-line { stroke-width: 3.5; }
+.dependency-edge.dimmed { opacity: .13; }
+.dependency-node {
+  position: absolute; display: block; text-align: left; border: 1px solid var(--theme-border);
+  border-radius: 9px; color: var(--theme-text); background: var(--theme-bg);
+  box-shadow: 0 2px 6px #00000009; cursor: pointer; padding: 0;
+}
+.dependency-node .dependency-dot { position: absolute; left: 12px; top: 16px; }
+.dependency-node .dependency-name {
+  position: absolute; left: 25px; top: 10px; right: 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600;
+}
+.dependency-id { position: absolute; left: 12px; top: 38px; max-width: 108px; font-size: 10px; color: var(--theme-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dependency-node-hint { position: absolute; right: 10px; top: 38px; font-size: 10px; color: var(--theme-muted); }
+.dependency-port { position: absolute; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--theme-muted); background: var(--theme-bg); top: calc(50% - 3.5px); }
+.dependency-port.input { left: -4px; }
+.dependency-port.output { right: -4px; }
+.dependency-node:hover, .dependency-node.related { border-color: var(--theme-accent); }
+.dependency-node[aria-pressed='true'] { border-color: var(--theme-accent); background: var(--theme-selected); box-shadow: 0 0 0 2px var(--theme-accent); }
+.dependency-node[aria-pressed='true'] .dependency-port { background: var(--theme-accent); border-color: var(--theme-accent); }
+.dependency-node.dimmed { opacity: .3; }
+.dependency-node.cycle .dependency-node-hint { color: #bb8436; }
+.dependency-node:focus-visible, .dependency-viewport:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: -2px; }
+.dependency-network-help { font-size: 10px; line-height: 1.8; padding: 10px 14px; margin: 0; color: var(--theme-muted); }
+.dependency-empty { padding: 40px; text-align: center; font-size: 13px; color: var(--theme-muted); }
+.dependency-cycle-notice { padding: 0 14px 12px; margin: 0; font-size: 11px; color: #bb8436; }
+.dependency-search { position: relative; width: min(360px, 100%); }
+.dependency-controls .dependency-search { display: block; flex-shrink: 1; }
+.dependency-search input { box-sizing: border-box; width: 100%; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-bg); color: var(--theme-text); font: inherit; font-size: 12px; padding: 9px 12px; }
+.dependency-search-results { position: absolute; left: 0; right: 0; top: calc(100% + 4px); max-height: 260px; overflow: auto; z-index: 3; border: 1px solid var(--theme-border); border-radius: 8px; box-shadow: 0 8px 25px #0002; background: var(--theme-bg); padding: 5px; }
+.dependency-search-results button { width: 100%; text-align: left; border: 0; background: transparent; }
+.dependency-search-results button:hover, .dependency-search-results button:focus-visible { background: var(--theme-selected); }
+.dependency-search-results p { padding: 8px; }
+.dependency-legend { flex-wrap: wrap; }
+.dependency-edge-legend::before { content: ''; width: 18px; border-top: 1px solid var(--theme-muted); }
+.dependency-edge-legend.candidate::before { border-top-style: dashed; }
+.dependency-detail { max-height: 690px; overflow: auto; min-width: 0; scrollbar-width: thin; }
+.dependency-welcome { border: 1px solid var(--theme-border); border-radius: 12px; padding: 28px 22px; }
+.dependency-welcome-symbol { display: inline-block; color: var(--theme-accent); font-size: 28px; margin-bottom: 12px; }
+.dependency-welcome h3 { font-size: 15px; margin: 0 0 12px; }
+.dependency-welcome p { font-size: 12px; line-height: 1.9; color: var(--theme-muted); }
+.dependency-edge-detail { padding: 14px; margin-bottom: 14px; border: 1px solid var(--theme-accent); border-radius: 8px; background: var(--theme-selected); }
+.dependency-edge-detail h3 { font-size: 13px; margin: 0 0 8px; }
+.dependency-edge-detail p { font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
 .dependency-dot,
 .status-dot {
   width: 6px;
@@ -382,10 +403,6 @@ dialog::backdrop {
 .dependency-dot.waiting,
 .status-dot.waiting {
   background: #c19b40;
-}
-.dependency-count,
-.dependency-reference {
-  margin-left: auto;
 }
 .dependency-name {
   overflow: hidden;
@@ -522,8 +539,8 @@ dialog::backdrop {
 .dependency-controls {
     flex-direction: column;
   }
-.dependency-tree {
-    max-height: 340px;
+.dependency-viewport {
+    height: 380px;
   }
 }
 @media (max-width: 620px) {

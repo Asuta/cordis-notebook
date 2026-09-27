@@ -97,11 +97,13 @@ export function moveAcrossOutlineBoundary(state, direction) {
   if (direction < 0) {
     if (!first) return null
     before--
-    // Exchange a preceding subtree as a unit, unless it contains our selection.
-    for (let i = before - 1; i >= 0; i--) if (rows[i].end === first) before = i
+    // Move past one visible row, not an expanded neighboring subtree. Hidden
+    // descendants of a collapsed row are not available insertion targets.
+    for (let i = before - 1; i >= 0; i--)
+      if ((rows[i].item || rows[i].node).attrs.collapsed && rows[i].end > before && rows[i].end <= first) before = i
   } else {
     if (end === rows.length) return null
-    after = rows[end].end
+    after = (rows[end].item || rows[end].node).attrs.collapsed ? rows[end].end : end + 1
   }
   const reordered = direction < 0
     ? [...rows.slice(0, before), ...rows.slice(first, end), ...rows.slice(before, first), ...rows.slice(end)]

@@ -198,6 +198,7 @@ export function mountControls(ctx, root, api, sdk) {
               {state.table && (
                 <div className="outline-tool-group">
                   {[
+                    ['选中表格', 'selectTable'],
                     ['插入行', 'addRowAfter'],
                     ['插入列', 'addColumnAfter'],
                     ['删除行', 'deleteRow'],
@@ -320,7 +321,7 @@ export function mountControls(ctx, root, api, sdk) {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>自由页面快捷键</DialogTitle>
-              <DialogDescription>点击顶部操作柄或按 Esc 选择整个容器，再按 Delete 删除；点击正文恢复文字编辑。</DialogDescription>
+              <DialogDescription>点击顶部操作柄可选择整个容器并按 Delete 删除。在表格内按 Esc 先选中表格，再按 Esc 选择容器；点击正文恢复文字编辑。</DialogDescription>
             </DialogHeader>
             <dl className="outline-shortcuts">
               {[
@@ -333,6 +334,7 @@ export function mountControls(ctx, root, api, sdk) {
                 ['Tab / Shift+Tab', '段落缩进；表格中切换单元格'],
                 ['Backspace（行首）', '减少一级缩进；列表中提升一级'],
                 ['操作柄 / Esc，随后 Delete', '选中并删除整个容器；Ctrl+Z 可恢复'],
+                ['表格左上角 ⊞ / 表格内 Esc，随后 Delete', '选中并删除整张表格；空表格内可直接按 Delete'],
                 ['Alt+Shift+↑ / ↓', '上下移动段落或列表项，可跨列表边界，子项跟随'],
                 ['Alt+Shift+减号 / 加号', '折叠 / 展开当前项的子内容'],
                 ['Ctrl+A，再按 Ctrl+A', '文字全选 → 容器；Esc 后 Ctrl+A 全选容器'],
