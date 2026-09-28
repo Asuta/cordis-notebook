@@ -119,7 +119,7 @@ test('容器快速拖动与缩放坐标正确，Shift 合并保留富文本且�
             button: 0,
             pointerId: 1,
             clientX: from[0],
-            clientY: from[1],
+            clientY: from[1] + 144,
             shiftKey,
           }),
         )
@@ -129,7 +129,7 @@ test('容器快速拖动与缩放坐标正确，Shift 合并保留富文本且�
           button: 0,
           pointerId: 1,
           clientX: to[0],
-          clientY: to[1],
+          clientY: to[1] + 144,
           shiftKey,
         }),
       )

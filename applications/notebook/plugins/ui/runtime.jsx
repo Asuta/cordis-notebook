@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
-import { flushSync } from 'react-dom'
+import { flushSync, createPortal } from 'react-dom'
 import { Button } from './components/button'
 import * as dropdown from './components/dropdown-menu'
 import * as dialog from './components/dialog'
@@ -119,6 +119,7 @@ function useObserve(owner, service) {
 }
 export function createUI() {
   return {
+    createPortal,
     React,
     h: React.createElement,
     Button,

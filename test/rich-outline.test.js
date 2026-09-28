@@ -34,6 +34,43 @@ function fixture(t, elements) {
   }
 }
 
+for (const ordered of [false, true]) test(`普通父行与${ordered ? '编号' : '圆点'}子行跨格式折叠，转换格式不改变层级`, t => {
+  const f = fixture(t, [p('parent'), p('child', 1), p('deep', 2), p('end')])
+  const node = id => f.el.querySelector(`[data-element-id="${id}"]`)
+  f.select('child'); f.api.exec(ordered ? 'number' : 'bullet')
+  assert.ok(node('parent').querySelector('button'))
+  f.select('parent'); f.api.exec('collapse', true)
+  assert.ok(node('child').closest('.outline-folded'))
+  assert.ok(node('deep').closest('.outline-folded'))
+  assert.equal(node('end').closest('.outline-folded'), null)
+  const saved = f.api.document
+  f.api.setDocument(saved)
+  assert.ok(node('child').closest('.outline-folded'))
+  f.select('parent'); f.api.exec('collapse', false)
+  f.select('child'); f.api.exec(ordered ? 'number' : 'bullet')
+  assert.ok(node('parent').querySelector('button'))
+})
+
+test('折叠只依据绝对缩进，同位置跨列表格式不会误作子级，列表外深缩进仍是子级', t => {
+  const f = fixture(t, [p('plain', 1), list('list', [item('peer'), item('child', [], 2)]), p('outside-child', 4), p('end')])
+  const node = id => f.el.querySelector(`[data-element-id="${id}"]`)
+  assert.equal(node('plain').querySelector('button'), null)
+  assert.ok(node('peer-text').querySelector('button'))
+  f.select('peer-text'); f.api.exec('collapse', true)
+  assert.ok(node('child').closest('.outline-folded'))
+  assert.ok(node('outside-child').closest('.outline-folded'))
+  assert.equal(node('end').closest('.outline-folded'), null)
+})
+
+test('列表项内部同缩进的后续正文不会因结构归属而被折叠', t => {
+  const f = fixture(t, [list('list', [item('first', [p('same'), p('detail', 1)])])])
+  const node = id => f.el.querySelector(`[data-element-id="${id}"]`)
+  assert.equal(node('first-text').querySelector('button'), null)
+  assert.ok(node('same').querySelector('button'))
+  f.select('same'); f.api.exec('collapse', true)
+  assert.ok(node('detail').closest('.outline-folded'))
+})
+
 for (const ordered of [false, true]) test(`${ordered ? '编号' : '项目符号'}转换在段落与列表项间转移缩进且一次更新可撤销`, t => {
   const f = fixture(t, [p('first', 3), p('second', 5)])
   f.select('first', 'second')
@@ -85,7 +122,7 @@ test('取消嵌套列表提升项目时额外缩进不重复累加', t => {
 })
 
 test('列表折叠隐藏从属正文与子列表，嵌套状态独立保存，按钮把隐藏光标移回父项', t => {
-  const f = fixture(t, [list('outer', [item('parent', [p('detail'), list('inner', [
+  const f = fixture(t, [list('outer', [item('parent', [p('detail', 1), list('inner', [
     item('child', [list('deep', [item('leaf')])]), item('sibling'),
   ])]), item('outside')])])
   const header = id => f.el.querySelector(`[data-element-id="${id}"]`)
@@ -177,7 +214,7 @@ test('选中的列表子集可越过前后的普通段落，连续移动保留�
 })
 
 test('深层子项跨越祖先时携带折叠子树并保持绝对缩进，撤回内容可完整恢复', t => {
-  const child = { ...item('child', [p('detail'), list('deep', [item('leaf')])]), collapsed: true }
+  const child = { ...item('child', [p('detail', 1), list('deep', [item('leaf')])]), collapsed: true }
   const f = fixture(t, [p('before'), list('outer', [item('parent', [list('inner', [child, item('sibling')])])]), p('after')])
   const before = f.api.document
   const column = id => {

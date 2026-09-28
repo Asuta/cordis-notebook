@@ -87,7 +87,7 @@ function fixture(t) {
     finishUpload: () => finishUpload('/api/note-assets/' + 'a'.repeat(64) + '.png'),
     pointer(type, selector, x, y, shiftKey = false) {
       (selector ? root.querySelector(selector) : root).dispatchEvent(new window.PointerEvent(type, {
-        bubbles: true, button: 0, pointerId: 1, clientX: x, clientY: y, shiftKey,
+        bubbles: true, button: 0, pointerId: 1, clientX: x, clientY: y + 144, shiftKey,
       }))
     },
     undo() { root.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) },
@@ -130,6 +130,52 @@ const focus = (f, id) => {
   api.editor.view.focus()
   return api
 }
+
+for (const destination of ['canvas', 'empty', 'text']) test(`多容器复制到 ${destination} 保留各自内容、宽度与相对位置，整组撤销重做`, async t => {
+  const f = fixture(t), viewport = f.root.querySelector('.free-page-viewport')
+  f.pointer('pointerdown', '[data-block-id=two] .free-block-handle', 450, 45)
+  f.pointer('pointerup', null, 470, 175)
+  viewport.focus()
+  key(f, viewport, 'a', { ctrlKey: true })
+  const values = {}, clipboardData = { files: [], setData: (type, value) => { values[type] = value }, getData: type => values[type] || '' }
+  const send = (type, target) => {
+    const e = new f.window.Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(e, 'clipboardData', { value: clipboardData }); target.dispatchEvent(e)
+    return e
+  }
+  assert.equal(send('copy', viewport).defaultPrevented, true)
+  const original = f.note.blocks
+  assert.equal(JSON.parse(values['application/x-cordis-outlines']).blocks.length, 2)
+  let target = viewport, anchor
+  if (destination === 'empty') {
+    f.pointer('pointerdown', '.free-page-writing', 850, 400)
+    f.pointer('pointerup', null, 850, 400)
+    anchor = f.note.blocks.at(-1)
+    target = f.editors.get(anchor.id).editor.editor.view.dom
+  } else if (destination === 'text') {
+    target = focus(f, 'one').editor.view.dom
+    anchor = { x: original[0].x + 24, y: original[0].y + 24 }
+  }
+  const before = f.note
+  // The real SDK does not forward arbitrary data attributes; target lookup
+  // must use the mounted container map rather than the fixture's attributes.
+  for (const node of f.root.querySelectorAll('.free-block')) node.removeAttribute('data-block-id')
+  assert.equal(send('paste', target).defaultPrevented, true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(f.note.blocks.length, 4)
+  assert.deepEqual(f.note.blocks.slice(0, 2), original)
+  const copied = f.note.blocks.slice(2)
+  assert.deepEqual(copied.map(b => b.text), original.map(b => b.text))
+  assert.deepEqual(copied.map(b => b.width), original.map(b => b.width))
+  assert.equal(copied[1].x - copied[0].x, original[1].x - original[0].x)
+  assert.equal(copied[1].y - copied[0].y, original[1].y - original[0].y)
+  if (anchor) assert.deepEqual([copied[0].x, copied[0].y], [anchor.x, anchor.y])
+  assert.notEqual(copied[0].outline.elements[0].id, original[0].outline.elements[0].id)
+  assert.equal(f.root.querySelectorAll('.free-block.selected').length, 2)
+  const after = f.note
+  f.undo(); assert.deepEqual(f.note, before)
+  f.redo(); assert.deepEqual(f.note, after)
+})
 
 test('主题深浅状态即时改变纸张显示，切回浅色不改笔记和历史', async t => {
   const f = fixture(t), before = f.note

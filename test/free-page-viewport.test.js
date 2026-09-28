@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createViewport } from '../applications/notebook/plugins/free-page-editor/viewport.js'
 
-function fixture() {
+function fixture(contentTop = 0) {
   let visible = false,
     scrollable = false,
     calls = 0
@@ -34,6 +34,7 @@ function fixture() {
     paper,
     () => ({ width: 0, height: 0 }),
     (value) => saved.push(value),
+    contentTop,
   )
   return {
     camera,
@@ -101,6 +102,19 @@ test('缩放保持指针下的文档坐标，恢复保存的缩放和滚动', ()
   assert.deepEqual(f.camera.point(point), before)
   f.camera.setZoom(99)
   assert.equal(f.camera.zoom, 3)
+})
+
+test('画布标题预留区域不改变正文坐标，滚动缩放后点击和锚点一致', () => {
+  const f = fixture(144)
+  f.show(); f.ready()
+  f.camera.restore({ left: 80, top: 300, zoom: 0.75 })
+  const point = { clientX: 110, clientY: 200 }
+  assert.deepEqual(f.camera.point(point), { x: 240, y: 496 })
+  f.camera.setZoom(1.5, { x: point.clientX, y: point.clientY })
+  assert.deepEqual(f.camera.point(point), { x: 240, y: 496 })
+  const saved = f.camera.snapshot()
+  f.camera.restore({}); f.camera.restore(saved)
+  assert.deepEqual(f.camera.point(point), { x: 240, y: 496 })
 })
 
 test('滚轮缩放逐帧插值，连续输入累积目标且切页和销毁取消动画', t => {

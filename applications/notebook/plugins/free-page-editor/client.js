@@ -38,14 +38,20 @@ export default function (ctx, sdk) {
   const viewport = sdk.el('div', { class: 'free-page-viewport', tabIndex: 0, 'aria-label': '自由页面纸张' })
   const stage = sdk.el('div', { class: 'free-page-stage' }),
     paper = sdk.el('div', { class: 'free-page-paper' })
+  // Keep persisted block coordinates relative to the writing area, below the heading.
+  const contentTop = 144,
+    headingTarget = sdk.el('div', { class: 'free-page-heading' }),
+    writing = sdk.el('div', { class: 'free-page-writing' })
+  writing.style.top = contentTop + 'px'
   const marquee = sdk.el('div', { class: 'free-page-marquee', hidden: true }),
     guide = sdk.el('div', { class: 'free-page-space-guide', hidden: true })
   const footer = sdk.el('div', { class: 'free-page-status' })
-  paper.append(marquee, guide)
+  writing.append(marquee, guide)
+  paper.append(headingTarget, writing)
   stage.append(paper)
   viewport.append(stage)
   root.append(controls, viewport, footer)
-  ctx.editorHost.register(ctx, 'freeform', root)
+  ctx.editorHost.register(ctx, 'freeform', root, { headingTarget })
   const current = () => model.current(),
     blocks = () => current()?.blocks || [],
     page = () => current()?.page || { color: '#ffffff', rule: 'none' }
@@ -95,9 +101,10 @@ export default function (ctx, sdk) {
         width = Math.max(width, block.x + block.width + 220)
         height = Math.max(height, block.y + (item?.node.offsetHeight || 100) + 260)
       }
-      return { width, height }
+      return { width, height: height + contentTop }
     },
     (value) => { saveView(value); if (!disposed) update() },
+    contentTop,
   )
   const update = () => {
     for (const [id, item] of nodes) {
@@ -178,7 +185,7 @@ export default function (ctx, sdk) {
     visit(value.elements)
     return value
   }
-  const add = (x = viewport.scrollLeft / camera.zoom + 40, y = viewport.scrollTop / camera.zoom + 40, doc) => {
+  const add = (x = viewport.scrollLeft / camera.zoom + 40, y = Math.max(0, viewport.scrollTop / camera.zoom - contentTop) + 40, doc) => {
     const id = crypto.randomUUID(),
       block = {
         id,
@@ -416,7 +423,7 @@ export default function (ctx, sdk) {
     // since pointerdown; preserve current blocks, including additions/removals.
     const before = new Map(g.before.blocks.map((b) => [b.id, b]))
     if (g.kind === 'marquee' && !g.moved && !g.extend && editable()) {
-      const origin = writingOrigin(paper, g.start, camera.zoom)
+      const origin = writingOrigin(writing, g.start, camera.zoom)
       add(origin.x, origin.y)
     } else if (g.moved && g.kind === 'move') {
       const target = g.shift && blocks().find((b) => !g.selected.has(b.id) && hit(g.point, b.id))
@@ -515,7 +522,7 @@ export default function (ctx, sdk) {
           ),
           body = sdk.el('div', { class: 'free-block-body' })
         node.append(handle, grip, body)
-        paper.append(node)
+        writing.append(node)
         item = { node, body, handle, grip, doc: null }
         nodes.set(block.id, item)
         item.editor = rich.mount(ctx, body, {
@@ -703,8 +710,9 @@ export default function (ctx, sdk) {
   })
   sdk.listen(paper, 'pointerdown', (event) => {
     if (event.defaultPrevented) return
+    if (headingTarget.contains(event.target)) return
     if (event.button === 1 || tool === 'pan') return begin(event, 'pan')
-    if (event.target !== paper && event.target !== stage) return
+    if (event.target !== paper && event.target !== stage && event.target !== writing) return
     if (tool === 'space') begin(event, 'space')
     else if (event.button === 0) begin(event, 'marquee')
   })
@@ -797,35 +805,44 @@ export default function (ctx, sdk) {
   }
   sdk.listen(root, 'copy', (e) => copy(e))
   sdk.listen(root, 'cut', (e) => copy(e, true))
+  // Internal container data must be handled before a focused text editor sees
+  // the paste. Ordinary text/HTML still belongs to that editor.
+  const pasteContainers = (event) => {
+    if (event.defaultPrevented || !editable() || !viewport.contains(event.target) ||
+        event.target.closest('input,textarea') || headingTarget.contains(event.target)) return
+    const raw = event.clipboardData?.getData('application/x-cordis-outlines')
+    if (!raw) return
+    event.preventDefault()
+    event.stopPropagation()
+    try {
+      const pkg = JSON.parse(raw)
+      if (pkg.version !== 2 || !Array.isArray(pkg.blocks) || !pkg.blocks.length ||
+          pkg.blocks.some(b => !b || !Number.isFinite(b.x) || !Number.isFinite(b.y)))
+        throw new Error('文本框剪贴板格式无效')
+      const targetId = [...nodes].find(([, item]) => item.node.contains(event.target))?.[0]
+      const target = blocks().find(b => b.id === targetId)
+      const emptyTarget = target && !uploading.has(nodes.get(targetId)) && outline(target).elements.every(n =>
+        ['paragraph', 'heading', 'code'].includes(n.kind) && !n.tag && n.runs.every(r => !r.text.trim()))
+      const x = Math.min(...pkg.blocks.map(b => b.x)), y = Math.min(...pkg.blocks.map(b => b.y))
+      const baseX = target ? target.x + (emptyTarget ? 0 : 24) : viewport.scrollLeft / camera.zoom + 40
+      const baseY = target ? target.y + (emptyTarget ? 0 : 24) : Math.max(0, viewport.scrollTop / camera.zoom - contentTop) + 40
+      const next = pkg.blocks.map(b => ({ ...b, id: crypto.randomUUID(),
+        x: baseX + b.x - x, y: baseY + b.y - y, outline: renew(outline(b)) }))
+      if (changeBlocks([...blocks().filter(b => !emptyTarget || b.id !== targetId), ...next])) {
+        selection.clear()
+        for (const b of next) selection.add(b.id)
+        active = null
+        update()
+        viewport.focus({ preventScroll: true })
+      }
+    } catch (e) { sdk.toast('粘贴失败：' + e.message) }
+  }
+  ctx.effect(() => {
+    root.addEventListener('paste', pasteContainers, true)
+    return () => root.removeEventListener('paste', pasteContainers, true)
+  })
   sdk.listen(root, 'paste', (event) => {
     if (event.defaultPrevented || !editable() || event.target.closest('[contenteditable=true],input,textarea')) return
-    const raw = event.clipboardData.getData('application/x-cordis-outlines')
-    if (raw)
-      try {
-        const pkg = JSON.parse(raw)
-        if (pkg.version !== 2 || !Array.isArray(pkg.blocks) || !pkg.blocks.length) return
-        const x = Math.min(...pkg.blocks.map((b) => b.x)),
-          y = Math.min(...pkg.blocks.map((b) => b.y)),
-          baseX = viewport.scrollLeft / camera.zoom + 40,
-          baseY = viewport.scrollTop / camera.zoom + 40
-        const next = pkg.blocks.map((b) => ({
-          ...b,
-          id: crypto.randomUUID(),
-          x: baseX + b.x - x,
-          y: baseY + b.y - y,
-          outline: renew(outline(b)),
-        }))
-        event.preventDefault()
-        if (changeBlocks([...blocks(), ...next])) {
-          selection.clear()
-          for (const b of next) selection.add(b.id)
-          update()
-        }
-        return
-      } catch (e) {
-        sdk.toast('粘贴失败：' + e.message)
-        return
-      }
     const text = event.clipboardData.getData('text/plain')
     const files = [...(event.clipboardData.files || [])].filter(f => f.type.startsWith('image/'))
     if (text.trim()) {

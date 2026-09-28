@@ -11,6 +11,7 @@ import { Plugin, TextSelection, NodeSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { toEditor, fromEditor, safeLink, safeImage, normalizeIndent } from './document.js'
 import { outlineEntries, selectedOutline } from './outline.js'
+import { foldingEntries } from './folding.js'
 import { moveAcrossOutlineBoundary } from './outline-move.js'
 import { readableInk } from './colors.js'
 import { createListShortcut } from './list-shortcut.js'
@@ -192,7 +193,7 @@ export function mountEditor(owner, element, options) {
   }
   const fold = (collapsed, position) => {
     if (!editor.isEditable) return false
-    const { state, view } = editor, entries = outlineEntries(state.doc)
+    const { state, view } = editor, entries = foldingEntries(state.doc)
     const targets = (position == null ? selectedOutline(entries, state.selection) : entries.filter(e => e.pos === position))
       .filter(e => e.header?.isTextblock && e.hasChildren)
     if (!targets.length) return false
@@ -355,7 +356,7 @@ export function mountEditor(owner, element, options) {
                   return controls
                 }, { side: -1, stopEvent: () => true }))
               })
-              for (const entry of outlineEntries(state.doc)) {
+              for (const entry of foldingEntries(state.doc)) {
                 if (!entry.header?.isTextblock || !entry.hasChildren) continue
                 const collapsed = !!entry.node.attrs.collapsed
                 if (collapsed) for (const { node, pos } of entry.hidden)

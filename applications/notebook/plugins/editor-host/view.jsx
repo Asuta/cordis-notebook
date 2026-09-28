@@ -1,4 +1,4 @@
-export function mountEditorHost(ctx, sdk, root, content, views) {
+export function mountEditorHost(ctx, sdk, root, content, views, headings) {
   const {
     h,
     React,
@@ -38,27 +38,31 @@ export function mountEditorHost(ctx, sdk, root, content, views) {
         setDeleting(false)
       }
     }
+    const headingTarget = headings.get(format?.editor)
+    const heading = (
+      <div className="note-heading">
+        <div className="note-meta">
+          <span>{format?.label || '格式未启用'}</span>
+          <span>·</span>
+          <time>{note && new Date(note.updatedAt).toLocaleDateString('zh-CN')}</time>
+        </div>
+        <input
+          id="title"
+          aria-label="笔记标题"
+          spellCheck={false}
+          maxLength={200}
+          placeholder="无标题笔记"
+          value={note?.title || ''}
+          disabled={model.busy || !model.editable}
+          onChange={(e) => model.edit({ title: e.target.value })}
+        />
+      </div>
+    )
     return (
       <>
         <div className={'writing editor-writing ' + (format?.editorClass || '')}
           data-editor-layout={format?.editorLayout === 'wide' ? 'wide' : 'standard'} hidden={!note}>
-          <div className="note-heading">
-            <div className="note-meta">
-              <span>{format?.label || '格式未启用'}</span>
-              <span>·</span>
-              <time>{note && new Date(note.updatedAt).toLocaleDateString('zh-CN')}</time>
-            </div>
-            <input
-              id="title"
-              aria-label="笔记标题"
-              spellCheck={false}
-              maxLength={200}
-              placeholder="无标题笔记"
-              value={note?.title || ''}
-              disabled={model.busy || !model.editable}
-              onChange={(e) => model.edit({ title: e.target.value })}
-            />
-          </div>
+          {headingTarget ? ctx.ui.createPortal(heading, headingTarget) : heading}
           <Slot node={content} className="editor-content-slot" />
           {note && (!format || !views.has(format.editor)) && (
             <div className="editor-missing">

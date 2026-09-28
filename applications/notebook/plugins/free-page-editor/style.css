@@ -159,6 +159,36 @@
   font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
   background-color: white;
 }
+.free-page-writing {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.free-page-heading {
+  position: absolute;
+  top: 24px;
+  left: 40px;
+  width: 540px;
+}
+.free-page-heading .note-heading {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+}
+.free-page-heading #title {
+  color: inherit;
+  font-size: 28px;
+  border-bottom: 1px solid var(--paper-border);
+  padding-bottom: 6px;
+}
+.free-page-heading #title::placeholder { color: var(--paper-muted); }
+.free-page-heading .note-meta {
+  order: 1;
+  color: var(--paper-muted);
+  margin: 8px 0 0;
+}
 .free-page-paper[data-rule='lines'] {
   background-image: linear-gradient(transparent 31px, var(--paper-rule) 31px);
   background-size: 32px 32px;

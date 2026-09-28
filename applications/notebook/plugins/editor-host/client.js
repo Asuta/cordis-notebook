@@ -1,24 +1,27 @@
 import { mountEditorHost } from './view.jsx'
 export default function (ctx, sdk) {
   const views = new Map(),
+    headings = new Map(),
     root = sdk.el('div', { class: 'editor-host-view' }),
     content = sdk.el('div', { class: 'note-editor-body' })
   sdk.mount('editor', root)
   let refresh = () => {}
   sdk.provide('editorHost', {
-    register(owner, type, node) {
+    register(owner, type, node, options = {}) {
       if (views.has(type)) throw new Error('此格式已有编辑器：' + type)
       return owner.effect(() => {
         views.set(type, node)
+        if (options.headingTarget) headings.set(type, options.headingTarget)
         content.append(node)
         refresh()
         return () => {
           if (views.get(type) === node) views.delete(type)
+          headings.delete(type)
           node.remove()
           refresh()
         }
       })
     }
   })
-  refresh = mountEditorHost(ctx, sdk, root, content, views)
+  refresh = mountEditorHost(ctx, sdk, root, content, views, headings)
 }

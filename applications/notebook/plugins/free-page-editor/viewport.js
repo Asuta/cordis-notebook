@@ -1,5 +1,5 @@
 // Coordinates are stored in document units; zoom changes only the viewport.
-export function createViewport(viewport, stage, paper, bounds, save) {
+export function createViewport(viewport, stage, paper, bounds, save, contentTop = 0) {
   let zoom = 1,
     pending = null,
     animation = null,
@@ -87,7 +87,7 @@ export function createViewport(viewport, stage, paper, bounds, save) {
       const rect = viewport.getBoundingClientRect()
       return {
         x: Math.max(0, (event.clientX - rect.left + viewport.scrollLeft) / zoom),
-        y: Math.max(0, (event.clientY - rect.top + viewport.scrollTop) / zoom),
+        y: Math.max(0, (event.clientY - rect.top + viewport.scrollTop) / zoom - contentTop),
       }
     },
     scrolled() {
