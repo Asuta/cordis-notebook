@@ -15,6 +15,7 @@ import { foldingEntries } from './folding.js'
 import { moveAcrossOutlineBoundary } from './outline-move.js'
 import { readableInk } from './colors.js'
 import { createListShortcut } from './list-shortcut.js'
+import { darkReaderMarkViews } from './darkreader.js'
 
 const uid = () => crypto.randomUUID()
 const elementTypes = [
@@ -336,6 +337,7 @@ export function mountEditor(owner, element, options) {
             return tr.docChanged ? tr : null
           },
           props: {
+            markViews: darkReaderMarkViews,
             decorations(state) {
               const decorations = []
               state.doc.descendants((node, pos) => {
