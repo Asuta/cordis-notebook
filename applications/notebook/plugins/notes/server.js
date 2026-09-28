@@ -1,6 +1,8 @@
 import { Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 
+const byOrder = (a, b) => Number(b.pinned) - Number(a.pinned) || (a.order ?? -1) - (b.order ?? -1) || b.updatedAt.localeCompare(a.updatedAt)
+
 export class Notes extends Service {
   constructor(ctx) {
     super(ctx, 'notes')
@@ -11,7 +13,7 @@ export class Notes extends Service {
     this.items = await this.ctx.storage.read()
     if (!Array.isArray(this.items)) throw new Error('笔记数据格式错误')
   }
-  list() { return structuredClone(this.items).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)) }
+  list() { return structuredClone(this.items).sort(byOrder) }
   mutate(action) {
     const task = this.queue.then(async () => {
       const next = structuredClone(this.items)
@@ -47,6 +49,16 @@ export class Notes extends Service {
       if (index < 0) throw Object.assign(new Error('笔记不存在'), { status: 404 })
       items.splice(index, 1)
       return { ok: true }
+    })
+  }
+  reorder(ids) {
+    return this.mutate(items => {
+      if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) throw Object.assign(new Error('排序参数格式错误'), { status: 400 })
+      if (new Set(ids).size !== ids.length) throw Object.assign(new Error('排序包含重复笔记'), { status: 400 })
+      const index = new Map(items.map(item => [item.id, item]))
+      if (ids.length !== items.length || ids.some(id => !index.has(id))) throw Object.assign(new Error('排序必须包含全部笔记'), { status: 400 })
+      ids.forEach((id, i) => { index.get(id).order = i })
+      return structuredClone(items).sort(byOrder)
     })
   }
 }

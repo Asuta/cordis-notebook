@@ -21,7 +21,7 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
     },
     observe(owner, handler) { const dispose = owner.on('notebook/changed', handler); handler(); return dispose },
     current() { return copy(this.notes.find(n => n.id === this.selected)) },
-    visible() { return this.notes.map(copy).filter(note => [...filters].every(item => item.predicate(note))).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)) },
+    visible() { return this.notes.map(copy).filter(note => [...filters].every(item => item.predicate(note))).sort((a, b) => Number(b.pinned) - Number(a.pinned) || (a.order ?? -1) - (b.order ?? -1) || b.updatedAt.localeCompare(a.updatedAt)) },
     registerFilter(owner, key, predicate) {
       if (typeof key !== 'string' || !key || typeof predicate !== 'function') throw new TypeError('过滤器需要名称和判断函数')
       if ([...filters].some(item => item.owner === owner && item.key === key)) throw new Error('重复注册过滤器：' + key)
@@ -50,6 +50,7 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
       return task
     },
     choose(id) { return this.perform(async () => { this.selected = id; revision++ }) },
+    reorder(ids) { return this.perform(async () => { const notes = await ctx.notesApi.request('/order', 'PUT', { ids }); if (stopped) return; this.notes = notes }) },
     create(type = 'plain') { return this.perform(async () => { const note = await ctx.notesApi.request('', 'POST', { type }); if (stopped) return; this.notes.unshift(note); this.selected = note.id; revision++ }) },
     remove() { if (!this.current()) return Promise.resolve(); return this.perform(async () => { const id = this.selected; await ctx.notesApi.request('/' + id, 'DELETE'); if (stopped) return; this.notes = this.notes.filter(n => n.id !== id); this.selected = this.notes[0]?.id || null }) },
     edit(patch) {

@@ -109,3 +109,29 @@ test('主题样式归属主题消费者，停用主题和引擎均能清理，�
     assert.equal(document.documentElement.dataset.themeMode, undefined)
   } finally { await root.fiber.dispose(); globalThis.document = previous }
 })
+
+test('笔记手动排序：reorder 持久化 order 并保持置顶优先', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cordis-reorder-'))
+  let app
+  try {
+    app = await createApp({ port: 0, file: join(dir, 'notes.json') })
+    const a = await app.ctx.notes.create(); await app.ctx.notes.update(a.id, { title: 'A' })
+    const b = await app.ctx.notes.create(); await app.ctx.notes.update(b.id, { title: 'B' })
+    const c = await app.ctx.notes.create(); await app.ctx.notes.update(c.id, { title: 'C' })
+    assert.equal(app.ctx.notes.list().length, 3)
+    // 手动排序为 a, c, b，与创建顺序不同
+    const ordered = await app.ctx.notes.reorder([a.id, c.id, b.id])
+    assert.deepEqual(ordered.map(n => n.id), [a.id, c.id, b.id])
+    assert.deepEqual(app.ctx.notes.list().map(n => n.id), [a.id, c.id, b.id])
+    assert.equal(app.ctx.notes.list().find(n => n.id === a.id).order, 0)
+    assert.equal(app.ctx.notes.list().find(n => n.id === c.id).order, 1)
+    assert.equal(app.ctx.notes.list().find(n => n.id === b.id).order, 2)
+    // 置顶 b 后，b 仍排最前，其余保持 order
+    await app.ctx.notes.update(b.id, { pinned: true })
+    assert.deepEqual(app.ctx.notes.list().map(n => n.id), [b.id, a.id, c.id])
+    // 参数校验：重复、缺失、未知 id
+    await assert.rejects(app.ctx.notes.reorder([a.id, a.id, b.id, c.id]), /重复/)
+    await assert.rejects(app.ctx.notes.reorder([a.id, b.id]), /全部/)
+    await assert.rejects(app.ctx.notes.reorder([a.id, b.id, c.id, 'missing']), /全部/)
+  } finally { if (app) await app.close(); await rm(dir, { recursive: true, force: true }) }
+})

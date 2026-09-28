@@ -49,13 +49,13 @@ export default async function (ctx, sdk) {
     }).finally(() => { pending = null })
     return pending
   }
-  const snapshot = () => { history.push(structuredClone(data.strokes)); if (history.length > 30) history.shift() }
+  const snapshot = () => { history.push(structuredClone({ strokes: data.strokes, title: data.title })); if (history.length > 30) history.shift() }
   const button = (label, action) => {
     const node = sdk.el('button', {}, label)
     sdk.listen(node, 'click', () => { if (!held) action() }); toolbar.append(node); return node
   }
   toolbar.append(title, color, width)
-  button('撤销', () => { if (history.length) { data.strokes = history.pop(); changed(); paint() } })
+  button('撤销', () => { if (history.length) { Object.assign(data, history.pop()); title.value = data.title; changed(); paint() } })
   button('清空画布', () => { snapshot(); data.strokes = []; changed(); paint() })
   button('导出 PNG', () => { const link = sdk.el('a', { href: canvas.toDataURL('image/png'), download: (data.title || '画作') + '.png' }); link.click() })
   button('载入已保存版本', () => {
@@ -91,5 +91,17 @@ export default async function (ctx, sdk) {
   })
   ctx.on('plugins/remote-stop', () => { finish(); if (dirty) remember() })
   sdk.onConfig(config => { width.value = config.brushSize })
+  sdk.agent?.register({ name: 'drawing_read', description: '读取当前画布，包括尚未保存的笔画。version 用于防止覆盖用户编辑。', inputSchema: { type: 'object', properties: {} } }, () => ({ drawing: structuredClone(data), version }))
+  sdk.agent?.register({ name: 'drawing_update', description: '替换当前画作标题或笔画；须提供 drawing_read 的 version。坐标为 0–1，保留撤销并自动保存。', inputSchema: {
+    type: 'object', properties: { version: { type: 'integer' }, title: { type: 'string', maxLength: 120 }, strokes: { type: 'array', items: { type: 'object', properties: { color: { type: 'string' }, width: { type: 'number' }, points: { type: 'array', items: { type: 'array', items: { type: 'number' } } } }, required: ['color', 'width', 'points'] } } }, required: ['version'],
+  } }, async args => {
+    if (held || stroke || stopped || args.version !== version) throw Error('画布已变化或正在操作，请重新读取')
+    if (args.title !== undefined && (typeof args.title !== 'string' || args.title.length > 120)) throw Error('标题无效')
+    if (args.strokes !== undefined && (!Array.isArray(args.strokes) || args.strokes.length > 3000 || args.strokes.some(s => !/^#[a-f\d]{6}$/i.test(s.color) || !Number.isFinite(s.width) || s.width < 1 || s.width > 40 || !Array.isArray(s.points) || !s.points.length || s.points.some(p => !Array.isArray(p) || p.length !== 2 || p.some(n => !Number.isFinite(n) || n < 0 || n > 1))) || args.strokes.reduce((n, s) => n + s.points.length, 0) > 30000)) throw Error('笔画格式无效')
+    snapshot()
+    if (args.title !== undefined) title.value = data.title = args.title
+    if (args.strokes !== undefined) data.strokes = structuredClone(args.strokes)
+    changed(); paint(); await save(); return { saved: true, version }
+  })
   paint()
 }

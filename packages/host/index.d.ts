@@ -33,6 +33,10 @@ export interface StopRequest extends StopChange {
   hold(release: () => void | Promise<void>): void
 }
 export interface ClientSDK {
+  readonly agent: {
+    register(definition: { name: string; description: string; inputSchema: Record<string, unknown> }, execute: (args: any) => unknown): void
+    selection(target: HTMLElement, capture: (event: MouseEvent) => { text: string; label?: string; noteId?: string; blockId?: string; apply(text: string): unknown } | null): void
+  }
   readonly id: string
   readonly application: { id: string; name: string; legacyBrowserStorage?: boolean }
   readonly storage: { local: Storage; session: Storage }

@@ -1,7 +1,7 @@
 import { noteType, snapshotNote } from './note.js'
 
 const fail = (status, message) => Object.assign(new Error(message), { status })
-const reserved = new Set(['id', 'type', 'title', 'pinned', 'createdAt', 'updatedAt', '__proto__', 'constructor', 'prototype'])
+const reserved = new Set(['id', 'type', 'title', 'pinned', 'order', 'createdAt', 'updatedAt', '__proto__', 'constructor', 'prototype'])
 // Both processes use the same contract, but each owns its registrations independently.
 export function createFormatRegistry(ctx) {
   const formats = new Map(), listeners = new Set()

@@ -7,7 +7,7 @@ import { documentService } from '../applications/notebook/plugins/rich-text/docu
 import { createFreeformFormat } from '../applications/notebook/plugins/format-freeform/format.js'
 
 function fixture(t) {
-  const window = new Window(), previous = new Map(), cleanups = [], commands = new Map(), editors = new Map()
+  const window = new Window(), previous = new Map(), cleanups = [], commands = new Map(), editors = new Map(), selections = new Map()
   for (const [key, value] of Object.entries({
     window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
@@ -43,6 +43,7 @@ function fixture(t) {
     noteFormats: { typeOf: n => n.type },
     notebook: {
       busy: false, editable: true, current: () => note,
+      flush: async () => {},
       observe(owner, fn) { notify = fn; fn() },
       edit(patch) { note = { ...note, ...format.normalize(patch) }; notify() },
     },
@@ -73,6 +74,7 @@ function fixture(t) {
     } },
   }, {
     effect, toast: text => assert.fail(text),
+    agent: { selection(body, capture) { selections.set(body.parentElement.getAttribute('data-block-id'), capture) } },
     el(tag, attrs = {}, text = '') {
       const node = document.createElement(tag)
       for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value)
@@ -83,7 +85,7 @@ function fixture(t) {
   })
   return {
     get note() { return structuredClone(note) },
-    commands, editors, root, window,
+    commands, editors, selections, root, window,
     finishUpload: () => finishUpload('/api/note-assets/' + 'a'.repeat(64) + '.png'),
     pointer(type, selector, x, y, shiftKey = false) {
       (selector ? root.querySelector(selector) : root).dispatchEvent(new window.PointerEvent(type, {
@@ -94,6 +96,18 @@ function fixture(t) {
     redo() { root.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true })) },
   }
 }
+
+test('Agent 自由页面选区替换保留页面撤销，旧附件不能覆盖后续编辑', async t => {
+  const f = fixture(t), api = f.editors.get('one').editor
+  api.editor.commands.setTextSelection({ from: 1, to: 4 })
+  const selection = f.selections.get('one')()
+  assert.equal(selection.text, 'one')
+  await selection.apply('替换内容')
+  assert.equal(f.note.blocks[0].text, '替换内容')
+  assert.throws(() => selection.apply('覆盖'), /已变化/)
+  f.undo(); assert.equal(f.note.blocks[0].text, 'one')
+  f.redo(); assert.equal(f.note.blocks[0].text, '替换内容')
+})
 
 for (const action of ['move', 'resize', 'space', 'merge']) test(`图片上传与${action}手势重叠时保留内容，撤销只还原手势`, async t => {
   const f = fixture(t)

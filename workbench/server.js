@@ -1,0 +1,271 @@
+import { createServer } from 'node:http'
+import { fork } from 'node:child_process'
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
+import { join, resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
+import { ApplicationProcess } from './processes.js'
+import { MODELS, modelInfo, normalizeConfig, validateSettings } from './config.js'
+import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
+import { discoverApplications } from '../server/application-discovery.js'
+
+const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
+const fail = (status, text) => Object.assign(Error(text), { status })
+async function readJSON(file, fallback) { try { return JSON.parse(await readFile(file, 'utf8')) } catch (error) { if (error.code === 'ENOENT') return fallback; throw error } }
+async function body(req) {
+  const chunks = []; let size = 0
+  for await (const chunk of req) { size += chunk.length; if (size > 2 * 1024 * 1024) throw fail(413, '请求过大'); chunks.push(chunk) }
+  try { return JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { throw fail(400, 'JSON 无效') }
+}
+export async function createWorkbench({ root = project, port = 3211, appPort = 3210, dataDir = join(root, '.workbench'), appDataDir = join(root, 'data'), autoStart = true, workerFile = join(here, 'agent-worker.js') } = {}) {
+  await mkdir(dataDir, { recursive: true })
+  let config = normalizeConfig({ apiKey: process.env.DEEPSEEK_API_KEY || '', ...await readJSON(join(dataDir, 'config.json'), {}) })
+  const imageStore = new AttachmentStore(dataDir)
+  const conversations = await readJSON(join(dataDir, 'conversations.json'), [])
+  for (const item of conversations) {
+    item.turns ||= []; item.revision ||= 0
+    if (item.running) {
+      item.running = false; item.messages.push({ role: 'system', text: '工作台曾中断；可以继续此会话。' })
+      for (const turn of item.turns.filter(turn => turn.status === 'running')) {
+        turn.status = 'stopped'; turn.endedAt = Date.now()
+        for (const event of turn.events.filter(event => event.status === 'running')) { event.status = 'stopped'; event.endedAt = turn.endedAt }
+      }
+    }
+  }
+  const clients = new Map(), streams = new Set(), pending = new Map()
+  // Keep broken applications selectable for code repair; discovery never loads their plugins.
+  const apps = (await discoverApplications(join(root, 'applications')))
+    .filter(app => /^[a-z][a-z0-9-]{1,49}$/.test(app.id))
+    .map(({ id, name, error }) => ({ id, name, ...(error ? { error } : {}) }))
+  const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir })
+  let active, worker, closing = false, persistence = Promise.resolve(), traceTimer
+  const redact = text => config.apiKey ? String(text).split(config.apiKey).join('[密钥已隐藏]') : String(text)
+  const publicThread = item => ({ id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, partial: active?.thread === item ? active.partial : '' })
+  const notify = message => { const value = JSON.stringify(message); for (const res of streams) res.write(`data: ${value}\n\n`) }
+  const persist = () => {
+    const snapshot = JSON.stringify(conversations, null, 2)
+    const task = persistence.then(async () => { const file = join(dataDir, 'conversations.json'); await writeFile(file + '.tmp', snapshot, { mode: 0o600 }); await rename(file + '.tmp', file) })
+    persistence = task.catch(error => notify({ type: 'error', error: '会话保存失败：' + redact(error.message) }))
+    return task
+  }
+  const changed = item => { item.revision++; notify({ type: 'thread', thread: publicThread(item) }); void persist().catch(() => {}) }
+  const updateTrace = (task, event) => {
+    const turn = task.turn
+    let record = turn.events.find(record => record.id === event.id)
+    if (!record) { record = { id: event.id || randomUUID(), kind: event.kind || 'notice', startedAt: Date.now(), status: 'running' }; turn.events.push(record) }
+    for (const key of ['kind', 'name', 'input', 'output', 'text', 'status']) if (event[key] !== undefined) record[key] = redact(event[key]).slice(0, key === 'output' || key === 'input' ? 64000 : 256000)
+    if (event.delta) { const full = (record.text || '') + redact(event.delta); record.text = full.slice(0, 256000); record.truncated = full.length > 256000 || record.truncated }
+    if (['done', 'error', 'stopped'].includes(record.status)) record.endedAt ||= Date.now()
+    // Coalesce token events; one bounded write/broadcast per 200 ms, with a final
+    // full snapshot at task completion. Revisions protect against poll/SSE races.
+    if (!traceTimer) traceTimer = setTimeout(() => {
+      traceTimer = null; task.thread.revision++
+      notify({ type: 'turn', threadId: task.thread.id, revision: task.thread.revision, turn, contextUsage: task.thread.contextUsage })
+      void persist().catch(() => {})
+    }, 200)
+  }
+  const bindingFor = clientId => {
+    const client = clients.get(clientId)
+    if (!client || Date.now() - client.seen > 10000) throw Error('业务页面未连接；请打开工作台中的应用，代码修复工具仍可使用')
+    return client
+  }
+  async function pageCall(task, name, args = {}) {
+    if (task.cancelled) throw Error('任务已停止')
+    const current = bindingFor(task.clientId)
+    if (task.appId !== current.appId || task.pageId !== current.pageId || task.session !== current.session) throw Error('应用或页面已经切换；请在当前应用新建会话或重新发送任务')
+    return new Promise((resolve, reject) => {
+      const id = randomUUID(), timer = setTimeout(() => { pending.delete(id); reject(Error('页面工具响应超时；结果可能已执行，请先读取状态再决定是否重试')) }, 20000)
+      pending.set(id, { clientId: task.clientId, pageId: task.pageId, resolve, reject, timer })
+      notify({ type: 'page-call', clientId: task.clientId, pageId: task.pageId, session: task.session, id, name, args })
+    })
+  }
+  const selectionTool = { name: 'replace_selection', description: '修改用户通过右键添加的选区，保留撤销。已变化或跨页面的附件会拒绝。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, text: { type: 'string' } }, required: ['id', 'text'] } }
+  async function execute(task, name, args) {
+    if (task.cancelled) throw Error('任务已停止')
+    if (name === 'workspace_status') return { ...await application.status(), appId: task.appId, root }
+    if (name === 'workspace_build') return application.build(task.appId)
+    if (name === 'workspace_restart') {
+      const status = await application.status()
+      if (status.online) {
+        if (status.state.current?.id !== task.appId) throw Error('当前正在运行另一应用，不能替它重启')
+        await pageCall(task, 'workspace_prepare_reload')
+      }
+      try { await application.restart() }
+      catch (error) { await pageCall(task, 'workspace_release_reload').catch(() => {}); throw error }
+      task.awaitingRebind = true
+      notify({ type: 'reload-app' })
+      return { restarted: true, message: '页面正在重新连接。请先 workspace_status 或 app_list_tools 确认后再操作数据。' }
+    }
+    if (task.awaitingRebind) {
+      for (let i = 0; i < 30 && !task.cancelled; i++) {
+        const page = clients.get(task.clientId)
+        if (page && (page.appId !== task.appId || page.pageId !== task.pageId)) break
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+    const live = bindingFor(task.clientId)
+    if (task.awaitingRebind && live.appId === task.appId && live.pageId !== task.pageId) { task.session = live.session; task.pageId = live.pageId; task.awaitingRebind = false }
+    const state = await application.status()
+    if (!state.online || state.state.current?.id !== task.appId || state.state.session !== task.session || live.pageId !== task.pageId || live.appId !== task.appId) throw Error('绑定的应用页面已断开或切换；代码和日志工具仍可用')
+    if (name === 'app_list_tools') return { appId: task.appId, pageId: task.pageId, tools: [...live.tools, selectionTool] }
+    if (name === 'app_call') {
+      if (args.name !== 'replace_selection' && !live.tools.some(tool => tool.name === args.name)) throw Error('工具不存在或已停用')
+      return pageCall(task, args.name, args.arguments)
+    }
+    throw Error('未知工具')
+  }
+  function finish(error) {
+    if (!active) return
+    const item = active.thread
+    if (active.partial) item.messages.push({ role: 'assistant', text: redact(active.partial), turnId: active.turn.id })
+    if (error) updateTrace(active, { id: randomUUID(), kind: 'notice', text: error, status: active.cancelled ? 'stopped' : 'error' })
+    active.turn.status = active.cancelled ? 'stopped' : error || active.failed || active.modelError ? 'error' : 'done'; active.turn.endedAt = Date.now()
+    for (const event of active.turn.events.filter(event => event.status === 'running')) { event.status = active.turn.status === 'done' ? 'done' : 'stopped'; event.endedAt = Date.now() }
+    clearTimeout(traceTimer); traceTimer = null
+    item.running = false; active = null; changed(item)
+  }
+  function startWorker() {
+    const child = fork(workerFile, [], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+    worker = child
+    child.stdout.on('data', () => {})
+    child.stderr.on('data', data => { if (active) updateTrace(active, { id: 'worker-log', kind: 'notice', name: 'Agent 日志', delta: String(data), status: 'done' }) })
+    child.on('error', error => finish(error.message))
+    child.on('exit', () => { if (worker === child) { worker = null; finish('Agent 进程已退出；会话已保留，可以重试。') } })
+    child.on('message', message => {
+      if (message.type === 'ready') { child.ready = true; return }
+      if (!active) return
+      const task = active, item = task.thread
+      if (message.type === 'tool') {
+        execute(task, message.name, message.args).then(result => { if (child.connected) child.send({ type: 'result', id: message.id, result }) }, error => { if (child.connected) child.send({ type: 'result', id: message.id, error: redact(error.message) }) })
+      } else if (message.type === 'session') { item.sessionFile = message.file; void persist().catch(() => {}) }
+      else if (message.type === 'trace') updateTrace(task, message.event)
+      else if (message.type === 'usage') { item.contextUsage = message.usage; changed(item) }
+      else if (message.type === 'delta') { task.partial += message.text; updateTrace(task, { id: 'legacy-text', kind: 'text', delta: message.text }) }
+      else if (message.type === 'assistant') {
+        // An unsuccessful model attempt can recover. Worker/setup errors remain fatal.
+        task.modelError = message.error || null
+        if (message.error) updateTrace(task, { id: randomUUID(), kind: 'notice', text: message.error, status: 'error' })
+        if (message.text) {
+          item.messages.push({ role: 'assistant', text: redact(message.text), turnId: task.turn.id })
+          if (!task.turn.events.some(event => event.kind === 'text')) updateTrace(task, { id: randomUUID(), kind: 'text', text: message.text, status: 'done' })
+        }
+        task.partial = ''; changed(item)
+      } else if (message.type === 'error') { task.failed = true; updateTrace(task, { id: randomUUID(), kind: 'notice', text: message.error, status: 'error' }); changed(item) }
+      else if (message.type === 'activity') updateTrace(task, { id: message.name, kind: 'tool', name: message.name, status: message.phase === 'start' ? 'running' : message.phase })
+      else if (message.type === 'done') finish(message.cancelled ? '任务已停止。已完成的操作不会自动撤销。' : '')
+    })
+    return child
+  }
+  async function run(input, mode = 'chat') {
+    if (active) throw fail(409, '已有任务执行中，请等待或先停止')
+    if (!config.apiKey) throw fail(400, '请先在设置中填写 DeepSeek API 密钥')
+    if (mode === 'chat' && (typeof input.prompt !== 'string' || !input.prompt.trim() && !input.images?.length || input.prompt.length > 100000)) throw fail(400, '消息内容无效')
+    if (!apps.some(app => app.id === input.appId)) throw fail(400, '应用不存在')
+    let item = input.threadId && conversations.find(t => t.id === input.threadId)
+    if (input.threadId && !item || item && item.appId !== input.appId) throw fail(400, '会话不属于当前应用')
+    if (mode === 'compact' && !item?.sessionFile) throw fail(400, '此会话尚无可压缩的上下文')
+    const client = clients.get(input.clientId)
+    if (client && client.appId !== input.appId) throw fail(409, '页面应用已切换')
+    const attachments = Array.isArray(input.attachments) ? input.attachments.slice(0, 10) : []
+    if (attachments.some(a => a.appId !== input.appId || a.pageId !== client?.pageId || a.session !== client?.session || typeof a.text !== 'string' || a.text.length > 100000)) throw fail(409, '附件已过期或不属于当前应用')
+    if (input.model && !MODELS.some(model => model.id === input.model)) throw fail(400, '不支持的模型选项')
+    let taskConfig
+    try { taskConfig = validateSettings({ model: input.model || config.model, reasoningEffort: input.reasoningEffort || config.reasoningEffort, thinking: input.thinking ?? config.thinking }, config) } catch (error) { throw fail(400, error.message) }
+    const images = await imageStore.select(input.images)
+    if (!modelInfo(taskConfig.model).images && (images.length || item?.hasImages)) throw fail(409, '当前模型不支持此对话的图片，请明确切换到 Flash，或新建纯文字对话')
+    if (active || closing) throw fail(409, '已有任务执行中，请等待或先停止')
+    if (!item) { item = { id: randomUUID(), appId: input.appId, title: input.prompt.trim().slice(0, 35) || '图片对话', messages: [], turns: [], revision: 0 }; conversations.push(item) }
+    const turn = { id: randomUUID(), mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [] }
+    item.turns.push(turn); item.hasImages ||= images.length > 0
+    active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '' }
+    item.running = true
+    if (mode === 'chat') item.messages.push({ id: randomUUID(), role: 'user', turnId: turn.id, text: input.prompt, attachments, images })
+    changed(item)
+    const task = active
+    void (async () => {
+      const child = worker || startWorker()
+      for (let i = 0; !child.ready && i < 900; i++) { if (!worker || task.cancelled || closing) break; await new Promise(resolve => setTimeout(resolve, 100)) }
+      if (active !== task) return
+      if (!child.ready || !child.connected || task.cancelled || closing) { finish('任务在启动阶段已停止'); return }
+      child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'), config: taskConfig, task: { mode, appId: item.appId, prompt: input.prompt || '请分析这些图片。', attachments, images, sessionFile: item.sessionFile } })
+    })().catch(error => { if (active === task) finish(error.message) })
+    return publicThread(item)
+  }
+  const server = createServer(async (req, res) => {
+    const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)) }
+    try {
+      const host = req.headers.host || ''
+      if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host) || req.headers.origin && req.headers.origin !== `http://${host}`) throw fail(403, '只允许本机工作台访问')
+      const path = new URL(req.url, `http://${host}`).pathname
+      if (!['GET', 'HEAD'].includes(req.method) && path !== '/api/images' && req.headers['content-type'] !== 'application/json') throw fail(415, '需要 JSON 请求')
+      if (req.method === 'GET' && ['/', '/chat', '/app.js', '/style.css', '/markdown.js', '/timeline.js'].includes(path)) {
+        const file = path === '/' || path === '/chat' ? 'index.html' : path.slice(1)
+        res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(await readFile(join(here, 'public', file))); return
+      }
+      if (req.method === 'GET' && path === '/api/events') {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' }); res.write(': connected\n\n'); streams.add(res)
+        const timer = setInterval(() => res.write(': keepalive\n\n'), 15000)
+        req.on('close', () => { clearInterval(timer); streams.delete(res) }); return
+      }
+      let result
+      if (req.method === 'GET' && path.startsWith('/api/images/')) {
+        const id = path.slice('/api/images/'.length), image = await imageStore.get(id)
+        res.writeHead(200, { 'Content-Type': image.mimeType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=86400' }); res.end(await imageStore.bytes(id)); return
+      }
+      if (req.method === 'GET' && path === '/api/state') result = { applications: apps, application: await application.status(), appUrl: `http://127.0.0.1:${appPort}`, threads: conversations.map(publicThread), activeThreadId: active?.thread.id || null }
+      else if (req.method === 'GET' && path === '/api/config') result = { baseUrl: config.baseUrl, model: config.model, thinking: config.thinking, reasoningEffort: config.reasoningEffort, compaction: config.compaction, models: MODELS, imageLimits: IMAGE_LIMITS, hasKey: !!config.apiKey }
+      else if (req.method === 'POST' && path === '/api/config') {
+        if (active) throw fail(409, '请等待当前任务结束后修改设置')
+        const input = await body(req), url = new URL(input.baseUrl || config.baseUrl)
+        if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw fail(400, '模型地址必须是 HTTPS 基础地址')
+        if (input.model !== undefined && (typeof input.model !== 'string' || !/^[\w./:-]{1,100}$/.test(input.model))) throw fail(400, '模型名称无效')
+        let next
+        try { next = validateSettings({ ...input, baseUrl: url.href.replace(/\/chat\/completions\/?$/, '').replace(/\/$/, '') }, config) } catch (error) { throw fail(400, error.message) }
+        next.apiKey = config.apiKey
+        if (typeof input.apiKey === 'string' && input.apiKey.trim()) next.apiKey = input.apiKey.trim()
+        await writeFile(join(dataDir, 'config.json'), JSON.stringify(next, null, 2), { mode: 0o600 }); config = next; result = { saved: true }
+      } else if (req.method === 'POST' && path === '/api/images') result = await imageStore.upload(req)
+      else if (req.method === 'POST' && path === '/api/images/remove') {
+        const { id } = await body(req)
+        if (conversations.some(thread => thread.messages.some(message => message.images?.some(image => image.id === id)))) throw fail(409, '历史会话正在使用此图片')
+        await imageStore.remove(id); result = { removed: true }
+      } else if (req.method === 'POST' && path === '/api/run') result = await run(await body(req))
+      else if (req.method === 'POST' && path === '/api/compact') result = await run(await body(req), 'compact')
+      else if (req.method === 'POST' && path === '/api/interrupt') { if (active) active.cancelled = true; if (worker?.connected) worker.send({ type: 'interrupt' }); result = { requested: true } }
+      else if (req.method === 'POST' && path === '/api/bridge') {
+        const input = await body(req)
+        if (typeof input.clientId !== 'string') throw fail(400, '页面标识无效')
+        if (input.type === 'result') {
+          const entry = pending.get(input.id)
+          if (entry && entry.clientId === input.clientId && entry.pageId === input.pageId) { pending.delete(input.id); clearTimeout(entry.timer); input.error ? entry.reject(Error(input.error)) : entry.resolve(input.result) }
+        } else if (input.type === 'disconnect') clients.delete(input.clientId)
+        else if (input.type === 'ready' && apps.some(app => app.id === input.appId) && typeof input.pageId === 'string' && typeof input.session === 'string' && Array.isArray(input.tools)) clients.set(input.clientId, { appId: input.appId, pageId: input.pageId, session: input.session, tools: input.tools.slice(0, 100), seen: Date.now() })
+        result = { ok: true }
+      } else if (req.method === 'POST' && path === '/api/application/start') result = await application.start()
+      else if (req.method === 'POST' && path === '/api/application/restart') {
+        const input = await body(req)
+        let task
+        if ((await application.status()).online) { task = { ...bindingFor(input.clientId), clientId: input.clientId }; await pageCall(task, 'workspace_prepare_reload') }
+        try { result = await application.restart(); notify({ type: 'reload-app' }) }
+        catch (error) { if (task) await pageCall(task, 'workspace_release_reload').catch(() => {}); throw error }
+      } else throw fail(404, '接口不存在')
+      json(200, result)
+    } catch (error) { json(error.status || 500, { error: redact(error.message) }) }
+  })
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
+  if (autoStart) void application.start().catch(error => application.log(error.message))
+  return { server, application, execute, clients, async close() {
+    closing = true
+    worker?.kill()
+    for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(Error('工作台已关闭')) }; pending.clear()
+    for (const res of streams) res.end()
+    if (application.child) await application.stop()
+    finish('工作台已关闭'); await persistence
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve))
+  } }
+}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const app = await createWorkbench({ port: Number(process.env.WORKBENCH_PORT || 3211), appPort: Number(process.env.WORKBENCH_APP_PORT || 3210), dataDir: process.env.WORKBENCH_DATA_DIR || join(project, '.workbench'), appDataDir: process.env.DATA_DIR || join(project, 'data') })
+  console.log(`Agent 工作台：http://127.0.0.1:${app.server.address().port}`)
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0) })
+}

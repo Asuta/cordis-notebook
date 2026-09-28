@@ -15,6 +15,16 @@ export default function(ctx, sdk) {
   let refreshToolbar = () => {}
   const isActive = () => ctx.noteFormats.typeOf(model.current()) === 'markdown'
   const canEdit = () => isActive() && !model.busy && model.editable && !composing
+  sdk.agent?.selection(source, () => {
+    const note = model.current(), start = source.selectionStart, end = source.selectionEnd, value = source.value
+    if (!canEdit() || start === end) return null
+    return { text: value.slice(start, end), label: note.title || 'Markdown 选区', noteId: note.id, apply(text) {
+      if (disposed || !source.isConnected || !canEdit() || model.current()?.id !== note.id || model.current()?.markdown !== note.markdown || source.value !== value) throw Error('笔记或选区已变化，请重新添加')
+      source.focus(); source.setSelectionRange(start, end)
+      if (!document.execCommand('insertText', false, text)) throw Error('当前编辑器不支持保留撤销的替换')
+      model.edit({ markdown: source.value }); return model.flush().then(() => ({ updated: true }))
+    } }
+  })
   const draw = () => {
     clearTimeout(timer)
     if (disposed || !isActive()) return

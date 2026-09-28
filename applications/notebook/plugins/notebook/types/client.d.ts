@@ -25,6 +25,7 @@ export interface NotebookService {
   observe(owner: Context, handler: (event?: NotebookChange) => void): () => boolean
   registerFilter(owner: Context, key: string, predicate: NoteFilter): FilterRegistration
   choose(id: string): Promise<void>
+  reorder(ids: string[]): Promise<void>
   create(type?: string): Promise<void>
   remove(): Promise<void>
   edit(patch: NotePatch): void

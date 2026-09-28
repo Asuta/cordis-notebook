@@ -1,4 +1,6 @@
 node_modules/
+.workbench/
+workbench/public/markdown.js
 data/
 work/
 *.log

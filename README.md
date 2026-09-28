@@ -6,7 +6,7 @@
 
 ## 启动与使用
 
-需要 Node.js 22+ 与 pnpm：
+需要 Node.js 22.19+ 与 pnpm：
 
 ```sh
 pnpm install --frozen-lockfile
@@ -15,8 +15,10 @@ pnpm start
 
 打开 http://127.0.0.1:3210/ 。首次默认打开笔记，以后恢复上次选择；关闭当前应用后重启也保持关闭。多个标签页跟随同一个全局选择，切换应用会刷新页面；应用内部启停插件仍即时生效。
 
-- [笔记应用](applications/notebook/README.md)：28 个插件，普通笔记、Markdown、自由页面、图片、搜索、主题和配置。
+- [笔记应用](applications/notebook/README.md)：29 个插件，普通笔记、Markdown、自由页面、图片、搜索、主题、配置和 Agent 工具。
 - [画图应用](applications/drawing/README.md)：2 个独立插件，基础画笔、撤销、自动保存和 PNG 导出，验证完全不同的应用组合。
+
+需要内置 AI 时运行 `pnpm workbench`，打开 http://127.0.0.1:3211/ 。工作台使用独立 Pi 进程和 DeepSeek API，提供右下角聊天、代码编辑、应用工具与「选区添加到 Chat」，支持执行时间线、Markdown、模型与推理强度选择、上下文压缩和多图输入（Flash）。应用进程崩溃后聊天仍可用。密钥在聊天设置中配置，保存在 Git 忽略的 `.workbench/`。详见 [Agent 工作台设计与使用](docs/Agent工作台设计与使用.md)。
 
 ## 目录与开发
 
@@ -35,6 +37,8 @@ server/host/               HTTP、应用切换、插件生命周期和配置
 client/host/               浏览器宿主、应用选择、插件管理与恢复
 shared/                    宿主共用协议
 scripts/                   通用构建与导出
+workbench/                 独立聊天页面、Pi 进程与应用进程管理
+agent/ARCHITECTURE.md       Agent 的通用架构上下文
 ```
 
 新增应用只需增加自己的目录、应用清单与插件，再安装依赖、构建和重启。插件用 dependencies 声明代码依赖，用 cordis.requires 声明运行时服务依赖；安装代码不会自动启用服务。应用名称与图标来自清单。

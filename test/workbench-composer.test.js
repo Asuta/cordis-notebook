@@ -1,0 +1,87 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { build } from 'esbuild'
+import { Window } from 'happy-dom'
+
+const bundle = await build({ entryPoints: ['workbench/public/app.js'], bundle: true, write: false, format: 'esm', platform: 'browser' })
+const html = (await readFile('workbench/public/index.html', 'utf8')).replace(/<script[\s\S]*?<\/script>/g, '')
+const response = (value, ok = true) => ({ ok, json: async () => value })
+async function fixture(t) {
+  const window = new Window({ url: 'http://127.0.0.1:9999/chat', settings: { disableCSSFileLoading: true, disableIframePageLoading: true } })
+  t.after(() => window.happyDOM.close())
+  window.document.write(html)
+  window.setInterval = () => 0
+  window.EventSource = class {}
+  window.Option = function (text, value) { const option = window.document.createElement('option'); option.textContent = text; option.value = value; return option }
+  const calls = [], pending = [], removed = []
+  let imageId = 0
+  window.fetch = async (path, options = {}) => {
+    const data = options.headers?.['Content-Type'] === 'application/json' ? JSON.parse(options.body) : undefined
+    calls.push({ path, data })
+    if (path === '/api/config') return response({ model: 'deepseek-flash', thinking: true, reasoningEffort: 'high', models: [{ id: 'deepseek-flash', name: 'Flash', images: true }], compaction: { threshold: 128000 } })
+    if (path === '/api/state') return response({ applications: [{ id: 'notebook', name: '笔记' }, { id: 'drawing', name: '画图', error: '清单解析失败' }], application: { online: false, logs: [] }, appUrl: 'http://127.0.0.1:9998', threads: [{ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [] }] })
+    if (path === '/api/run' || path === '/api/compact') return new Promise(resolve => pending.push({ resolve, data }))
+    if (path === '/api/images') return response({ id: 'image-' + ++imageId, bytes: 10, width: 1, height: 1, mimeType: 'image/png' })
+    if (path === '/api/images/remove') { removed.push(data.id); return response({ removed: true }) }
+    throw Error('意外的请求：' + path)
+  }
+  await window.eval('(async () => {' + bundle.outputFiles[0].text + '\n})()')
+  const $ = id => window.document.getElementById(id)
+  const type = text => { $('prompt').value = text; $('prompt').dispatchEvent(new window.Event('input')) }
+  const send = () => $('composer').onsubmit({ preventDefault() {} })
+  const finish = (ok = true) => pending.at(-1).resolve(response(ok ? { id: 'sent', appId: pending.at(-1).data.appId, title: '已发送', messages: [{ role: 'user', text: pending.at(-1).data.prompt }], turns: [], revision: 1, running: false } : { error: '模拟发送失败' }, ok))
+  const upload = async () => {
+    const event = new window.Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [new window.File(['image'], 'test.png', { type: 'image/png' })] } })
+    $('chat').dispatchEvent(event)
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  return { window, $, type, send, finish, upload, calls, pending, removed }
+}
+
+for (const destination of ['application', 'history', 'new']) test('发送响应不覆盖切换后的草稿：' + destination, async t => {
+  const { window, $, type, send, finish } = await fixture(t)
+  type('原笔记消息'); const sending = send()
+  if (destination === 'application') { $('app-select').value = 'drawing'; $('app-select').onchange() }
+  if (destination === 'history') { $('threads').value = 'history'; $('threads').onchange() }
+  if (destination === 'new') $('new-thread').onclick()
+  type('切换后的草稿'); finish(); await sending
+  assert.equal($('prompt').value, '切换后的草稿')
+  assert.equal(window.sessionStorage.getItem('agent-thread'), destination === 'history' ? 'history' : '')
+  assert.equal($('messages').textContent.includes('原笔记消息'), false)
+  if (destination === 'application') {
+    assert.equal(window.sessionStorage.getItem('agent-app'), 'drawing')
+    assert.match($('app-select').selectedOptions[0].textContent, /清单错误/)
+    assert.equal($('app-select').selectedOptions[0].title, '清单解析失败')
+  } else assert.ok([...$('threads').options].some(option => option.value === 'sent'))
+})
+
+test('同一对话发送期间继续输入和上传图片，响应只移除已发送附件', async t => {
+  const { window, $, type, send, finish, upload } = await fixture(t)
+  type('旧消息'); await upload(); const sending = send()
+  type('下一条草稿'); await upload(); finish(); await sending
+  assert.equal(window.sessionStorage.getItem('agent-thread'), 'sent')
+  assert.equal($('prompt').value, '下一条草稿')
+  const previews = $('image-previews').querySelectorAll('img')
+  assert.equal(previews.length, 1); assert.match(previews[0].src, /image-2$/)
+})
+
+test('正常发送清空已发草稿；发送失败保留原草稿与图片', async t => {
+  const { $, type, send, finish, upload, removed } = await fixture(t)
+  type('成功消息'); const success = send(); finish(); await success
+  assert.equal($('prompt').value, '')
+  type('失败消息'); await upload(); const failure = send(); finish(false); await failure
+  assert.equal($('prompt').value, '失败消息')
+  assert.equal($('image-previews').querySelectorAll('img').length, 1)
+  assert.deepEqual(removed, [])
+})
+
+for (const ok of [true, false]) test('切换页面不提前删除发送中的图片，失败才清理遗留附件：' + ok, async t => {
+  const { $, type, send, finish, upload, removed } = await fixture(t)
+  type('图片消息'); await upload(); const sending = send()
+  $('app-select').value = 'drawing'; $('app-select').onchange()
+  assert.deepEqual(removed, [])
+  finish(ok); await sending
+  assert.deepEqual(removed, ok ? [] : ['image-1'])
+})

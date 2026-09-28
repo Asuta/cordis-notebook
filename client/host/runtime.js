@@ -9,6 +9,7 @@ import { createMounts } from './mounts.js'
 import { mountStyles } from './styles.js'
 import { applicationStorage } from './application-storage.js'
 import { applicationView } from './application-view.js'
+import { createAgentBridge } from './agent-bridge.js'
 let application = await (await fetch('/api/applications')).json()
 const pageSession = application.session
 let leaving = false
@@ -18,6 +19,7 @@ const updatePlaceholder = () => { $('#app-placeholder').hidden = $('#app').child
 new MutationObserver(updatePlaceholder).observe($('#app'), { childList: true })
 updatePlaceholder()
 const stopping = new StopCoordinator(root, error => toast(error.message))
+const agentBridge = createAgentBridge({ application: application.current, session: pageSession, stopping, window, document })
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false
 async function request(path, method = 'GET', data, signal) {
   const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json', 'X-Application-Session': pageSession }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
@@ -33,6 +35,7 @@ function sdkFor(ctx, plugin) {
   const controller = new AbortController(); ctx.effect(() => () => controller.abort())
   const sdk = {
     id: plugin.id, el, toast,
+    agent: agentBridge.forOwner(ctx),
     application: application.current,
     storage: { local: applicationStorage(localStorage, application.current.id, plugin.id), session: applicationStorage(sessionStorage, application.current.id, plugin.id) },
     request: (path, method, data) => request(path, method, data, controller.signal),

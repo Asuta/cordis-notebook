@@ -29,8 +29,9 @@ export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data
     route('POST', /^\/api\/plugins\/exclusive\/confirm$/, manage(async (manager, { req }) => { const input = await body(req); return manager.finishExclusive(input.token, input.success, input.error) }))
     route('GET', /^\/api\/events$/, ({ req, res }) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' }); res.write('event: plugins\ndata: connected\n\n')
-      ctx.http.clients.add(res); const timer = setInterval(() => res.write(': keepalive\n\n'), 20000)
-      req.on('close', () => { ctx.http.clients.delete(res); clearInterval(timer) })
+      const clients = ctx.http.clients
+      clients.add(res); const timer = setInterval(() => res.write(': keepalive\n\n'), 20000)
+      req.on('close', () => { clients.delete(res); clearInterval(timer) })
     })
     ctx.http.fallback = request => applications.dispatch(request)
     const serve = async (res, path) => {
@@ -61,5 +62,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     ? await createApp({ port: Number(process.env.PORT || 3210), pluginsDir: process.env.PLUGINS_DIR, dataDir: process.env.DATA_DIR })
     : await createHost({ port: Number(process.env.PORT || 3210), applicationsDir: process.env.APPLICATIONS_DIR || defaultApplicationsDir, dataDir: process.env.DATA_DIR, initialApplication: process.env.APP })
   console.log(`Cordis Applications: http://127.0.0.1:${app.server.address().port}`)
-  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0) })
+  let closing = false
+  const shutdown = async () => { if (closing) return; closing = true; await app.close(); process.exit(0) }
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, shutdown)
+  process.on('message', message => { if (message?.type === 'workbench-shutdown') void shutdown() })
+  if (process.connected) process.once('disconnect', shutdown)
 }

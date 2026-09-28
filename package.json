@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "workbench": "pnpm build && node workbench/server.js",
+    "workbench:runtime": "node workbench/server.js",
     "build": "node scripts/build.js",
     "export:plugins": "node scripts/export-plugins.js",
     "export:app": "node scripts/export-application.js",
@@ -13,21 +15,25 @@
     "test": "pnpm typecheck && pnpm build && node --test test/*.test.js"
   },
   "dependencies": {
-    "cordis": "4.0.0-rc.10"
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@sinclair/typebox": "0.34.41",
+    "cordis": "4.0.0-rc.10",
+    "markdown-it": "15.0.2",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "@cordis-notebook/markdown": "workspace:*",
+    "@cordis-notebook/note-assets": "workspace:*",
+    "@cordis-notebook/note-formats": "workspace:*",
+    "@cordis-notebook/notebook": "workspace:*",
+    "@cordis-notebook/notes": "workspace:*",
+    "@cordis-notebook/rich-text": "workspace:*",
+    "@cordis-notebook/theme-engine": "workspace:*",
     "@tailwindcss/cli": "^4.3.3",
+    "@types/node": "^22.0.0",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.14.5",
-    "typescript": "^7.0.2",
-    "@cordis-notebook/host": "workspace:*",
-    "@types/node": "^22.0.0",
-    "@cordis-notebook/markdown": "workspace:*",
-    "@cordis-notebook/note-formats": "workspace:*",
-    "@cordis-notebook/theme-engine": "workspace:*",
-    "@cordis-notebook/notes": "workspace:*",
-    "@cordis-notebook/notebook": "workspace:*",
-    "@cordis-notebook/rich-text": "workspace:*",
-    "@cordis-notebook/note-assets": "workspace:*"
+    "typescript": "^7.0.2"
   }
 }

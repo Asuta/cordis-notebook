@@ -61,8 +61,10 @@ async function drawingFixture(t, beforePost) {
   t.after(async () => { await backend.close(); await rm(dir, { recursive: true, force: true }) })
   const address = 'http://127.0.0.1:' + backend.server.address().port
   let sdk
+  const agentTools = new Map()
   await root.plugin(ctx => {
     sdk = { ...sdkFor(ctx, 'drawing', 'canvas'), config: { brushSize: 6 }, toast: text => messages.push(text),
+      agent: { register(def, execute) { agentTools.set(def.name, execute) } },
       async request(path, method = 'GET', payload) {
         if (method === 'POST') { calls.push(structuredClone(payload)); await beforePost(calls.length) }
         const response = await fetch(address + path, {
@@ -77,12 +79,24 @@ async function drawingFixture(t, beforePost) {
     return drawing(ctx, sdk)
   })
   const title = document.querySelector('[aria-label="作品标题"]'), status = document.querySelector('.drawing-toolbar button:last-child')
-  return { root, backend, sdk, calls, messages, status,
+  return { root, backend, sdk, calls, messages, status, agentTools,
     edit(value) { title.value = value; title.dispatchEvent(new window.Event('input')) },
     draftKey: 'draft-' + sdk.storage.session.getItem('tab-id'),
     stop: new StopCoordinator(root),
   }
 }
+
+test('画图 Agent 修改需要当前版本，成功后可撤销标题并保存', async t => {
+  const f = await drawingFixture(t, async () => {})
+  const before = f.agentTools.get('drawing_read')()
+  await f.agentTools.get('drawing_update')({ version: before.version, title: 'Agent 画作' })
+  assert.equal(f.backend.ctx.drawingStorage.read().title, 'Agent 画作')
+  await assert.rejects(f.agentTools.get('drawing_update')({ version: before.version, title: '旧结果' }), /已变化/)
+  const undo = [...document.querySelectorAll('button')].find(button => button.textContent === '撤销')
+  undo.click(); f.status.click(); await untilSaved()
+  assert.equal(f.backend.ctx.drawingStorage.read().title, before.drawing.title)
+  async function untilSaved() { for (let i = 0; i < 100; i++) { if (f.status.textContent === '已保存') return; await new Promise(r => setTimeout(r, 10)) }; assert.fail('保存未完成') }
+})
 
 test('画图并发保存与应用切换共用完整保存流程，期间的新修改只提交一次', { timeout: 15000 }, async t => {
   const first = deferred(), second = deferred(), firstEntered = deferred(), secondEntered = deferred()

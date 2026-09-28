@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import { buildPlugins } from './plugin-builder.js'
 import { discoverApplications } from '../server/application-discovery.js'
+import '../workbench/build.js'
 const applications = await discoverApplications()
 const selected = process.argv[2] ? applications.filter(app => app.id === process.argv[2]) : applications
 if (process.argv[2] && !selected.length) throw Error('未找到要构建的应用')

@@ -570,6 +570,16 @@ export default function (ctx, sdk) {
           error: (e) => sdk.toast(e.message),
         })
         item.doc = JSON.stringify(outline(block))
+        sdk.agent?.selection(body, () => {
+          const snapshot = item.editor.captureSelection(), capturedNote = noteId, capturedOutline = JSON.stringify(outline(blocks().find(b => b.id === block.id)))
+          if (!snapshot?.text || !editable()) return null
+          return { text: snapshot.text, label: current()?.title || '自由页面选区', noteId: capturedNote, blockId: block.id, apply(text) {
+            if (capturedNote !== noteId || nodes.get(block.id) !== item || !editable() || JSON.stringify(outline(blocks().find(b => b.id === block.id))) !== capturedOutline) throw Error('页面或文本框已变化，请重新添加选区')
+            if (!item.editor.replaceSelection(snapshot, text)) throw Error('选区替换失败')
+            state().history.breakGroup()
+            return model.flush().then(() => ({ updated: true }))
+          } }
+        })
         observer.observe(node)
         handle.onpointerdown = (e) => begin(e, 'move', block.id)
         grip.onpointerdown = (e) => begin(e, 'resize', block.id)

@@ -22,6 +22,45 @@ export function mountNoteList(ctx, sdk, root, filters) {
     useObserve(ctx, ctx.noteFormats)
     const formats = ctx.noteFormats.list(),
       notes = model.visible()
+    const [drag, setDrag] = React.useState(null)
+    const canReorder = !model.busy && notes.length > 1 && notes.length === model.notes.length
+    const startDrag = (note) => (event) => {
+      event.dataTransfer.setData('text/plain', note.id)
+      event.dataTransfer.effectAllowed = 'move'
+      setDrag({ id: note.id, over: null, position: null })
+    }
+    const overDrag = (note) => (event) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      const rect = event.currentTarget.getBoundingClientRect()
+      const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+      setDrag((prev) => {
+        if (!prev || prev.id === note.id) return prev
+        if (prev.over === note.id && prev.position === position) return prev
+        return { ...prev, over: note.id, position }
+      })
+    }
+    const leaveDrag = (note) => (event) => {
+      if (event.currentTarget.contains(event.relatedTarget)) return
+      setDrag((prev) => (prev && prev.over === note.id ? { ...prev, over: null, position: null } : prev))
+    }
+    const dropDrag = (note) => (event) => {
+      event.preventDefault()
+      const id = event.dataTransfer.getData('text/plain') || drag?.id
+      const position = drag?.position
+      setDrag(null)
+      if (!id || id === note.id) return
+      const ordered = model.visible().map((item) => item.id)
+      if (ordered.length !== model.notes.length || !ordered.includes(note.id)) return
+      const from = ordered.indexOf(id)
+      if (from < 0) return
+      ordered.splice(from, 1)
+      let to = ordered.indexOf(note.id)
+      if (position === 'after') to += 1
+      ordered.splice(to, 0, id)
+      model.reorder(ordered).catch((error) => sdk.toast(error.message))
+    }
+    const endDrag = () => setDrag(null)
     return (
       <>
         <div className="section-heading">
@@ -56,9 +95,21 @@ export function mountNoteList(ctx, sdk, root, filters) {
           {notes.map((note) => (
             <button
               key={note.id}
-              className={'note-card' + (note.id === model.selected ? ' selected' : '')}
+              className={
+                'note-card' +
+                (note.id === model.selected ? ' selected' : '') +
+                (drag?.id === note.id ? ' dragging' : '') +
+                (drag?.over === note.id && drag.position === 'before' ? ' drop-before' : '') +
+                (drag?.over === note.id && drag.position === 'after' ? ' drop-after' : '')
+              }
               aria-current={note.id === model.selected ? 'page' : undefined}
+              draggable={canReorder}
               disabled={model.busy}
+              onDragStart={canReorder ? startDrag(note) : undefined}
+              onDragOver={canReorder ? overDrag(note) : undefined}
+              onDragLeave={canReorder ? leaveDrag(note) : undefined}
+              onDrop={canReorder ? dropDrag(note) : undefined}
+              onDragEnd={endDrag}
               onClick={() => run(() => model.choose(note.id))}
             >
               <div className="card-title">

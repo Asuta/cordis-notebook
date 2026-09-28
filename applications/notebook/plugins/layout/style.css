@@ -6,20 +6,31 @@
   margin: 0;
 }
 .workspace {
+  --sidebar-width: 286px;
   display: grid;
-  grid-template-columns: 286px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
   background: var(--theme-surface);
+  transition: grid-template-columns 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .sidebar {
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--theme-border);
   background: var(--theme-panel);
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 220ms ease,
+    visibility 0s linear 0s,
+    border-right-color 280ms ease;
 }
 .sidebar-content,
 .slot-sidebar {
+  /* 固定宽度：收起动画期间内容整体被裁切，不会逐帧重排文字 */
+  width: var(--sidebar-width);
   height: 100%;
   min-height: 0;
   display: flex;
@@ -149,19 +160,28 @@
   font-size: 12px;
 }
 .workspace.sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 0px minmax(0, 1fr);
 }
+@media (min-width: 621px) {
 .workspace.sidebar-collapsed > .sidebar {
-  display: none;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    border-right-color: transparent;
+    transition:
+      opacity 220ms ease,
+      visibility 0s linear 280ms,
+      border-right-color 280ms ease;
+  }
 }
 @media (min-width: 1500px) {
 .workspace {
-    grid-template-columns: 310px minmax(0, 1fr);
+    --sidebar-width: 310px;
   }
 }
 @media (max-width: 900px) {
 .workspace {
-    grid-template-columns: 250px minmax(0, 1fr);
+    --sidebar-width: 250px;
   }
 .editor-toolbar {
     padding: 0 15px;
@@ -176,6 +196,7 @@
   }
 .workspace {
     display: block;
+    --sidebar-width: 100%;
   }
 .sidebar,
 .editor {
@@ -226,4 +247,11 @@
 .note-actions-menu [role='menuitem'] {
   padding: 9px 12px;
   font-size: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+.workspace,
+.sidebar,
+.workspace.sidebar-collapsed > .sidebar {
+    transition: none;
+  }
 }

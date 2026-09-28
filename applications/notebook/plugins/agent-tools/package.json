@@ -1,0 +1,10 @@
+{
+  "name": "@cordis-notebook/agent-tools", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "@cordis-notebook/host": "workspace:*", "cordis": "4.0.0-rc.10" },
+  "cordis": {
+    "schemaVersion": 1, "id": "agent-tools", "name": "笔记 Agent 工具", "description": "向独立工作台提供笔记读取、创建、打开与版本校验修改。",
+    "defaultEnabled": true, "order": 30, "client": "client.js",
+    "requires": { "server": [], "client": ["notebook"] }, "provides": { "server": [], "client": [] },
+    "public": ["client.js"], "build": [{ "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }]
+  }
+}

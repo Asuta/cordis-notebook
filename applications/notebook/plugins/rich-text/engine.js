@@ -533,6 +533,18 @@ export function mountEditor(owner, element, options) {
     onBlur: () => options.blur?.(),
   })
   const api = {
+    captureSelection() {
+      const { from, to } = editor.state.selection
+      if (from === to) return null
+      return { from, to, text: editor.state.doc.textBetween(from, to, '\n'), document: JSON.stringify(editor.getJSON()) }
+    },
+    replaceSelection(snapshot, text) {
+      if (editor.isDestroyed || !editor.isEditable || editor.view.composing || JSON.stringify(editor.getJSON()) !== snapshot.document) throw Error('选区内容已变化，请重新添加到聊天')
+      options.boundary?.()
+      const chain = editor.chain().focus()
+      const range = { from: snapshot.from, to: snapshot.to }
+      return text ? chain.insertContentAt(range, { type: 'text', text }).run() : chain.deleteRange(range).run()
+    },
     get editor() {
       return editor
     },
