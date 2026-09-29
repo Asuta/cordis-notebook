@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { modelInfo, normalizeConfig, OUTPUT_TOKENS, piCompaction } from './config.js'
 import { AttachmentStore } from './attachments.js'
-import { commandTools, commandGuidance } from './command-tools.js'
+import { commandTools, commandGuidance, execWaitParameter } from './command-tools.js'
 
 let session, busy = false, cancelled = false
 const pending = new Map()
@@ -56,7 +56,7 @@ async function run(input) {
       ['app_list_tools', '发现绑定应用在本页面实际可用的操作工具、参数和连接状态。', Type.Object({})],
       ['app_call', '调用应用工具。name 和 arguments 必须来自 app_list_tools；replace_selection 使用附件 id，普通替换传 text，格式化替换按附件 formats 和 replacementHint 传 format/content。', Type.Object({ name: Type.String(), arguments: Type.Optional(Type.Record(Type.String(), Type.Any())) })],
       ['workspace_status', '读取应用进程状态及最近日志；应用崩溃后仍可使用。', Type.Object({})],
-      ['workspace_build', '构建本任务绑定的应用及通用浏览器入口。返回命令会话；若仍 running，使用 write_stdin 等待退出码。不会自动重启。', Type.Object({ yield_time_ms: Type.Optional(Type.Integer({ minimum: 0, maximum: 30000 })) })],
+      ['workspace_build', '构建本任务绑定的应用及通用浏览器入口。返回命令会话；若仍 running，使用 write_stdin 等待退出码。不会自动重启。', Type.Object({ yield_time_ms: execWaitParameter })],
       ['workspace_restart', '先请求编辑器保存，再重启工作台管理的应用进程；应用已崩溃时可直接恢复。', Type.Object({})],
     ]
     const customTools = definitions.map(([name, description, parameters]) => ({ name, label: name, description, promptSnippet: description, parameters,

@@ -25,7 +25,7 @@ test('等待窗口只让出控制权；同一会话输入、增量读取、退�
   const first = await startNode(manager, `console.log('就绪'); process.stdin.once('data', data => { console.log('收到:'+data.toString().trim()); process.exit(7) })`)
   assert.equal(first.status, 'running')
   let initial = first.output
-  await until(async () => { initial += (await manager.read(owner, { session_id: first.session_id, yield_time_ms: 100 })).output; return initial.includes('就绪') })
+  if (!initial.includes('就绪')) await until(async () => { initial += (await manager.read(owner, { session_id: first.session_id, yield_time_ms: 100 })).output; return initial.includes('就绪') })
   await pause(100)
   assert.equal(manager.list(owner)[0].status, 'running')
   assert.equal((await manager.read(owner, { session_id: first.session_id, yield_time_ms: 0 })).output, '')
@@ -39,7 +39,7 @@ test('聊天停止仅结束本轮普通命令及其子进程，后台服务和�
   const { manager } = fixture(t)
   const normal = await startNode(manager, `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'inherit'}); console.log(child.pid); setInterval(()=>{},1000)`)
   let pidText = normal.output
-  await until(async () => { pidText += (await manager.read(owner, { session_id: normal.session_id, yield_time_ms: 100 })).output; return pidText.trim() })
+  if (!pidText.trim()) await until(async () => { pidText += (await manager.read(owner, { session_id: normal.session_id, yield_time_ms: 100 })).output; return pidText.trim() })
   const childPid = Number(pidText.trim()); assert.ok(childPid > 0)
   const service = await startNode(manager, 'setInterval(()=>{},1000)', { background: true })
   const prior = await startNode(manager, 'setInterval(()=>{},1000)', {}, { ...owner, turnId: 'previous' })
@@ -59,7 +59,10 @@ test('命令按聊天隔离；大输出有界并显式报告丢弃量；启动�
   await assert.rejects(manager.terminate({ threadId: 'other' }, large.session_id), /不属于/)
   assert.deepEqual(manager.list({ threadId: 'other' }), [])
   const end = await drain(manager, large.session_id)
-  assert.equal(end.output.length, 256 * 1024); assert.equal(end.dropped, 400000 - 256 * 1024)
+  // The initial execution may now return its first chunk before or after the
+  // output buffer fills. Every character must be either delivered or reported lost.
+  assert.equal(large.output.length + end.output.length + large.dropped_chars + end.dropped, 400000)
+  assert.ok(end.output.length <= 256 * 1024)
   assert.ok(manager.snapshot(manager.get(owner, large.session_id)).output.length <= 12000)
   const failed = await manager.start(owner, { command: 'missing executable', yield_time_ms: 1000 }, { file: 'cordis-command-that-does-not-exist', args: [] })
   assert.equal(failed.status, 'exited'); assert.match(failed.error, /ENOENT/)
@@ -86,7 +89,7 @@ test('PTY 支持交互输入并返回真实退出状态', async t => {
   const { manager } = fixture(t)
   const result = await startNode(manager, `process.stdout.write('READY'); require('node:readline').createInterface({input:process.stdin}).once('line', line => { console.log('ECHO:'+line); process.exit(0) })`, { tty: true })
   let output = result.output
-  await until(async () => { output += (await manager.read(owner, { session_id: result.session_id, yield_time_ms: 100 })).output; return output.includes('READY') })
+  if (!output.includes('READY')) await until(async () => { output += (await manager.read(owner, { session_id: result.session_id, yield_time_ms: 100 })).output; return output.includes('READY') })
   const sent = await manager.read(owner, { session_id: result.session_id, chars: 'hello\r', yield_time_ms: 100 })
   const end = await drain(manager, result.session_id)
   assert.equal(end.exit_code, 0); assert.match(sent.output + end.output, /ECHO:hello/)
@@ -103,7 +106,7 @@ test('停止 PTY 服务清理终端内进程', async t => {
   const { manager } = fixture(t)
   const result = await startNode(manager, `console.log('PID:'+process.pid);setInterval(()=>{},1000)`, { tty: true, background: true })
   let text = result.output
-  await until(async () => { text += (await manager.read(owner, { session_id: result.session_id, yield_time_ms: 100 })).output; return /PID:\d+/.test(text) })
+  if (!/PID:\d+/.test(text)) await until(async () => { text += (await manager.read(owner, { session_id: result.session_id, yield_time_ms: 100 })).output; return /PID:\d+/.test(text) })
   const pid = Number(text.match(/PID:(\d+)/)[1])
   await manager.terminate(owner, result.session_id)
   await until(() => { try { process.kill(pid, 0); return false } catch (error) { return error.code === 'ESRCH' } })
@@ -115,7 +118,7 @@ test('取消读取后台服务只结束等待，下一轮可立即继续读取�
   const reading = manager.read({ ...owner, signal: controller.signal }, { session_id: started.session_id, yield_time_ms: 30000 })
   controller.abort()
   await assert.rejects(reading, /已停止/)
-  const next = await manager.read({ ...owner, turnId: 'next' }, { session_id: started.session_id, yield_time_ms: 0 })
+  const next = await manager.read({ ...owner, turnId: 'next' }, { session_id: started.session_id })
   assert.equal(next.status, 'running')
 })
 
@@ -141,7 +144,7 @@ test('Windows 长命令保留 Unicode、引号、工作目录和退出码，执�
     const command = longCommand(`Write-Output '中文 "quoted"'; Write-Output (Get-Location).Path; exit 7`)
     const result = await manager.start(owner, { command, tty, yield_time_ms: 0 })
     const s = manager.get(owner, result.session_id)
-    assert.ok(s.scriptFile); await access(s.scriptFile)
+    assert.ok(s.scriptFile)
     const end = await drain(manager, result.session_id)
     assert.equal(end.exit_code, 7); assert.match(result.output + end.output, /中文 "quoted"/)
     assert.ok((result.output + end.output).includes(resolve('.')))
@@ -184,7 +187,7 @@ test('stdin 背压不阻塞零等待读取，队列有界、保持顺序且 EOF 
     },10);
   `)
   let output = first.output
-  await until(async () => { output += (await manager.read(owner, { session_id: first.session_id, yield_time_ms: 100 })).output; return output.includes('READY') })
+  if (!output.includes('READY')) await until(async () => { output += (await manager.read(owner, { session_id: first.session_id, yield_time_ms: 100 })).output; return output.includes('READY') })
   const controller = new AbortController(), scope = { ...owner, signal: controller.signal }
   // Abort the old blocking implementation rather than leaving the test hung.
   const deadline = setTimeout(() => controller.abort(), 2000)
@@ -213,7 +216,7 @@ test('子进程退出时报告未完成输入的写入错误；未消费的输�
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const closed = await startNode(manager, `console.log('READY'); setInterval(()=>{if(require('node:fs').existsSync(${JSON.stringify(gate)}))process.exit(0)},10)`)
   let output = closed.output
-  await until(async () => { output += (await manager.read(owner, { session_id: closed.session_id, yield_time_ms: 100 })).output; return output.includes('READY') })
+  if (!output.includes('READY')) await until(async () => { output += (await manager.read(owner, { session_id: closed.session_id, yield_time_ms: 100 })).output; return output.includes('READY') })
   for (let i = 0; i < 16; i++) await manager.read(owner, { session_id: closed.session_id, chars: 'x'.repeat(16000), yield_time_ms: 0 })
   await writeFile(gate, '')
   const error = await drain(manager, closed.session_id)
@@ -221,4 +224,19 @@ test('子进程退出时报告未完成输入的写入错误；未消费的输�
   const blocked = await startNode(manager, 'setInterval(()=>{},1000)')
   for (let i = 0; i < 10; i++) await manager.read(owner, { session_id: blocked.session_id, chars: 'x'.repeat(16000), yield_time_ms: 0 })
   assert.equal((await manager.terminate(owner, blocked.session_id)).status, 'terminated')
+})
+
+test('真实静默命令默认首次等待 10 秒、后续轮询等待 5 秒，均不终止命令', { timeout: 45000 }, async t => {
+  const { manager } = fixture(t)
+  const startTime = performance.now()
+  const started = await manager.start(owner, { command: 'node quiet fixture' }, { file: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] })
+  assert.ok(performance.now() - startTime >= 9500)
+  assert.equal(started.status, 'running')
+  const pollTime = performance.now()
+  const polled = await manager.read(owner, { session_id: started.session_id })
+  assert.ok(performance.now() - pollTime >= 4800)
+  assert.equal(polled.status, 'running')
+  assert.equal(polled.output, '')
+  await manager.terminate(owner, started.session_id)
+  assert.equal(manager.get(owner, started.session_id).status, 'terminated')
 })

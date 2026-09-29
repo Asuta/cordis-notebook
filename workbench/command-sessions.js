@@ -6,13 +6,9 @@ import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import { rgPath } from '@vscode/ripgrep'
+import { execWaitMs, stdinWaitMs } from './command-wait.js'
 
 const BUFFER_LIMIT = 256 * 1024, INPUT_LIMIT = 256 * 1024, READ_LIMIT = 16000, DISPLAY_LIMIT = 12000
-const integer = (value, fallback, max, name) => {
-  if (value === undefined) return fallback
-  if (!Number.isInteger(value) || value < 0 || value > max) throw Error(`${name} 必须是 0 到 ${max} 的整数`)
-  return value
-}
 export function commandEnvironment(root) {
   const env = { ...process.env }
   const key = Object.keys(env).find(key => key.toLowerCase() === 'path') || 'PATH'
@@ -67,7 +63,7 @@ export class CommandSessions {
   }
   list(owner) { return [...this.sessions.values()].filter(s => s.owner.threadId === owner.threadId).map(s => this.snapshot(s)) }
   async start(owner, args, executable) {
-    const wait = integer(args.yield_time_ms, 1000, 30000, 'yield_time_ms')
+    const wait = execWaitMs(args.yield_time_ms)
     if (!owner.threadId || !owner.turnId) throw Error('命令缺少所属聊天或轮次')
     if (typeof args.command !== 'string' || !args.command.trim() || args.command.length > 64000) throw Error('命令不能为空或超过 64000 字符')
     const workdir = resolve(this.root, args.workdir || '.')
@@ -129,7 +125,7 @@ export class CommandSessions {
         child.on('close', code => this.finish(s, code, s.spawnError))
       }
     } catch (error) { this.finish(s, null, error.message) }
-    return this.read(owner, { session_id: s.id, yield_time_ms: wait })
+    return this.collect(owner, { session_id: s.id }, wait)
   }
   inputError(s, error) {
     s.stdinError = error.message
@@ -155,7 +151,10 @@ export class CommandSessions {
     if (close) input.end()
   }
   async read(owner, args) {
-    const s = this.get(owner, args.session_id), wait = integer(args.yield_time_ms, 1000, 30000, 'yield_time_ms')
+    return this.collect(owner, args, stdinWaitMs(args))
+  }
+  async collect(owner, args, wait) {
+    const s = this.get(owner, args.session_id)
     if (s.reading) throw Error('该命令正在读取输出，请等待本次调用返回后再继续')
     if (args.chars !== undefined && (typeof args.chars !== 'string' || args.chars.length > 16000)) throw Error('输入必须是最多 16000 字符的文本')
     s.reading = true
