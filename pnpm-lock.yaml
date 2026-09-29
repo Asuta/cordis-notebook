@@ -338,6 +338,18 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
+  applications/notebook/plugins/theme-amber:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../../../packages/host
+      '@cordis-notebook/theme-engine':
+        specifier: workspace:*
+        version: link:../theme-engine
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
   applications/notebook/plugins/theme-blue:
     dependencies:
       '@cordis-notebook/host':

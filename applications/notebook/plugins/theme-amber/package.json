@@ -1,0 +1,80 @@
+{
+  "name": "@cordis-notebook/theme-amber",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/theme-engine": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "theme-amber",
+    "name": "琥珀主题",
+    "description": "温暖琥珀与米色纸张，长时间阅读和书写都柔和。",
+    "requires": {
+      "server": [
+        "themeEngine"
+      ],
+      "client": [
+        "shell",
+        "themeEngine"
+      ]
+    },
+    "provides": {
+      "server": [
+        "theme"
+      ],
+      "client": [
+        "theme"
+      ]
+    },
+    "exclusiveGroup": "appearance.theme",
+    "groupLabel": "主题",
+    "swatch": "#b3701f",
+    "order": 28,
+    "defaultEnabled": false,
+    "client": "client.js",
+    "server": {
+      "entry": "server.js",
+      "export": "theme"
+    },
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        },
+        "minify": true
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ],
+    "category": {
+      "id": "themes",
+      "label": "外观"
+    },
+    "icon": "Palette",
+    "styles": []
+  },
+  "exports": {
+    "./client": {
+      "types": "./types/client.d.ts"
+    },
+    "./server": {
+      "types": "./types/server.d.ts"
+    }
+  }
+}
