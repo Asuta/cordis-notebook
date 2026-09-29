@@ -32,6 +32,18 @@
   margin-left: 5px;
   color: var(--theme-muted);
 }
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.density-toggle {
+  color: var(--theme-muted);
+}
+.density-toggle[aria-pressed='true'] {
+  color: var(--theme-accent);
+}
 .note-list {
   flex: 1;
   min-height: 0;
@@ -96,6 +108,10 @@
   font-size: 14px;
   font-weight: 600;
   min-width: 0;
+}
+.note-list.compact .note-card {
+  padding: 9px 12px;
+  margin-bottom: 2px;
 }
 .card-title > svg {
   flex-shrink: 0;

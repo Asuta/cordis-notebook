@@ -12,6 +12,23 @@ export function mountNoteList(ctx, sdk, root, filters) {
     DropdownMenuItem
   } = ctx.ui
   const Fragment = React.Fragment
+  // 列表密度属于本页显示偏好，跨会话保留；无存储能力或读写失败时只降级为默认详细模式。
+  const densityKey = 'cordis-notebook-list-density'
+  const local = sdk.storage?.local ?? (typeof localStorage === 'undefined' ? null : localStorage)
+  const readDensity = () => {
+    try {
+      return local?.getItem(densityKey) === 'compact' ? 'compact' : 'comfortable'
+    } catch {
+      return 'comfortable'
+    }
+  }
+  const saveDensity = (value) => {
+    try {
+      local?.setItem(densityKey, value)
+    } catch {
+      /* 偏好无法写入时只在本次会话内生效 */
+    }
+  }
   const run = (action) =>
     Promise.resolve()
       .then(action)
@@ -50,6 +67,14 @@ export function mountNoteList(ctx, sdk, root, filters) {
         { duration: 260, delay: Math.min(index * 22, 200), easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'backwards' }
       ))
     }, [filterSwitch])
+    const [density, setDensity] = React.useState(readDensity)
+    const compact = density === 'compact'
+    const toggleDensity = () =>
+      setDensity((prev) => {
+        const next = prev === 'compact' ? 'comfortable' : 'compact'
+        saveDensity(next)
+        return next
+      })
     const canReorder = !model.busy && notes.length > 1 && notes.length === model.notes.length
     const startDrag = (note) => (event) => {
       event.dataTransfer.setData('text/plain', note.id)
@@ -97,28 +122,45 @@ export function mountNoteList(ctx, sdk, root, filters) {
               我的笔记 <span>{model.notes.length}</span>
             </h2>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="icon" disabled={model.busy || !formats.length} aria-label="新建笔记">
-                <Icon name="Plus" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="create-note-menu">
-              {formats.map((format) => (
-                <DropdownMenuItem
-                  key={format.type}
-                  disabled={model.busy}
-                  onSelect={() => run(() => model.create(format.type))}
-                >
-                  <Icon name={format.icon || 'FileText'} />
-                  <span>{format.label}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="heading-actions">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="density-toggle"
+              aria-pressed={compact}
+              aria-label={compact ? '切换为详细模式' : '切换为折叠模式'}
+              title={
+                compact
+                  ? '折叠模式（只显示标题）· 点击切换为详细模式'
+                  : '详细模式（显示正文预览）· 点击切换为折叠模式'
+              }
+              onClick={toggleDensity}
+            >
+              <Icon name={compact ? 'List' : 'LayoutDashboard'} />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" disabled={model.busy || !formats.length} aria-label="新建笔记">
+                  <Icon name="Plus" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="create-note-menu">
+                {formats.map((format) => (
+                  <DropdownMenuItem
+                    key={format.type}
+                    disabled={model.busy}
+                    onSelect={() => run(() => model.create(format.type))}
+                  >
+                    <Icon name={format.icon || 'FileText'} />
+                    <span>{format.label}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
         <Slot node={filters} />
-        <div className="note-list" aria-label="笔记列表" ref={list}>
+        <div className={'note-list' + (compact ? ' compact' : '')} aria-label="笔记列表" ref={list}>
           {notes.map((note) => (
             <button
               key={note.id}
@@ -144,13 +186,15 @@ export function mountNoteList(ctx, sdk, root, filters) {
                 <span>{note.title || '无标题笔记'}</span>
                 {note.pinned && <Icon name="Pin" size={13} />}
               </div>
-              <p className="card-preview">{note.content || '还没有内容，开始记录吧…'}</p>
-              <div className="card-meta">
-                <span>{ctx.noteFormats.get(ctx.noteFormats.typeOf(note))?.label || '格式未启用'}</span>
-                <time>
-                  {new Date(note.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
-                </time>
-              </div>
+              {!compact && <p className="card-preview">{note.content || '还没有内容，开始记录吧…'}</p>}
+              {!compact && (
+                <div className="card-meta">
+                  <span>{ctx.noteFormats.get(ctx.noteFormats.typeOf(note))?.label || '格式未启用'}</span>
+                  <time>
+                    {new Date(note.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                  </time>
+                </div>
+              )}
             </button>
           ))}
           {!notes.length && (
