@@ -51,7 +51,7 @@ async function run(input) {
     await loader.reload()
     const definitions = [
       ['app_list_tools', '发现绑定应用在本页面实际可用的操作工具、参数和连接状态。', Type.Object({})],
-      ['app_call', '调用应用工具。name 和 arguments 必须来自 app_list_tools；replace_selection 需要附件 id 和 text。', Type.Object({ name: Type.String(), arguments: Type.Optional(Type.Record(Type.String(), Type.Any())) })],
+      ['app_call', '调用应用工具。name 和 arguments 必须来自 app_list_tools；replace_selection 使用附件 id，普通替换传 text，格式化替换按附件 formats 和 replacementHint 传 format/content。', Type.Object({ name: Type.String(), arguments: Type.Optional(Type.Record(Type.String(), Type.Any())) })],
       ['workspace_status', '读取应用进程状态及最近日志；应用崩溃后仍可使用。', Type.Object({})],
       ['workspace_build', '构建本任务绑定的应用及通用浏览器入口，返回构建结果；不会自动重启。', Type.Object({})],
       ['workspace_restart', '先请求编辑器保存，再重启工作台管理的应用进程；应用已崩溃时可直接恢复。', Type.Object({})],
@@ -71,12 +71,16 @@ async function run(input) {
       const text = (result?.content || []).map(part => part.type === 'text' ? part.text : part.type === 'image' ? '[工具返回图片]' : '').join('\n')
       return text.length > 63000 ? text.slice(0, 63000) + '\n[界面输出已截断，完整记录保存在 Pi 会话中。]' : text
     }
-    let messageId, compactId
+    let messageId, compactId, textEventIds = []
     session.subscribe(event => {
-      if (event.type === 'message_start' && event.message?.role === 'assistant') messageId = randomUUID()
+      if (event.type === 'message_start' && event.message?.role === 'assistant') { messageId = randomUUID(); textEventIds = []; send({ type: 'assistant-start', messageId }) }
       if (event.type === 'message_update') {
         const update = event.assistantMessageEvent
-        if (['text_delta', 'thinking_delta'].includes(update?.type)) trace({ id: `${messageId}-${update.type}-${update.contentIndex}`, kind: update.type === 'text_delta' ? 'text' : 'thinking', delta: update.delta, status: 'running' })
+        if (['text_delta', 'thinking_delta'].includes(update?.type)) {
+          const id = `${messageId}-${update.type}-${update.contentIndex}`
+          if (update.type === 'text_delta' && !textEventIds.includes(id)) textEventIds.push(id)
+          trace({ id, messageId, kind: update.type === 'text_delta' ? 'text' : 'thinking', delta: update.delta, status: 'running' })
+        }
         if (['text_end', 'thinking_end'].includes(update?.type)) trace({ id: `${messageId}-${update.type.replace('_end', '_delta')}-${update.contentIndex}`, status: 'done' })
       }
       if (event.type === 'tool_execution_start') trace({ id: event.toolCallId, kind: 'tool', name: event.toolName, input: JSON.stringify(event.args, null, 2), status: 'running' })
@@ -92,7 +96,8 @@ async function run(input) {
       if (event.type === 'auto_retry_start') trace({ id: randomUUID(), kind: 'notice', name: '请求重试', text: `第 ${event.attempt} 次重试：${event.errorMessage || ''}`, status: 'done' })
       if (event.type === 'message_end' && event.message?.role === 'assistant') {
         const error = event.message.errorMessage || (event.message.stopReason === 'error' ? '模型请求失败' : undefined)
-        send({ type: 'assistant', text: event.message.content.filter(c => c.type === 'text').map(c => c.text).join(''), error })
+        const stopReason = event.message.stopReason
+        send({ type: 'assistant', messageId, textEventIds, stopReason, final: ['stop', 'length'].includes(stopReason) && !event.message.content.some(c => c.type === 'toolCall'), text: event.message.content.filter(c => c.type === 'text').map(c => c.text).join(''), error })
         usage()
       }
     })

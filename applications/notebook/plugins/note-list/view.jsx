@@ -23,6 +23,33 @@ export function mountNoteList(ctx, sdk, root, filters) {
     const formats = ctx.noteFormats.list(),
       notes = model.visible()
     const [drag, setDrag] = React.useState(null)
+    // 只在筛选条件变更且可见集合确实变化时重播入场动效：排序、编辑和启动时的
+    // 过滤器注册都不触发，避免拖动过程中卡片闪烁。
+    const list = React.useRef(null)
+    const filtersChanged = React.useRef(false)
+    const signature = React.useRef(notes.map((note) => note.id).join(' '))
+    const [filterSwitch, setFilterSwitch] = React.useState(0)
+    React.useLayoutEffect(
+      () => model.observe(ctx, (event) => { if (event?.reason === 'filters') filtersChanged.current = true }),
+      []
+    )
+    const ids = notes.map((note) => note.id).join(' ')
+    React.useLayoutEffect(() => {
+      if (!filtersChanged.current) return
+      filtersChanged.current = false
+      if (signature.current === ids) return
+      signature.current = ids
+      setFilterSwitch((value) => value + 1)
+    }, [ids])
+    React.useLayoutEffect(() => {
+      if (!filterSwitch || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+      const cards = [...(list.current?.querySelectorAll('.note-card, .no-results') || [])]
+      if (typeof cards[0]?.animate !== 'function') return
+      cards.forEach((card, index) => card.animate(
+        [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 260, delay: Math.min(index * 22, 200), easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'backwards' }
+      ))
+    }, [filterSwitch])
     const canReorder = !model.busy && notes.length > 1 && notes.length === model.notes.length
     const startDrag = (note) => (event) => {
       event.dataTransfer.setData('text/plain', note.id)
@@ -91,7 +118,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
           </DropdownMenu>
         </div>
         <Slot node={filters} />
-        <div className="note-list" aria-label="笔记列表">
+        <div className="note-list" aria-label="笔记列表" ref={list}>
           {notes.map((note) => (
             <button
               key={note.id}

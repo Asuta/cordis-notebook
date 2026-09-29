@@ -2,23 +2,48 @@
   display: flex;
   gap: 4px;
   margin: 14px 0 16px;
+  position: relative;
+  order: 1;
+}
+.filter-pill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--filter-pill-width, 0);
+  border-radius: 6px;
+  background: var(--theme-selected);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(var(--filter-pill-x, 0));
+  transition:
+    transform 0.28s cubic-bezier(0.32, 0.72, 0, 1),
+    width 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.filters.ready .filter-pill {
+  opacity: 1;
 }
 .filters button {
+  /* 定位后的按钮排在胶囊之后绘制，文字和悬浮态不会被胶囊盖住。 */
+  position: relative;
   font-size: 12px;
   padding: 6px 12px;
   border-radius: 6px;
   color: var(--theme-muted);
   background: transparent;
   cursor: pointer;
+  transition: color 0.2s ease;
 }
-.filters button:hover {
+.filters button:not(.active):hover {
   background: var(--theme-selected);
 }
 .filters button.active {
-  background: var(--theme-selected);
   color: var(--theme-text);
   font-weight: 500;
 }
-.filters {
-  order: 1;
+@media (prefers-reduced-motion: reduce) {
+  .filter-pill,
+  .filters button {
+    transition: none;
+  }
 }

@@ -8,8 +8,9 @@ import Image from '@tiptap/extension-image'
 import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
 import { Plugin, TextSelection, NodeSelection } from '@tiptap/pm/state'
+import { Fragment } from '@tiptap/pm/model'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { toEditor, fromEditor, safeLink, safeImage, normalizeIndent } from './document.js'
+import { toEditor, fromEditor, safeLink, safeImage, normalizeIndent, normalizeDocument } from './document.js'
 import { outlineEntries, selectedOutline } from './outline.js'
 import { foldingEntries } from './folding.js'
 import { moveAcrossOutlineBoundary } from './outline-move.js'
@@ -538,14 +539,40 @@ export function mountEditor(owner, element, options) {
     captureSelection() {
       const { from, to } = editor.state.selection
       if (from === to) return null
-      return { from, to, text: editor.state.doc.textBetween(from, to, '\n'), document: JSON.stringify(editor.getJSON()) }
+      return { from, to, text: editor.state.doc.textBetween(from, to, '\n'), document: JSON.stringify(editor.getJSON()), content: fromEditor(editor.state.doc.cut(from, to).toJSON()) }
     },
-    replaceSelection(snapshot, text) {
+    replaceSelection(snapshot, value) {
       if (editor.isDestroyed || !editor.isEditable || editor.view.composing || JSON.stringify(editor.getJSON()) !== snapshot.document) throw Error('选区内容已变化，请重新添加到聊天')
+      let content, inline = false
+      if (typeof value === 'string') content = value ? { type: 'text', text: value } : null
+      else {
+        const doc = normalizeDocument(value)
+        content = doc.elements.length ? toEditor(doc).content : null
+        // Inline formatting must not split surrounding text into new paragraphs.
+        const first = doc.elements[0], start = editor.state.doc.resolve(snapshot.from), end = editor.state.doc.resolve(snapshot.to)
+        if (doc.elements.length === 1 && first.kind === 'paragraph' && !first.indent && !first.tag && !first.collapsed && first.align === 'left' && start.sameParent(end) && start.parent.inlineContent) {
+          content = content[0].content || []
+          inline = true
+        }
+      }
       options.boundary?.()
       const chain = editor.chain().focus()
       const range = { from: snapshot.from, to: snapshot.to }
-      return text ? chain.insertContentAt(range, { type: 'text', text }).run() : chain.deleteRange(range).run()
+      if (inline) chain.command(({ tr }) => {
+        // insertContentAt uses insertText for unmarked text, inheriting old marks.
+        // Rich fragments must instead carry exactly their own marks, including none.
+        const fragment = Fragment.fromArray(content.map(node => editor.schema.nodeFromJSON(node)))
+        tr.replaceWith(range.from, range.to, fragment)
+        tr.setSelection(TextSelection.near(tr.doc.resolve(range.from + fragment.size), -1))
+        return true
+      })
+      else if (content) chain.insertContentAt(range, content)
+      else chain.deleteRange(range)
+      // Validate the complete candidate before dispatch, including the untouched text.
+      chain.command(({ tr }) => { tr.doc.check(); fromEditor(tr.doc.toJSON()); return true })
+      const result = chain.run()
+      options.boundary?.()
+      return result
     },
     get editor() {
       return editor

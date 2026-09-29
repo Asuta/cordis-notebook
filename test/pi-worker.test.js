@@ -17,7 +17,7 @@ test('真实 Pi SDK 使用 Chat Completions，调用文件与应用工具，并�
     const parsed = JSON.parse(body); requests.push({ url: req.url, ...parsed })
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
     const tool = requests.length === 1 ? ['write', { path: outputFile, content: '真实 SDK 已执行' }] : requests.length === 2 ? ['app_list_tools', {}] : null
-    const delta = tool ? { role: 'assistant', tool_calls: [{ index: 0, id: 'call_' + requests.length, type: 'function', function: { name: tool[0], arguments: JSON.stringify(tool[1]) } }] } : { role: 'assistant', content: '验证成功' }
+    const delta = tool ? { role: 'assistant', content: '正在检查' + requests.length, tool_calls: [{ index: 0, id: 'call_' + requests.length, type: 'function', function: { name: tool[0], arguments: JSON.stringify(tool[1]) } }] } : { role: 'assistant', content: '验证成功' }
     res.write('data: ' + JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', model: 'fixture', choices: [{ index: 0, delta, finish_reason: null }] }) + '\n\n')
     res.write('data: ' + JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: tool ? 'tool_calls' : 'stop' }] }) + '\n\n')
     res.end('data: [DONE]\n\n')
@@ -42,6 +42,14 @@ test('真实 Pi SDK 使用 Chat Completions，调用文件与应用工具，并�
   assert.equal(await readFile(outputFile, 'utf8'), '真实 SDK 已执行')
   assert.equal(events.some(e => e.type === 'tool' && e.name === 'app_list_tools'), true)
   assert.equal(events.some(e => e.type === 'assistant' && e.text === '验证成功'), true)
+  const replies = events.filter(e => e.type === 'assistant')
+  assert.deepEqual(replies.map(e => e.final), [false, false, true])
+  assert.equal(new Set(replies.map(e => e.messageId)).size, 3)
+  for (const reply of replies) {
+    assert.ok(reply.textEventIds.length)
+    assert.ok(events.some(e => e.type === 'assistant-start' && e.messageId === reply.messageId))
+    assert.ok(reply.textEventIds.every(id => events.some(e => e.type === 'trace' && e.event.id === id && e.event.messageId === reply.messageId)))
+  }
   assert.equal(requests.length, 3); assert.equal(requests[0].url, '/v1/chat/completions')
   const instructions = JSON.stringify(requests[0].messages)
   assert.match(instructions, /HOST_CONTEXT_SENTINEL/); assert.match(instructions, /APP_CONTEXT_SENTINEL/)

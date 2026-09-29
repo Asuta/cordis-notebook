@@ -147,6 +147,57 @@ test('真实富文本编辑器保留标记，拒绝超限操作并随消费上�
     api.replaceSelection(selected, '<新文字>')
     assert.equal(documentText(api.document), '<新文字>内容')
     assert.throws(() => api.replaceSelection(selected, '覆盖'), /变化/)
+    api.setDocument(plainDocument('前缀选中文字后缀'))
+    api.editor.commands.setTextSelection({ from: 3, to: 7 })
+    const richSelected = api.captureSelection()
+    assert.equal(documentText(richSelected.content), '选中文字')
+    const replacement = plainDocument('格式化文字')
+    replacement.elements[0].runs[0].format = { bold: true, color: '#cc2233' }
+    api.replaceSelection(richSelected, replacement)
+    assert.equal(documentText(api.document), '前缀格式化文字后缀')
+    assert.equal(api.document.elements.length, 1)
+    assert.equal(api.document.elements[0].runs.find(r => r.text === '格式化文字').format.bold, true)
+    assert.equal(api.document.elements[0].runs.at(-1).text, '后缀')
+    api.editor.commands.setTextSelection({ from: 3, to: 8 })
+    const richSnapshot = api.captureSelection(), unchanged = api.document
+    assert.throws(() => api.replaceSelection(richSnapshot, { version: 99, elements: [] }))
+    assert.deepEqual(api.document, unchanged)
+    assert.throws(() => api.replaceSelection(richSnapshot, plainDocument('x'.repeat(200000))))
+    assert.deepEqual(api.document, unchanged)
+    const structured = { version: 1, elements: [
+      { kind: 'heading', level: 2, runs: [{ text: '小标题' }] },
+      { kind: 'list', ordered: false, children: [{ kind: 'item', children: plainDocument('列表项目').elements }] },
+    ] }
+    api.replaceSelection(richSnapshot, structured)
+    assert.match(documentText(api.document), /^前缀\n小标题\n列表项目\n后缀$/)
+    assert.ok(api.document.elements.some(e => e.kind === 'heading' && e.level === 2))
+    const list = api.document.elements.find(e => e.kind === 'list')
+    assert.equal(list.children[0].children[0].runs[0].text, '列表项目')
+    let itemPos
+    api.editor.state.doc.descendants((node, pos) => { if (node.isText && node.text === '列表项目') itemPos = pos })
+    api.editor.commands.setTextSelection({ from: itemPos + 1, to: itemPos + 3 })
+    assert.equal(documentText(api.captureSelection().content), '表项')
+    // An unmarked rich fragment clears the selected marks without changing its neighbors.
+    const styled = plainDocument('前缀旧文后缀')
+    styled.elements[0].runs = [
+      { text: '前缀', format: { italic: true } },
+      { text: '旧文', format: { bold: true, color: '#ff0000', link: 'https://example.com' } },
+      { text: '后缀', format: { underline: true } },
+    ]
+    api.setDocument(styled)
+    api.editor.commands.setTextSelection({ from: 3, to: 5 })
+    api.replaceSelection(api.captureSelection(), plainDocument('新文'))
+    assert.deepEqual(api.document.elements[0].runs, [styled.elements[0].runs[0], { text: '新文' }, styled.elements[0].runs[2]])
+    assert.equal(api.document.elements.length, 1)
+    assert.equal(api.editor.state.selection.from, 5)
+    api.editor.commands.setTextSelection({ from: 3, to: 5 })
+    api.replaceSelection(api.captureSelection(), plainDocument(''))
+    assert.equal(documentText(api.document), '前缀后缀')
+    // The legacy plain-text API deliberately inherits the original formatting.
+    api.setDocument(styled)
+    api.editor.commands.setTextSelection({ from: 3, to: 5 })
+    api.replaceSelection(api.captureSelection(), '新文')
+    assert.deepEqual(api.document.elements[0].runs[1], { text: '新文', format: styled.elements[0].runs[1].format })
     api.setDocument(plainDocument('恢复内容'))
     assert.equal(documentText(api.document), '恢复内容')
     api.exec('table')

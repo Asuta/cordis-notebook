@@ -26,8 +26,17 @@ export function createAgentBridge({ application, session, stopping, window, docu
     if (name === 'replace_selection') {
       const entry = attachments.get(args.id)
       if (!entry) throw Error('选区已过期，请重新添加到聊天')
-      if (typeof args.text !== 'string' || args.text.length > 200000) throw Error('替换内容无效')
-      const result = await entry.apply(args.text)
+      const format = args.format || 'text'
+      if (!(entry.formats || ['text']).includes(format)) throw Error('此选区不支持该替换格式')
+      let result
+      if (format === 'text') {
+        if (typeof args.text !== 'string' || args.text.length > 200000 || args.content !== undefined) throw Error('替换内容无效')
+        result = await entry.apply(args.text)
+      } else {
+        if (!entry.applyContent || !args.content || typeof args.content !== 'object' || args.text !== undefined) throw Error('格式化替换内容无效')
+        if (new TextEncoder().encode(JSON.stringify(args.content)).byteLength > 1750000) throw Error('替换内容过大')
+        result = await entry.applyContent({ format, content: args.content })
+      }
       attachments.delete(args.id)
       return result ?? { updated: true }
     }
@@ -71,7 +80,8 @@ export function createAgentBridge({ application, session, stopping, window, docu
             menu.onclick = () => {
               const id = crypto.randomUUID(); ids.add(id); attachments.set(id, selected)
               if (attachments.size > 50) attachments.delete(attachments.keys().next().value)
-              send({ type: 'attachment', attachment: { id, text: selected.text, label: selected.label || '当前选区', noteId: selected.noteId, blockId: selected.blockId } })
+              send({ type: 'attachment', attachment: { id, text: selected.text, label: selected.label || '当前选区', noteId: selected.noteId, blockId: selected.blockId,
+                formats: selected.formats || ['text'], richText: selected.richText, replacementHint: selected.replacementHint } })
               menu.remove()
             }
             document.body.append(menu)

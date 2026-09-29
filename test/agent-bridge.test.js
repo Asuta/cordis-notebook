@@ -5,6 +5,44 @@ import { createAgentBridge } from '../client/host/agent-bridge.js'
 import { StopCoordinator } from '../client/host/stop-coordinator.js'
 import agentTools, { revision } from '../applications/notebook/plugins/agent-tools/client.js'
 
+test('选区桥接传递富文本能力并拒绝不支持的格式，失败可重试且成功后失效', async t => {
+  const window = new Window(), sent = [], disposals = [], peer = { postMessage: message => sent.push(message) }
+  Object.defineProperty(window, 'parent', { value: peer })
+  const owner = { effect: fn => disposals.push(fn()) }
+  const bridge = createAgentBridge({ application: { id: 'notebook' }, session: 's', window, document: window.document })
+  t.after(async () => { bridge.dispose(); await window.happyDOM.close() })
+  window.dispatchEvent(new window.MessageEvent('message', { source: peer, origin: 'http://127.0.0.1:3211', data: { channel: 'cordis-agent', type: 'connect' } }))
+  const target = window.document.createElement('div'); window.document.body.append(target)
+  let applied, reject = false, rich = true
+  bridge.forOwner(owner).selection(target, () => ({
+    text: '旧文', formats: rich ? ['text', 'richtext'] : ['text'], richText: { version: 1, elements: [] },
+    apply: text => { applied = text },
+    applyContent: value => { if (reject) throw Error('选区内容已变化'); applied = value },
+  }))
+  const capture = () => {
+    target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true }))
+    window.document.querySelector('button').click()
+    return sent.at(-1).attachment
+  }
+  const attachment = capture(), content = { version: 1, elements: [{ kind: 'paragraph', runs: [{ text: '新文', format: { bold: true } }] }] }
+  assert.deepEqual(attachment.formats, ['text', 'richtext'])
+  assert.equal(attachment.richText.version, 1)
+  await assert.rejects(bridge.call('replace_selection', { id: attachment.id, format: 'html', content }), /不支持/)
+  reject = true
+  await assert.rejects(bridge.call('replace_selection', { id: attachment.id, format: 'richtext', content }), /变化/)
+  reject = false
+  await bridge.call('replace_selection', { id: attachment.id, format: 'richtext', content })
+  assert.deepEqual(applied, { format: 'richtext', content })
+  await assert.rejects(bridge.call('replace_selection', { id: attachment.id, text: '重复' }), /过期/)
+  rich = false
+  const plain = capture()
+  await assert.rejects(bridge.call('replace_selection', { id: plain.id, format: 'richtext', content }), /不支持/)
+  await bridge.call('replace_selection', { id: plain.id, text: '<b>字面量</b>' })
+  assert.equal(applied, '<b>字面量</b>')
+  const disposed = capture(); disposals.forEach(fn => fn())
+  await assert.rejects(bridge.call('replace_selection', { id: disposed.id, text: '覆盖' }), /过期/)
+})
+
 test('页面工具跟随插件释放，停止准备持有编辑器直到取消重启', async t => {
   const window = new Window(), disposals = [], owner = { effect(fn) { disposals.push(fn()) } }
   let held = false

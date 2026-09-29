@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { fork } from 'node:child_process'
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -8,6 +8,7 @@ import { ApplicationProcess } from './processes.js'
 import { MODELS, modelInfo, normalizeConfig, validateSettings } from './config.js'
 import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
 import { discoverApplications } from '../server/application-discovery.js'
+import { writeSnapshot } from './persistence.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -44,7 +45,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   const notify = message => { const value = JSON.stringify(message); for (const res of streams) res.write(`data: ${value}\n\n`) }
   const persist = () => {
     const snapshot = JSON.stringify(conversations, null, 2)
-    const task = persistence.then(async () => { const file = join(dataDir, 'conversations.json'); await writeFile(file + '.tmp', snapshot, { mode: 0o600 }); await rename(file + '.tmp', file) })
+    const task = persistence.then(() => writeSnapshot(join(dataDir, 'conversations.json'), snapshot))
     persistence = task.catch(error => notify({ type: 'error', error: '会话保存失败：' + redact(error.message) }))
     return task
   }
@@ -53,7 +54,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     const turn = task.turn
     let record = turn.events.find(record => record.id === event.id)
     if (!record) { record = { id: event.id || randomUUID(), kind: event.kind || 'notice', startedAt: Date.now(), status: 'running' }; turn.events.push(record) }
-    for (const key of ['kind', 'name', 'input', 'output', 'text', 'status']) if (event[key] !== undefined) record[key] = redact(event[key]).slice(0, key === 'output' || key === 'input' ? 64000 : 256000)
+    for (const key of ['kind', 'name', 'input', 'output', 'text', 'status', 'messageId']) if (event[key] !== undefined) record[key] = redact(event[key]).slice(0, key === 'output' || key === 'input' ? 64000 : 256000)
     if (event.delta) { const full = (record.text || '') + redact(event.delta); record.text = full.slice(0, 256000); record.truncated = full.length > 256000 || record.truncated }
     if (['done', 'error', 'stopped'].includes(record.status)) record.endedAt ||= Date.now()
     // Coalesce token events; one bounded write/broadcast per 200 ms, with a final
@@ -79,7 +80,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       notify({ type: 'page-call', clientId: task.clientId, pageId: task.pageId, session: task.session, id, name, args })
     })
   }
-  const selectionTool = { name: 'replace_selection', description: '修改用户通过右键添加的选区，保留撤销。已变化或跨页面的附件会拒绝。', inputSchema: { type: 'object', properties: { id: { type: 'string' }, text: { type: 'string' } }, required: ['id', 'text'] } }
+  const selectionTool = { name: 'replace_selection', description: '仅替换用户添加的选区并保留撤销。默认传 text；若附件 formats 包含 richtext，可传 format:"richtext" 和 content，结构见附件 richText/replacementHint。不要同时传 text 和 content。选区变化或跨页面时拒绝。', inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, format: { type: 'string', enum: ['text', 'richtext'] }, text: { type: 'string' }, content: { type: 'object', description: '由选区所属插件定义的结构化替换片段；仅对声明支持的选区使用。' } }, required: ['id'], oneOf: [{ required: ['text'], properties: { format: { const: 'text' } }, not: { required: ['content'] } }, { required: ['format', 'content'], properties: { format: { const: 'richtext' } }, not: { required: ['text'] } }] } }
   async function execute(task, name, args) {
     if (task.cancelled) throw Error('任务已停止')
     if (name === 'workspace_status') return { ...await application.status(), appId: task.appId, root }
@@ -138,6 +139,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       if (message.type === 'tool') {
         execute(task, message.name, message.args).then(result => { if (child.connected) child.send({ type: 'result', id: message.id, result }) }, error => { if (child.connected) child.send({ type: 'result', id: message.id, error: redact(error.message) }) })
       } else if (message.type === 'session') { item.sessionFile = message.file; void persist().catch(() => {}) }
+      else if (message.type === 'assistant-start') { task.turn.currentMessageId = message.messageId; delete task.turn.finalAnswer; changed(item) }
       else if (message.type === 'trace') updateTrace(task, message.event)
       else if (message.type === 'usage') { item.contextUsage = message.usage; changed(item) }
       else if (message.type === 'delta') { task.partial += message.text; updateTrace(task, { id: 'legacy-text', kind: 'text', delta: message.text }) }
@@ -145,9 +147,13 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         // An unsuccessful model attempt can recover. Worker/setup errors remain fatal.
         task.modelError = message.error || null
         if (message.error) updateTrace(task, { id: randomUUID(), kind: 'notice', text: message.error, status: 'error' })
+        const eventIds = message.textEventIds || []
         if (message.text) {
-          item.messages.push({ role: 'assistant', text: redact(message.text), turnId: task.turn.id })
-          if (!task.turn.events.some(event => event.kind === 'text')) updateTrace(task, { id: randomUUID(), kind: 'text', text: message.text, status: 'done' })
+          item.messages.push({ role: 'assistant', text: redact(message.text), turnId: task.turn.id, messageId: message.messageId })
+          if (!eventIds.length) { const id = randomUUID(); eventIds.push(id); updateTrace(task, { id, messageId: message.messageId, kind: 'text', text: message.text, status: 'done' }) }
+        }
+        if (!message.error && message.final !== false && (message.text || message.stopReason === 'length')) task.turn.finalAnswer = {
+          text: redact(message.text || ''), eventIds, messageId: message.messageId, truncated: message.stopReason === 'length',
         }
         task.partial = ''; changed(item)
       } else if (message.type === 'error') { task.failed = true; updateTrace(task, { id: randomUUID(), kind: 'notice', text: message.error, status: 'error' }); changed(item) }
@@ -175,7 +181,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (!modelInfo(taskConfig.model).images && (images.length || item?.hasImages)) throw fail(409, '当前模型不支持此对话的图片，请明确切换到 Flash，或新建纯文字对话')
     if (active || closing) throw fail(409, '已有任务执行中，请等待或先停止')
     if (!item) { item = { id: randomUUID(), appId: input.appId, title: input.prompt.trim().slice(0, 35) || '图片对话', messages: [], turns: [], revision: 0 }; conversations.push(item) }
-    const turn = { id: randomUUID(), mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [] }
+    const turn = { id: randomUUID(), presentationVersion: 1, mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [] }
     item.turns.push(turn); item.hasImages ||= images.length > 0
     active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '' }
     item.running = true

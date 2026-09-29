@@ -6,7 +6,23 @@ let attachments = [], images = [], appOrigin, toastTimer, polling = false, uploa
 let promptRevision = 0, pendingImages = new Set()
 const rows = new Map()
 document.body.classList.toggle('standalone', standalone)
-const showChat = () => { $('chat').hidden = false; $('launcher').hidden = true; $('badge').hidden = true }
+let closingAnimation, chatShown = false
+const motion = () => !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const showChat = () => {
+  const opening = $('chat').hidden
+  closingAnimation?.cancel(); $('chat').hidden = false; $('launcher').hidden = true; $('badge').hidden = true
+  if (opening && motion() && !standalone) $('chat').animate?.([{ opacity: 0, translate: '0 14px', scale: '.985' }, { opacity: 1, translate: '0 0', scale: '1' }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' })
+  if (!chatShown) { $('messages').scrollTop = $('messages').scrollHeight; followButton(); chatShown = true }
+  resizePrompt()
+}
+const hideChat = () => {
+  const finish = () => { $('chat').hidden = true; $('launcher').hidden = false; $('launcher').focus() }
+  if (!motion() || !$('chat').animate) return finish()
+  closingAnimation = $('chat').animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: '0 10px' }], { duration: 160, easing: 'ease-in' })
+  closingAnimation.onfinish = finish
+}
+function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = Math.max(64, Math.min(180, input.scrollHeight)) + 'px' }
+function followButton() { const box = $('messages'); $('latest').hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 100 }
 if (standalone) showChat()
 function toast(text) { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 8000) }
 async function api(path, data) {
@@ -30,7 +46,7 @@ function renderThreads() {
 function scheduleRender() { if (!renderTimer) renderTimer = setTimeout(() => { renderTimer = null; render(); }, 80) }
 function render() {
   if (!state) return
-  const thread = current(), messages = $('messages'), scrollTop = messages.scrollTop, nearBottom = messages.scrollHeight - scrollTop - messages.clientHeight < 100
+  const thread = current(), messages = $('messages'), scrollTop = messages.scrollTop, nearBottom = renderedThread !== threadId || messages.scrollHeight - scrollTop - messages.clientHeight < 100
   if (renderedThread !== threadId) { renderedThread = threadId; rows.clear(); messages.replaceChildren() }
   const wanted = []
   for (const [index, message] of (thread?.messages || []).entries()) {
@@ -50,14 +66,16 @@ function render() {
   for (const entry of wanted) {
     let row = rows.get(entry.key)
     if (!row) { row = entry.turn ? createTurn() : createMessage(entry.message); rows.set(entry.key, row) }
-    if (entry.turn) updateTurn(row, entry.turn)
+    if (entry.turn) updateTurn(row, entry.turn, thread.messages)
     const expected = previous ? previous.nextSibling : messages.firstChild
     if (expected !== row) messages.insertBefore(row, expected)
     previous = row
   }
   if (!wanted.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = '一起改造你的应用。\n\n创建插件、修改代码，或整理当前笔记。\n添加选区或图片，让想法更具体。'; messages.append(empty) }
   messages.scrollTop = nearBottom ? messages.scrollHeight : scrollTop
+  followButton()
   $('stop').hidden = !state.activeThreadId
+  $('send').hidden = !!state.activeThreadId
   $('activity').textContent = state.activeThreadId && state.activeThreadId !== threadId ? '另一个对话正在执行任务' : ''
   $('connection').textContent = binding?.appId === appId ? '应用已连接 · 可操作当前页面' : '代码模式 · 当前会话未连接应用页面'
   const usage = thread?.contextUsage, threshold = config?.compaction?.threshold || 128000
@@ -76,13 +94,17 @@ function renderComposer() {
   $('send').disabled = !!state?.activeThreadId || uploading > 0 || submitting || !!vision
   $('switch-flash').disabled = !!state?.activeThreadId || uploading > 0 || submitting
   $('composer-hint').textContent = uploading ? `正在上传 ${uploading} 张图片…` : 'Enter 发送 · Shift + Enter 换行'
+  $('upload-status').hidden = !uploading
+  $('upload-status').textContent = uploading ? `正在上传 ${uploading} 张图片…` : ''
+  resizePrompt()
 }
 function renderAttachments() {
   $('attachments').replaceChildren()
   for (const item of attachments) {
     const row = document.createElement('div'); row.className = 'attachment'
     const text = document.createElement('span'); text.textContent = '↳ ' + item.label + ' · ' + item.text.slice(0, 80); row.append(text)
-    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.onclick = () => { attachments = attachments.filter(a => a.id !== item.id); renderAttachments() }; row.append(remove); $('attachments').append(row)
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', '移除选区'); remove.onclick = () => { attachments = attachments.filter(a => a.id !== item.id); renderAttachments() }; row.append(remove); $('attachments').append(row)
+    row.title = item.text
   }
   $('image-previews').replaceChildren()
   for (const image of images) {
@@ -167,7 +189,10 @@ window.addEventListener('message', safe(async event => {
 }))
 frame.addEventListener('load', connectFrame)
 $('launcher').onclick = showChat
-$('chat-close').onclick = () => { $('chat').hidden = true; $('launcher').hidden = false }
+$('chat-close').onclick = hideChat
+$('messages').addEventListener('scroll', followButton)
+$('messages').addEventListener('process-toggle', () => requestAnimationFrame(followButton))
+$('latest').onclick = () => { const box = $('messages'); box.scrollTo({ top: box.scrollHeight, behavior: motion() ? 'smooth' : 'auto' }) }
 $('new-thread').onclick = newThread
 $('app-select').onchange = () => { appId = $('app-select').value; newThread() }
 $('threads').onchange = () => { threadId = $('threads').value; clearDraftAttachments(); render(); $('messages').scrollTop = $('messages').scrollHeight }
@@ -201,7 +226,7 @@ async function send(mode = 'chat') {
   }
 }
 $('composer').onsubmit = safe(async event => { event.preventDefault(); await send() })
-$('prompt').addEventListener('input', () => { promptRevision++ })
+$('prompt').addEventListener('input', () => { promptRevision++; resizePrompt() })
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit() } }
 $('compose-model').onchange = renderComposer
 $('switch-flash').onclick = safe(async () => { $('compose-model').value = 'deepseek-flash'; renderComposer(); await send() })
@@ -221,7 +246,7 @@ $('stop').onclick = safe(() => api('interrupt', {}))
 $('compact').onclick = safe(() => send('compact'))
 $('start-app').onclick = safe(async () => { await api('application/start', {}); if (!standalone) frame.src = state.appUrl; await refresh() })
 function setModelOptions() {
-  for (const id of ['model', 'compose-model']) $(id).replaceChildren(...config.models.map(model => new Option(model.name + (model.images ? ' · 识图' : ' · 文字'), model.id)))
+  for (const id of ['model', 'compose-model']) $(id).replaceChildren(...config.models.map(model => { const option = new Option(id === 'compose-model' ? (model.id.includes('flash') ? 'Flash · 识图' : 'Pro · 文字') : model.name + (model.images ? ' · 识图' : ' · 文字'), model.id); option.title = model.name; return option }))
   $('compose-model').value = config.model; $('compose-effort').value = config.thinking ? config.reasoningEffort : 'off'
 }
 $('settings-open').onclick = safe(async () => {

@@ -1,8 +1,8 @@
 import type { Context } from 'cordis'
 import type { OutlineDocument, RichDocumentService } from './data'
 export interface RichEditor {
-  captureSelection(): { from: number; to: number; text: string; document: string } | null
-  replaceSelection(snapshot: { from: number; to: number; document: string }, text: string): boolean
+  captureSelection(): { from: number; to: number; text: string; document: string; content: OutlineDocument } | null
+  replaceSelection(snapshot: { from: number; to: number; document: string }, content: string | OutlineDocument): boolean
   readonly document: OutlineDocument
   readonly composing: boolean
   focus(where?: 'start' | 'end' | number): unknown

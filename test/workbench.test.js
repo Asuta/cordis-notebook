@@ -38,6 +38,9 @@ test('工作台隐藏密钥、拒绝跨站请求，保存独立会话并在应�
   assert.equal((await request('run', { appId: 'drawing', threadId: run.body.id, prompt: '越界' })).status, 400)
   await until(async () => JSON.parse(await readFile(join(dir, 'conversations.json'), 'utf8'))[0]?.running === false)
   const saved = JSON.parse(await readFile(join(dir, 'conversations.json'), 'utf8')); assert.equal(saved[0].appId, 'notebook')
+  assert.equal(saved[0].turns[0].presentationVersion, 1)
+  assert.equal(saved[0].turns[0].finalAnswer.text, '完成：离线修复')
+  assert.deepEqual(saved[0].turns[0].finalAnswer.eventIds, [saved[0].turns[0].events[0].id])
 })
 
 test('工具绑定页面和服务会话，切换应用后拒绝旧任务，刷新后拒绝旧附件', async t => {

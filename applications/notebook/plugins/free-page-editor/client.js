@@ -573,12 +573,16 @@ export default function (ctx, sdk) {
         sdk.agent?.selection(body, () => {
           const snapshot = item.editor.captureSelection(), capturedNote = noteId, capturedOutline = JSON.stringify(outline(blocks().find(b => b.id === block.id)))
           if (!snapshot?.text || !editable()) return null
-          return { text: snapshot.text, label: current()?.title || '自由页面选区', noteId: capturedNote, blockId: block.id, apply(text) {
+          const apply = value => {
             if (capturedNote !== noteId || nodes.get(block.id) !== item || !editable() || JSON.stringify(outline(blocks().find(b => b.id === block.id))) !== capturedOutline) throw Error('页面或文本框已变化，请重新添加选区')
-            if (!item.editor.replaceSelection(snapshot, text)) throw Error('选区替换失败')
+            if (!item.editor.replaceSelection(snapshot, value)) throw Error('选区替换失败')
             state().history.breakGroup()
             return model.flush().then(() => ({ updated: true }))
-          } }
+          }
+          return { text: snapshot.text, label: current()?.title || '自由页面选区', noteId: capturedNote, blockId: block.id,
+            formats: ['text', 'richtext'], richText: snapshot.content,
+            replacementHint: 'richtext 的 content 使用 {version:1,elements:[...]}，沿用 richText 的结构。段落 kind:"paragraph"，runs:[{text:"文字",format:{bold:true,italic:true,underline:true,color:"#ff0000",size:16}}]；标题 kind:"heading",level:1；列表 kind:"list",ordered:false,children:[{kind:"item",children:[段落]}]。id 可省略。仅替换当前选区，不提供容器坐标；图片只能引用已上传的本地资源地址。',
+            apply, applyContent: ({ content }) => apply(content) }
         })
         observer.observe(node)
         handle.onpointerdown = (e) => begin(e, 'move', block.id)
