@@ -5,7 +5,7 @@ import { mountEditor } from '../applications/notebook/plugins/rich-text/engine.j
 import { normalizeDocument, documentText } from '../applications/notebook/plugins/rich-text/document.js'
 import { darkReaderMarkViews } from '../applications/notebook/plugins/rich-text/darkreader.js'
 
-function fixture(t, format) {
+function fixture(t, format, appearance) {
   const window = new Window(), saved = new Map()
   for (const [key, value] of Object.entries({ window, document: window.document, navigator: window.navigator,
     HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node, DOMParser: window.DOMParser,
@@ -16,6 +16,7 @@ function fixture(t, format) {
   }
   const el = document.createElement('div'); document.body.append(el)
   const changes = [], api = mountEditor({ effect: fn => fn() }, el, {
+    appearance,
     document: normalizeDocument({ version: 1, elements: [{ id: 'p', kind: 'paragraph', runs: [
       { text: '颜色', format }, { text: '粗体', format: { bold: true,
         ...(format.color ? { color: '#c00000' } : { highlight: '#ffff00' }) } }, { text: '普通文字' },
@@ -58,6 +59,31 @@ for (const [format, selector, suffix] of [
   assert.equal(changes.length, 0)
 })
 
+for (const format of [{}, { bold: true }, { italic: true }, { underline: true }, { strike: true },
+  { superscript: true }, { subscript: true }, { link: 'https://example.com' }])
+  test(`深色主题的对比度装饰与 ${Object.keys(format)[0] || '文字颜色'} 组合时，扩展改色不重建节点`, t => {
+    const { api, el, changes, flush } = fixture(t, { color: '#336699', ...format },
+      { background: '#212121', foreground: '#eeeeee' })
+    const before = api.document, nodes = [...el.querySelectorAll('.outline-contrast')]
+    assert.ok(nodes.length >= 2)
+    for (let round = 0; round < 10; round++) {
+      for (const node of nodes)
+        node.style.setProperty('--darkreader-text--outline-readable-ink', round % 2 ? '#88aacc' : '#99bbdd')
+      flush()
+      assert.ok(nodes.every(node => node.isConnected), '对比度装饰上的扩展变量不能触发节点替换')
+      assert.deepEqual(api.document, before)
+      assert.equal(changes.length, 0)
+    }
+    for (const node of nodes) node.style.removeProperty('--darkreader-text--outline-readable-ink')
+    flush()
+    assert.ok(nodes.every(node => node.isConnected))
+    // Text changes inside the same decoration must still reach the document.
+    nodes[0].firstChild.textContent = '对比度文字输入'
+    flush()
+    assert.match(documentText(api.document), /^对比度文字输入/)
+    assert.equal(changes.length, 1)
+  })
+
 test('扩展改色后仍接受文字输入、格式命令、粘贴和重新载入', t => {
   const { api, el, changes, flush } = fixture(t, { color: '#336699' })
   const span = el.querySelector('span[style*="color"]')
@@ -99,6 +125,15 @@ test('仅忽略扩展显示属性，保留真实颜色、字体、优先级及�
   assert.equal(view.ignoreMutation({ type: 'attributes', target: view.dom, attributeName: 'class' }), false)
   assert.equal(view.ignoreMutation({ type: 'attributes', target: view.dom, attributeName: 'data-darkreader-inline-color' }), true)
   assert.equal(view.ignoreMutation({ type: 'attributes', target: document.createElement('span'), attributeName: 'data-darkreader-inline-color' }), false)
+  const contrast = document.createElement('span')
+  contrast.className = 'outline-contrast'
+  view.contentDOM.append(contrast)
+  contrast.style.cssText = '--outline-readable-ink: red; --darkreader-text--outline-readable-ink: pink'
+  const mutation = { type: 'attributes', target: contrast, attributeName: 'style', oldValue: '--outline-readable-ink: red' }
+  assert.equal(view.ignoreMutation(mutation), true)
+  contrast.style.setProperty('--outline-readable-ink', 'blue')
+  assert.equal(view.ignoreMutation(mutation), false)
+  assert.equal(view.ignoreMutation({ type: 'attributes', target: contrast, attributeName: 'class' }), false)
   for (const type of ['childList', 'characterData', 'selection'])
     assert.equal(view.ignoreMutation({ type, target: view.dom }), false)
 })

@@ -12,21 +12,28 @@ function contentStyle(document, cssText) {
   return JSON.stringify(declarations.sort(([a], [b]) => a.localeCompare(b)))
 }
 
-function colorMarkView(mark, view, inline) {
+function textMarkView(mark, view, inline) {
   const document = view.dom.ownerDocument
   const { dom, contentDOM } = DOMSerializer.renderSpec(document, mark.type.spec.toDOM(mark, inline))
   return {
     dom,
     contentDOM: contentDOM || dom,
     ignoreMutation(mutation) {
-      if (mutation.type !== 'attributes' || mutation.target !== dom) return false
+      const target = mutation.target
+      if (mutation.type !== 'attributes') return false
+      // ProseMirror routes mutations on text-decoration wrappers to the enclosing
+      // mark (which may be bold/link/etc., not the outer textStyle color mark).
+      const contrast = target.nodeType === 1 && target.classList.contains('outline-contrast') && dom.contains(target)
+      if (target !== dom && !contrast) return false
       if (mutation.attributeName?.startsWith('data-darkreader-')) return true
       // Dynamic recoloring must not trigger a DOM rebuild that makes Dark Reader
       // recolor the replacement again. Keep real formatting/content edits observable.
       return mutation.attributeName === 'style' &&
-        contentStyle(document, mutation.oldValue) === contentStyle(document, dom.getAttribute('style'))
+        contentStyle(document, mutation.oldValue) === contentStyle(document, target.getAttribute('style'))
     },
   }
 }
 
-export const darkReaderMarkViews = { textStyle: colorMarkView, highlight: colorMarkView }
+export const darkReaderMarkViews = Object.fromEntries([
+  'textStyle', 'highlight', 'bold', 'italic', 'underline', 'strike', 'subscript', 'superscript', 'code', 'link',
+].map(name => [name, textMarkView]))
