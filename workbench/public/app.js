@@ -66,7 +66,11 @@ function render() {
   for (const entry of wanted) {
     let row = rows.get(entry.key)
     if (!row) { row = entry.turn ? createTurn() : createMessage(entry.message); rows.set(entry.key, row) }
-    if (entry.turn) updateTurn(row, entry.turn, thread.messages)
+    if (entry.turn) updateTurn(row, entry.turn, {
+      messages: thread.messages,
+      commands: (thread.commands || []).filter(command => command.turnId === entry.turn.id),
+      onTerminate: async session_id => { try { await api('commands/terminate', { threadId: thread.id, session_id }); await refresh() } catch (error) { toast(error.message) } },
+    })
     const expected = previous ? previous.nextSibling : messages.firstChild
     if (expected !== row) messages.insertBefore(row, expected)
     previous = row
@@ -285,4 +289,4 @@ events.onerror = () => { $('connection').textContent = '工作台连接中断，
 config = await api('config'); setModelOptions()
 await refresh().catch(error => toast(error.message))
 setInterval(() => void refresh().catch(() => {}), 3000)
-setInterval(() => { if (current()?.running) scheduleRender() }, 1000)
+setInterval(() => { if (current()?.running || current()?.commands?.some(command => command.status === 'running')) scheduleRender() }, 1000)

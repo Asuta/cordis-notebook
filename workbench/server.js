@@ -5,6 +5,7 @@ import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { ApplicationProcess } from './processes.js'
+import { CommandSessions } from './command-sessions.js'
 import { MODELS, modelInfo, normalizeConfig, validateSettings } from './config.js'
 import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
 import { discoverApplications } from '../server/application-discovery.js'
@@ -25,6 +26,10 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   const conversations = await readJSON(join(dataDir, 'conversations.json'), [])
   for (const item of conversations) {
     item.turns ||= []; item.revision ||= 0
+    item.commands ||= []
+    for (const command of item.commands) if (command.status === 'running') {
+      command.status = 'interrupted'; command.endedAt = Date.now(); command.error = '工作台已重启，旧命令会话不可恢复。'
+    }
     if (item.running) {
       item.running = false; item.messages.push({ role: 'system', text: '工作台曾中断；可以继续此会话。' })
       for (const turn of item.turns.filter(turn => turn.status === 'running')) {
@@ -38,10 +43,9 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   const apps = (await discoverApplications(join(root, 'applications')))
     .filter(app => /^[a-z][a-z0-9-]{1,49}$/.test(app.id))
     .map(({ id, name, error }) => ({ id, name, ...(error ? { error } : {}) }))
-  const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir })
   let active, worker, closing = false, persistence = Promise.resolve(), traceTimer
   const redact = text => config.apiKey ? String(text).split(config.apiKey).join('[密钥已隐藏]') : String(text)
-  const publicThread = item => ({ id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, partial: active?.thread === item ? active.partial : '' })
+  const publicThread = item => ({ id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, commands: item.commands || [], revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, partial: active?.thread === item ? active.partial : '' })
   const notify = message => { const value = JSON.stringify(message); for (const res of streams) res.write(`data: ${value}\n\n`) }
   const persist = () => {
     const snapshot = JSON.stringify(conversations, null, 2)
@@ -50,6 +54,20 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     return task
   }
   const changed = item => { item.revision++; notify({ type: 'thread', thread: publicThread(item) }); void persist().catch(() => {}) }
+  const commands = new CommandSessions({ root, onChange(command) {
+    const item = conversations.find(item => item.id === command.threadId)
+    if (!item) return
+    const safe = { ...command, command: redact(command.command), output: redact(command.output), error: command.error && redact(command.error) }
+    item.commands ||= []
+    const index = item.commands.findIndex(entry => entry.session_id === command.session_id)
+    if (index < 0) item.commands.push(safe); else item.commands[index] = safe
+    const finished = item.commands.filter(entry => entry.status !== 'running')
+    const removed = new Set(finished.slice(0, Math.max(0, finished.length - 40)).map(entry => entry.session_id))
+    item.commands = item.commands.filter(entry => !removed.has(entry.session_id))
+    changed(item)
+  } })
+  const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir, commands })
+  const ownerFor = task => ({ threadId: task.thread.id, turnId: task.turn.id, signal: task.controller?.signal, cancelled: () => !!task.cancelled || closing })
   const updateTrace = (task, event) => {
     const turn = task.turn
     let record = turn.events.find(record => record.id === event.id)
@@ -83,8 +101,12 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   const selectionTool = { name: 'replace_selection', description: '仅替换用户添加的选区并保留撤销。默认传 text；若附件 formats 包含 richtext，可传 format:"richtext" 和 content，结构见附件 richText/replacementHint。不要同时传 text 和 content。选区变化或跨页面时拒绝。', inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, format: { type: 'string', enum: ['text', 'richtext'] }, text: { type: 'string' }, content: { type: 'object', description: '由选区所属插件定义的结构化替换片段；仅对声明支持的选区使用。' } }, required: ['id'], oneOf: [{ required: ['text'], properties: { format: { const: 'text' } }, not: { required: ['content'] } }, { required: ['format', 'content'], properties: { format: { const: 'richtext' } }, not: { required: ['text'] } }] } }
   async function execute(task, name, args) {
     if (task.cancelled) throw Error('任务已停止')
+    if (name === 'exec_command') return commands.start(ownerFor(task), args)
+    if (name === 'write_stdin') return commands.read(ownerFor(task), args)
+    if (name === 'terminate_command') return commands.terminate(ownerFor(task), args.session_id)
+    if (name === 'list_commands') return { commands: commands.list(ownerFor(task)) }
     if (name === 'workspace_status') return { ...await application.status(), appId: task.appId, root }
-    if (name === 'workspace_build') return application.build(task.appId)
+    if (name === 'workspace_build') return application.build(task.appId, ownerFor(task), args)
     if (name === 'workspace_restart') {
       const status = await application.status()
       if (status.online) {
@@ -117,6 +139,11 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   }
   function finish(error) {
     if (!active) return
+    if (active.stopping) {
+      const task = active, stopping = task.stopping
+      if (!task.finishing) { task.finishing = true; void stopping.catch(() => {}).then(() => { if (active === task) { task.stopping = null; finish(error) } }) }
+      return
+    }
     const item = active.thread
     if (active.partial) item.messages.push({ role: 'assistant', text: redact(active.partial), turnId: active.turn.id })
     if (error) updateTrace(active, { id: randomUUID(), kind: 'notice', text: error, status: active.cancelled ? 'stopped' : 'error' })
@@ -131,7 +158,14 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     child.stdout.on('data', () => {})
     child.stderr.on('data', data => { if (active) updateTrace(active, { id: 'worker-log', kind: 'notice', name: 'Agent 日志', delta: String(data), status: 'done' }) })
     child.on('error', error => finish(error.message))
-    child.on('exit', () => { if (worker === child) { worker = null; finish('Agent 进程已退出；会话已保留，可以重试。') } })
+    child.on('exit', () => { if (worker === child) {
+      worker = null
+      if (active && !closing) {
+        const task = active; task.cancelled = true; task.controller?.abort()
+        task.stopping ||= commands.stopTurn(ownerFor(task)).catch(error => updateTrace(task, { kind: 'notice', text: error.message, status: 'error' }))
+      }
+      finish('Agent 进程已退出；会话已保留，可以重试。')
+    } })
     child.on('message', message => {
       if (message.type === 'ready') { child.ready = true; return }
       if (!active) return
@@ -183,7 +217,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (!item) { item = { id: randomUUID(), appId: input.appId, title: input.prompt.trim().slice(0, 35) || '图片对话', messages: [], turns: [], revision: 0 }; conversations.push(item) }
     const turn = { id: randomUUID(), presentationVersion: 1, mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [] }
     item.turns.push(turn); item.hasImages ||= images.length > 0
-    active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '' }
+    active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController() }
     item.running = true
     if (mode === 'chat') item.messages.push({ id: randomUUID(), role: 'user', turnId: turn.id, text: input.prompt, attachments, images })
     changed(item)
@@ -237,7 +271,21 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         await imageStore.remove(id); result = { removed: true }
       } else if (req.method === 'POST' && path === '/api/run') result = await run(await body(req))
       else if (req.method === 'POST' && path === '/api/compact') result = await run(await body(req), 'compact')
-      else if (req.method === 'POST' && path === '/api/interrupt') { if (active) active.cancelled = true; if (worker?.connected) worker.send({ type: 'interrupt' }); result = { requested: true } }
+      else if (req.method === 'POST' && path === '/api/interrupt') {
+        const task = active
+        if (task) {
+          task.cancelled = true
+          task.controller?.abort()
+          task.stopping ||= commands.stopTurn(ownerFor(task))
+          if (worker?.connected) worker.send({ type: 'interrupt' })
+          await task.stopping
+        }
+        result = { requested: true }
+      } else if (req.method === 'POST' && path === '/api/commands/terminate') {
+        const { threadId, session_id } = await body(req)
+        if (!conversations.some(item => item.id === threadId)) throw fail(404, '聊天不存在')
+        await commands.terminate({ threadId }, session_id); result = { stopped: true }
+      }
       else if (req.method === 'POST' && path === '/api/bridge') {
         const input = await body(req)
         if (typeof input.clientId !== 'string') throw fail(400, '页面标识无效')
@@ -260,9 +308,13 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   })
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
   if (autoStart) void application.start().catch(error => application.log(error.message))
-  return { server, application, execute, clients, async close() {
+  return { server, application, commands, execute, clients, async close() {
     closing = true
-    worker?.kill()
+    const child = worker
+    const workerClosed = child ? new Promise(resolve => child.once('close', resolve)) : Promise.resolve()
+    child?.kill()
+    await workerClosed
+    await commands.close()
     for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(Error('工作台已关闭')) }; pending.clear()
     for (const res of streams) res.end()
     if (application.child) await application.stop()

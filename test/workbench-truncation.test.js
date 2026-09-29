@@ -50,7 +50,7 @@ test('真实 Pi 输出达到长度限制后保留正文和截断提示，重启�
       assert.equal(turn.status, 'done')
       assert.equal(turn.finalAnswer.text, reply.text)
       assert.equal(turn.finalAnswer.truncated, reply.reason === 'length')
-      const element = createTurn(); updateTurn(element, turn, thread.messages)
+      const element = createTurn(); updateTurn(element, turn, { messages: thread.messages })
       assert.equal(element._parts.answer.hidden, !reply.text)
       assert.equal(element._parts.notice.hidden, reply.reason !== 'length')
       if (reply.reason === 'length') assert.match(element._parts.notice.textContent, /单次输出长度限制/)

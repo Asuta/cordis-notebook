@@ -1113,3 +1113,9 @@ body.standalone #prompt {
     scroll-behavior: auto !important;
   }
 }
+
+/* Persistent command sessions share the execution disclosure. */
+.command-meta{font-size:11px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.command-stop{font-size:12px}
+.command-session .trace-output{overflow:auto;overflow-wrap:anywhere}
+.command-session .trace-state{white-space:normal;text-align:right}

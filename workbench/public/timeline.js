@@ -58,8 +58,11 @@ export function finalAnswer(turn, messages = []) {
   }
   return null
 }
-export function updateTurn(element, turn, messages = []) {
+export function updateTurn(element, turn, { messages = [], commands = [], onTerminate } = {}) {
   const { label, meta, list, events, answer, notice } = element._parts
+  const commandRows = updateCommands(element, commands, onTerminate)
+  const commandsById = new Map(commands.map(command => [command.session_id, command]))
+  const linked = new Set(), entries = [], visibleEvents = new Set()
   element.dataset.status = turn.status
   const tools = turn.events.filter(event => event.kind === 'tool').length
   label.textContent = `${turn.status === 'done' ? '用时' : statusNames[turn.status] || turn.status} ${duration(turn.startedAt, turn.endedAt)}${tools ? ` · ${tools} 次工具调用` : ''}`
@@ -81,6 +84,18 @@ export function updateTurn(element, turn, messages = []) {
     : final?.truncated ? '已达到单次输出长度限制，回复可能不完整。可以发送“继续”获取后续内容。'
     : turn.mode === 'compact' ? '上下文压缩已完成，展开查看详情。' : '本轮已结束，没有最终文字答复。'
   for (const event of turn.events) {
+    // Tool results provide the exact session link, including for older histories.
+    // Polling calls keep their own place; only the launch is replaced by its live card.
+    if (event.kind === 'tool' && ['exec_command', 'workspace_build'].includes(event.name)) {
+      let sessionId
+      try { sessionId = JSON.parse(event.output).session_id } catch {}
+      if (commandsById.has(sessionId) && !linked.has(sessionId)) {
+        linked.add(sessionId)
+        entries.push({ row: commandRows.get(sessionId), at: event.startedAt ?? turn.startedAt ?? 0 })
+        continue
+      }
+    }
+    visibleEvents.add(event.id)
     let row = events.get(event.id)
     if (!row) {
       if (event.kind === 'text') row = node('div', 'trace-text markdown')
@@ -91,8 +106,9 @@ export function updateTurn(element, turn, messages = []) {
         content.append(input, output, prose); row.append(summary, content)
         row._parts = { icon, title, state, input, output, prose }
       }
-      events.set(event.id, row); list.append(row)
+      events.set(event.id, row)
     }
+    entries.push({ row, at: event.startedAt ?? turn.startedAt ?? 0 })
     row.dataset.status = event.status
     row.hidden = outside.has(event.id)
     if (event.kind === 'text') markdownInto(row, (event.text || '') + (event.truncated ? '\n\n*界面记录已截断，完整记录保存在 Pi 会话中。*' : ''))
@@ -109,10 +125,58 @@ export function updateTurn(element, turn, messages = []) {
       p.prose.hidden = !event.text; markdownInto(p.prose, (event.text || '') + (event.truncated ? '\n\n*界面记录已截断，完整记录保存在 Pi 会话中。*' : ''))
     }
   }
+  for (const [id, row] of events) if (!visibleEvents.has(id)) { row.remove(); events.delete(id) }
+  // A session snapshot may arrive before its launch result. Place it by start time
+  // until the exact link arrives, reusing the same DOM node and expanded state.
+  for (const command of commands) if (!linked.has(command.session_id)) {
+    entries.push({ row: commandRows.get(command.session_id), at: command.startedAt ?? turn.startedAt ?? 0 })
+  }
+  entries.sort((a, b) => a.at - b.at)
+  let previous = null
+  for (const { row } of entries) {
+    const expected = previous ? previous.nextSibling : list.firstChild
+    if (expected !== row) list.insertBefore(row, expected)
+    previous = row
+  }
   let waiting = list.querySelector('.trace-waiting')
   if (turn.status === 'running' && !turn.events.some(event => event.status === 'running')) {
-    if (!waiting) { waiting = node('div', 'trace-waiting', '◌ 等待模型响应…'); list.append(waiting) }
+    if (!waiting) waiting = node('div', 'trace-waiting', '◌ 等待模型响应…')
+    if (list.lastChild !== waiting) list.append(waiting)
   } else waiting?.remove()
   // Do not recreate existing <details>: expansion, text selection and output
   // scroll positions stay intact across tokens, heartbeat polls and SSE updates.
+}
+
+export function updateCommands(element, commands, onTerminate) {
+  element._commands ||= { rows: new Map() }
+  const { rows } = element._commands
+  for (const [id, row] of rows) if (!commands.some(command => command.session_id === id)) { row.remove(); rows.delete(id) }
+  for (const command of commands) {
+    let row = rows.get(command.session_id)
+    if (!row) {
+      row = node('details', 'trace-event command-session')
+      const summary = node('summary'), title = node('span', 'trace-title'), state = node('span', 'trace-state')
+      summary.append(title, state)
+      const content = node('div', 'trace-content'), meta = node('p', 'command-meta'), output = node('pre', 'trace-output'), stop = node('button', 'command-stop', '停止命令')
+      stop.type = 'button'; content.append(meta, output, stop); row.append(summary, content)
+      row._parts = { title, state, meta, output, stop }; rows.set(command.session_id, row)
+    }
+    const p = row._parts, running = command.status === 'running'
+    row.dataset.status = running ? 'running' : command.status === 'exited' && command.exit_code !== 0 ? 'error' : 'done'
+    p.title.textContent = `${command.background ? '后台服务' : '命令'} · ${command.command}`; p.title.title = command.command
+    const status = { running: '运行中', exited: '已退出', terminated: '已终止', interrupted: '已中断' }[command.status] || command.status
+    p.state.textContent = `${status}${command.exit_code != null ? ' · 退出码 ' + command.exit_code : ''} · ${duration(command.startedAt, command.endedAt)}`
+    p.meta.textContent = `${command.workdir}${command.tty ? ' · PTY' : ''}${command.truncated ? ' · 仅显示最近输出' : ''}${command.error ? '\n' + command.error : ''}`
+    if (p.output.textContent !== command.output) {
+      const follow = p.output.scrollHeight - p.output.scrollTop - p.output.clientHeight < 30
+      p.output.textContent = command.output || ''
+      if (follow) p.output.scrollTop = p.output.scrollHeight
+    }
+    p.stop.hidden = !running; p.stop.textContent = command.background ? '停止服务' : '停止命令'
+    p.stop.onclick = async () => {
+      p.stop.disabled = true
+      try { await onTerminate?.(command.session_id) } finally { p.stop.disabled = false }
+    }
+  }
+  return rows
 }

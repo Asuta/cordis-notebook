@@ -1,9 +1,9 @@
-import { spawn, fork } from 'node:child_process'
+import { fork } from 'node:child_process'
 import { once } from 'node:events'
 import { join } from 'node:path'
 
 export class ApplicationProcess {
-  constructor({ root, dataDir, port }) { Object.assign(this, { root, dataDir, port }); this.logs = []; this.child = null; this.busy = false }
+  constructor({ root, dataDir, port, commands }) { Object.assign(this, { root, dataDir, port, commands }); this.logs = []; this.child = null; this.busy = false }
   log(text) { this.logs.push({ at: new Date().toISOString(), text: String(text).slice(-8000) }); if (this.logs.length > 100) this.logs.shift() }
   async status() {
     try {
@@ -44,19 +44,13 @@ export class ApplicationProcess {
     this.busy = true
     try { await this.stop(); return await this.start() } finally { this.busy = false }
   }
-  async build(appId) {
+  async build(appId, owner, args = {}) {
     if (this.busy) throw Error('应用正在构建或重启')
     this.busy = true
+    let started = false
     try {
-      return await new Promise((resolve, reject) => {
-        const child = spawn(process.execPath, [join(this.root, 'scripts/build.js'), appId], { cwd: this.root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-        let output = ''
-        const timer = setTimeout(() => child.kill(), 120000)
-        const append = chunk => { output = (output + chunk).slice(-20000); this.log(chunk) }
-        child.stdout.on('data', append); child.stderr.on('data', append)
-        child.on('error', error => { clearTimeout(timer); reject(error) })
-        child.on('exit', code => { clearTimeout(timer); resolve({ success: code === 0, code, output }) })
-      })
-    } finally { this.busy = false }
+      return await this.commands.start(owner, { command: `node scripts/build.js ${appId}`, workdir: this.root, yield_time_ms: args.yield_time_ms },
+        { file: process.execPath, args: [join(this.root, 'scripts/build.js'), appId], onStart: () => { started = true }, onExit: () => { this.busy = false } })
+    } catch (error) { if (!started) this.busy = false; throw error }
   }
 }

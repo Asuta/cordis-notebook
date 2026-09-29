@@ -69,3 +69,86 @@ test('流式更新保持工具展开和滚动位置，只重绘变化的正文',
     assert.equal(element.querySelector('.trace-text'), text); assert.match(text.innerHTML, /<h2>/)
   } finally { globalThis.document = previous; window.happyDOM.abort() }
 })
+
+test('Agent 回复结束后命令仍显示运行中，增量渲染保留卡片并可单独停止服务', async () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const element = createTurn(), turn = { id: 'turn', status: 'done', startedAt: Date.now(), endedAt: Date.now(), events: [] }
+    const command = { session_id: 'session', command: 'node service.cjs', workdir: 'C:/project', background: true, status: 'running', startedAt: Date.now(), output: 'ready' }
+    let stopped
+    const options = { commands: [command], onTerminate: async id => { stopped = id } }
+    updateTurn(element, turn, options)
+    const card = element.querySelector('.command-session'); card.open = true
+    assert.match(card.textContent, /后台服务/); assert.match(card.textContent, /运行中/)
+    assert.equal(card.querySelector('button').hidden, false)
+    command.output += '\nnext'; updateTurn(element, turn, options)
+    assert.equal(element.querySelector('.command-session'), card); assert.equal(card.open, true)
+    await card.querySelector('button').onclick(); assert.equal(stopped, 'session')
+    command.status = 'terminated'; command.endedAt = Date.now(); updateTurn(element, turn, options)
+    assert.match(card.textContent, /已终止/); assert.equal(card.querySelector('button').hidden, true)
+  } finally { globalThis.document = previous; await window.happyDOM.abort() }
+})
+
+test('历史命令卡片替换原启动调用并按执行顺序排列，最终总结后不重复追加命令', async () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const turn = { status: 'done', startedAt: 10, events: [
+      { id: 'thinking', kind: 'thinking', startedAt: 10, status: 'done', text: '准备搜索' },
+      { id: 'launch-a', kind: 'tool', name: 'exec_command', startedAt: 20, status: 'done', output: '{"session_id":"a","status":"running"}' },
+      { id: 'read', kind: 'tool', name: 'read', startedAt: 20, status: 'done' },
+      { id: 'launch-b', kind: 'tool', name: 'workspace_build', startedAt: 30, status: 'done', output: '{"session_id":"b"}' },
+      { id: 'poll', kind: 'tool', name: 'write_stdin', startedAt: 40, status: 'done', output: '{"session_id":"b"}' },
+      { id: 'final', kind: 'text', startedAt: 50, status: 'done', text: '最终总结' },
+    ] }
+    const commands = [
+      { session_id: 'b', command: 'node build.js', startedAt: 31, endedAt: 39, status: 'exited', exit_code: 0 },
+      { session_id: 'a', command: 'rg --files', startedAt: 21, endedAt: 25, status: 'exited', exit_code: 0 },
+    ]
+    for (const element of [createTurn(), createTurn()]) { // New render and history replay use the same ordering.
+      updateTurn(element, turn, { commands })
+      const rows = [...element.querySelector('.trace-list').children]
+      assert.equal(rows.length, 6)
+      assert.match(rows[1].textContent, /rg --files/)
+      assert.match(rows[2].textContent, /read/)
+      assert.match(rows[3].textContent, /node build.js/)
+      assert.match(rows[4].textContent, /write_stdin/)
+      assert.equal(rows.at(-1).textContent.trim(), '最终总结')
+      assert.equal(rows.at(-1).hidden, true)
+      assert.equal(element.querySelector('.turn-answer').textContent.trim(), '最终总结')
+      assert.equal(element.querySelector('.turn-header').getAttribute('aria-expanded'), 'false')
+      assert.equal(element.querySelectorAll('.command-session').length, 2)
+      assert.equal(element.querySelector('.command-list'), null)
+    }
+  } finally { globalThis.document = previous; await window.happyDOM.abort() }
+})
+
+test('命令快照先到、启动结果迟到及后台输出更新均保持顺序、展开状态和停止入口', async () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const element = createTurn(), launch = { id: 'launch', kind: 'tool', name: 'exec_command', startedAt: 20, status: 'running' }
+    const turn = { status: 'running', startedAt: 10, events: [launch] }
+    const command = { session_id: 'service', command: 'node server.js', background: true, status: 'running', startedAt: 21, output: 'ready' }
+    let stopped
+    const options = { commands: [command], onTerminate: async id => { stopped = id } }
+    updateTurn(element, turn, options)
+    const card = element.querySelector('.command-session'), output = card.querySelector('.trace-output')
+    card.open = true; output.scrollTop = 20
+    turn.events.push({ id: 'final', kind: 'text', startedAt: 30, status: 'done', text: '后台服务已启动' })
+    turn.status = 'done'
+    updateTurn(element, turn, options)
+    assert.equal(element.querySelector('.trace-list').lastChild.textContent.trim(), '后台服务已启动')
+    launch.output = '{"session_id":"service"}'; launch.status = 'done'; command.output += '\nstill running'
+    updateTurn(element, turn, options)
+    assert.equal(element.querySelectorAll('.trace-event').length, 1)
+    assert.equal(element.querySelector('.command-session'), card); assert.equal(card.open, true)
+    assert.equal(element.querySelector('.trace-list').lastChild.textContent.trim(), '后台服务已启动')
+    assert.equal(card.querySelector('button').hidden, false)
+    await card.querySelector('button').onclick(); assert.equal(stopped, 'service')
+    command.status = 'terminated'; command.endedAt = 40; updateTurn(element, turn, options)
+    assert.equal(element.querySelector('.trace-list').lastChild.textContent.trim(), '后台服务已启动')
+    assert.equal(card.querySelector('button').hidden, true)
+  } finally { globalThis.document = previous; await window.happyDOM.abort() }
+})
