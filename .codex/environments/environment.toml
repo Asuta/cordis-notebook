@@ -17,3 +17,8 @@ command = '''
 git fetch origin
 git reset --hard origin/main
 git clean -fd'''
+
+[[actions]]
+name = "构建"
+icon = "debug"
+command = "pnpm workbench"
