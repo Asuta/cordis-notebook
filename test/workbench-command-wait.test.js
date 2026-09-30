@@ -66,16 +66,21 @@ test('省略参数或传空字符串时实际等 5 秒，窗口结束不会终�
   }
 })
 
-test('纯轮询支持 300 秒窗口，实际输出和退出会提前唤醒', async t => {
+test('纯轮询保持等待窗口，输出不提前唤醒而退出会提前唤醒', async t => {
   const { manager, s } = waitingSession(t)
   let returned = false
   const long = manager.read(owner, { session_id: s.id, yield_time_ms: 300000 }).then(value => { returned = true; return value })
-  t.mock.timers.tick(299999); await Promise.resolve()
-  assert.equal(returned, false)
-  t.mock.timers.tick(1); assert.equal((await long).status, 'running')
-  const output = manager.read(owner, { session_id: s.id, yield_time_ms: 300000 })
+  await Promise.resolve()
+  t.mock.timers.tick(1000)
   manager.append(s, 'new output')
-  assert.equal((await output).output, 'new output')
+  await Promise.resolve()
+  assert.equal(returned, false)
+  t.mock.timers.tick(298999); await Promise.resolve()
+  assert.equal(returned, false)
+  t.mock.timers.tick(1)
+  const result = await long
+  assert.equal(result.status, 'running')
+  assert.equal(result.output, 'new output')
   const exit = manager.read(owner, { session_id: s.id, yield_time_ms: 300000 })
   manager.finish(s, 7)
   const ended = await exit
@@ -90,7 +95,9 @@ test('300 秒轮询可立即取消，后台会话保留且下一轮可继续读�
   await assert.rejects(pending, /任务已停止/)
   assert.equal(s.status, 'running'); assert.equal(s.reading, false); assert.equal(s.waiters.size, 0)
   manager.append(s, 'still alive')
-  assert.equal((await manager.read({ ...owner, turnId: 'next' }, { session_id: s.id })).output, 'still alive')
+  const next = manager.read({ ...owner, turnId: 'next' }, { session_id: s.id })
+  t.mock.timers.tick(5000)
+  assert.equal((await next).output, 'still alive')
 })
 
 test('非空输入使用 250 毫秒窗口，写入阻塞不会改用纯轮询等待', async t => {
@@ -103,4 +110,51 @@ test('非空输入使用 250 毫秒窗口，写入阻塞不会改用纯轮询等
   t.mock.timers.tick(1)
   assert.equal((await pending).stdin_pending_bytes, 2)
   acknowledge(); assert.equal(s.stdinPendingBytes, 0)
+})
+
+test('调用前已有输出及等待中的新输出只更新界面，不提前返回也不重置截止时间', async t => {
+  const { manager, s } = waitingSession(t), updates = []
+  manager.onChange = value => updates.push(value)
+  manager.append(s, 'before\n')
+  let returned = false
+  const pending = manager.read(owner, { session_id: s.id, yield_time_ms: 5000 }).then(value => { returned = true; return value })
+  for (let i = 0; i < 4; i++) {
+    t.mock.timers.tick(1000)
+    manager.append(s, `chunk-${i}\n`)
+    await Promise.resolve()
+    assert.equal(returned, false)
+    assert.equal(s.cursor, 0)
+  }
+  t.mock.timers.tick(999); await Promise.resolve()
+  assert.equal(returned, false)
+  assert.equal(updates.at(-1).output, 'before\nchunk-0\nchunk-1\nchunk-2\nchunk-3\n')
+  t.mock.timers.tick(1)
+  const result = await pending
+  assert.equal(result.output, updates.at(-1).output)
+  assert.equal(result.has_more, false)
+  manager.finish(s, 0)
+  assert.equal((await manager.read(owner, { session_id: s.id })).output, '')
+})
+
+test('输入成功通知不提前返回，输入错误和停止仍立即释放等待', async t => {
+  const { manager, s } = waitingSession(t)
+  let acknowledge, returned = false
+  s.child = { stdin: { writable: true, destroyed: false, write(chars, callback) { acknowledge = callback } } }
+  const input = manager.read(owner, { session_id: s.id, chars: 'yes\n' }).then(value => { returned = true; return value })
+  acknowledge()
+  manager.append(s, 'accepted')
+  t.mock.timers.tick(249); await Promise.resolve()
+  assert.equal(returned, false)
+  t.mock.timers.tick(1)
+  assert.equal((await input).stdin_pending_bytes, 0)
+  const error = manager.read(owner, { session_id: s.id, yield_time_ms: 300000 })
+  manager.inputError(s, Error('write failed'))
+  assert.equal((await error).stdin_error, 'write failed')
+  const next = manager.read(owner, { session_id: s.id })
+  assert.equal((await next).stdin_error, 'write failed')
+  delete s.stdinError
+  const stopped = manager.read(owner, { session_id: s.id, yield_time_ms: 300000 })
+  await manager.terminate(owner, s.id)
+  assert.equal((await stopped).status, 'terminated')
+  assert.equal(s.waiters.size, 0)
 })

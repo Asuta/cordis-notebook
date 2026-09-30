@@ -41,7 +41,9 @@ export class CommandSessions {
     if (!text) return
     s.total += text.length; s.output = (s.output + text).slice(-BUFFER_LIMIT)
     this.publish(s)
-    for (const wake of s.waiters) wake()
+    // Keep model-facing polling until its deadline. Live output is already
+    // published to the UI above; waking here would turn every output chunk
+    // into another write_stdin round trip.
   }
   finish(s, code, error) {
     if (s.status !== 'running') return
@@ -144,7 +146,6 @@ export class CommandSessions {
         input.write(chars, error => {
           s.stdinPendingBytes -= bytes
           if (error) this.inputError(s, error)
-          for (const wake of s.waiters) wake()
         })
       } catch (error) { s.stdinPendingBytes -= bytes; this.inputError(s, error); throw error }
     }
@@ -165,7 +166,9 @@ export class CommandSessions {
         if (s.pty) { if (args.close_stdin) throw Error('PTY 不支持 close_stdin；请向程序发送退出指令或使用 terminate_command'); s.pty.write(args.chars) }
         else this.writeInput(s, args.chars, args.close_stdin)
       }
-      if (wait && s.status === 'running' && s.total === s.cursor && !owner.cancelled?.()) await new Promise(resolve => {
+      // Buffered output and successful writes do not shorten the model's wait.
+      // Exit, stop and input errors can still release it immediately.
+      if (wait && s.status === 'running' && !s.stopping && !s.stdinError && !owner.cancelled?.()) await new Promise(resolve => {
         const wake = () => { clearTimeout(timer); s.waiters.delete(wake); owner.signal?.removeEventListener('abort', wake); resolve() }
         const timer = setTimeout(wake, wait); s.waiters.add(wake)
         owner.signal?.addEventListener('abort', wake, { once: true })

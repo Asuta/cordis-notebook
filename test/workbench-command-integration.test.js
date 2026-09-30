@@ -12,9 +12,9 @@ async function fixture(t, realWorker = false) {
   const root = await mkdtemp(join(tmpdir(), 'cordis-command-integration-')), dataDir = join(root, '.workbench')
   await mkdir(join(root, 'applications/notebook'), { recursive: true }); await mkdir(join(root, 'scripts')); await mkdir(dataDir)
   await writeFile(join(root, 'applications/notebook/package.json'), JSON.stringify({ cordisApp: { id: 'notebook', name: '测试笔记' } }))
-  await writeFile(join(root, 'scripts/build.js'), `console.log('building');setTimeout(()=>console.log('built'),600)`)
+  await writeFile(join(root, 'scripts/build.js'), `console.log('building');const timer=setInterval(()=>{if(require('node:fs').existsSync('finish-build')){clearInterval(timer);console.log('built')}},50)`)
   await writeFile(join(root, 'wait.cjs'), `console.log('ready');setInterval(()=>{},1000)`)
-  await writeFile(join(root, 'slow.cjs'), `console.log('first');setTimeout(()=>console.log('last'),500)`)
+  await writeFile(join(root, 'slow.cjs'), `console.log('first');const timer=setInterval(()=>console.log('progress'),250);setTimeout(()=>{clearInterval(timer);console.log('last')},12000)`)
   const workerFile = join(root, 'worker.cjs')
   await writeFile(workerFile, `process.send({type:'ready'});process.on('message',m=>{if(m.type==='run'&&m.task.prompt!=='hold')process.send({type:'done'});if(m.type==='interrupt')process.send({type:'done',cancelled:true});})`)
   await writeFile(join(dataDir, 'config.json'), JSON.stringify({ apiKey: 'fixture-key', thinking: false }))
@@ -56,16 +56,21 @@ test('HTTP 停止保留后台服务；回复结束及刷新不改命令状态；
 })
 
 test('workspace_build 返回会话且保持构建互斥，结束或取消后释放', async t => {
-  const { wb, request } = await fixture(t)
+  const { wb, request, root } = await fixture(t)
   const thread = (await request('run', { appId: 'notebook', prompt: 'hold' })).body, task = { appId: 'notebook', thread, turn: thread.turns[0] }
   const build = await wb.execute(task, 'workspace_build', { yield_time_ms: 0 })
   assert.equal(build.status, 'running'); assert.equal(wb.application.busy, true)
   await assert.rejects(wb.execute(task, 'workspace_build', {}), /正在构建/)
   await assert.rejects(wb.application.restart(), /正在构建/)
+  await writeFile(join(root, 'finish-build'), '')
   let result, output = build.output
   do { result = await wb.execute(task, 'write_stdin', { session_id: build.session_id }); output += result.output } while (result.status === 'running' || result.has_more)
   assert.equal(result.exit_code, 0); assert.match(output, /built/); assert.equal(wb.application.busy, false)
-  await wb.execute(task, 'workspace_build', { yield_time_ms: 0 }); await request('interrupt', {})
+  await rm(join(root, 'finish-build'))
+  const interrupted = wb.execute(task, 'workspace_build', { yield_time_ms: 0 })
+  await until(() => wb.commands.list({ threadId: thread.id }).some(command => command.status === 'running'))
+  await request('interrupt', {})
+  await interrupted
   assert.equal(wb.application.busy, false)
 })
 
@@ -76,10 +81,10 @@ test('真实 Pi 使用新工具定义，通过模型往返启动并继续读取�
     const input = JSON.parse(body); requests.push(input)
     const results = input.messages.filter(message => message.role === 'tool')
     let call
-    if (!results.length) call = { name: 'exec_command', arguments: JSON.stringify({ command: 'node slow.cjs', yield_time_ms: 0 }) }
+    if (!results.length) call = { name: 'exec_command', arguments: JSON.stringify({ command: 'node slow.cjs', yield_time_ms: 10000 }) }
     else {
       const result = JSON.parse(results.at(-1).content)
-      if (result.status === 'running' || result.has_more) call = { name: 'write_stdin', arguments: JSON.stringify({ session_id: result.session_id, yield_time_ms: 1000 }) }
+      if (result.status === 'running' || result.has_more) call = { name: 'write_stdin', arguments: JSON.stringify({ session_id: result.session_id, yield_time_ms: 300000 }) }
     }
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
     const delta = call ? { role: 'assistant', tool_calls: [{ index: 0, id: 'tool-' + requests.length, type: 'function', function: call }] } : { role: 'assistant', content: '命令完成' }
@@ -93,9 +98,11 @@ test('真实 Pi 使用新工具定义，通过模型往返启动并继续读取�
   await writeFile(join(f.dataDir, 'config.json'), JSON.stringify({ apiKey: 'fixture-key', thinking: false, baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }))
   await f.open()
   await f.request('run', { appId: 'notebook', prompt: '执行测试命令并等到结束' })
+  await until(async () => (await f.request('state')).body.threads[0]?.commands?.[0]?.output?.includes('progress'))
+  assert.equal(requests.length, 1, '界面已收到输出，但初次执行工具仍在收集，不请求模型')
   const done = await until(async () => { const state = (await f.request('state')).body; return !state.activeThreadId && state.threads.length && state.threads[0] })
   assert.equal(done.turns[0].status, 'done'); assert.equal(done.messages.at(-1).text, '命令完成')
-  assert.ok(requests.length >= 3)
+  assert.equal(requests.length, 3, '连续日志只需启动、轮询、最终答复三次模型请求')
   const names = requests[0].tools.map(tool => tool.function.name)
   for (const name of ['exec_command', 'write_stdin', 'terminate_command', 'list_commands', 'read', 'edit', 'write']) assert.ok(names.includes(name), name)
   for (const name of ['powershell', 'bash', 'grep', 'find', 'ls']) assert.equal(names.includes(name), false, name)

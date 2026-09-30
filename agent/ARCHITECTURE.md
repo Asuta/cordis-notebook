@@ -27,7 +27,7 @@
 - 示例：`rg -n "createAgentSession" workbench -g "*.js"`；`rg --files applications/notebook -g "*.jsx"`。仅需要文件名时用 `-l`，仅检查存在性用 `-q`。rg 的退出码 1 代表未匹配，不应当作执行故障重复搜索。
 - 避免 `Get-ChildItem/ls -Recurse` 遍历整个仓库后再用 `Where-Object` 排除依赖。输出过多或搜索过久时先缩小目录、文件类型和输出范围，需要时停止原命令再重试。
 - Windows 使用 PowerShell，不要套用 Unix 管道语法。每次明确工作目录，不依赖上一次命令的 cd。
-- `yield_time_ms` 是本次等待窗口，不是执行时限，允许省略。首次执行默认 10000 毫秒（Windows 有效范围 10000–30000）；`write_stdin` 纯轮询默认 5000 毫秒，有效范围 5000–300000；发送非空输入默认 250 毫秒，上限 30000。本项目的管道 EOF（`close_stdin`）沿用输入交互窗口。命令返回 `running` 后用 `write_stdin` 及同一 `session_id` 读取增量输出，或输入文本；`has_more=true` 表示仍有输出可读。不要重复启动相同命令。
+- `yield_time_ms` 是本次等待窗口，不是执行时限，允许省略。首次执行默认 10000 毫秒（Windows 有效范围 10000–30000）；`write_stdin` 纯轮询默认 5000 毫秒，有效范围 5000–300000；发送非空输入默认 250 毫秒，上限 30000。本项目的管道 EOF（`close_stdin`）沿用输入交互窗口。命令输出可以实时更新界面，但不会因此提前结束模型侧等待；进程退出、输入错误或取消可以提前返回。命令返回 `running` 后用 `write_stdin` 及同一 `session_id` 读取增量输出，或输入文本；`has_more=true` 表示仍有输出可读。不要重复启动相同命令。
 - 普通命令不设置后台服务标志。只有明确长期运行的服务使用 `background=true`；聊天停止会终止本轮普通命令及子进程，后台服务通过 `terminate_command` 或卡片单独停止。后台服务仍在运行时应在回复中说明。
 - 构建测试需确认 `status=exited` 和退出码后再下结论；`workspace_build` 也返回命令会话。用 `list_commands` 查当前聊天会话，工作台重启后的旧会话不可恢复。`tty=true` 用于需要真实终端的交互，普通命令默认管道。
 
