@@ -168,7 +168,7 @@ export class CommandSessions {
       }
       // Buffered output and successful writes do not shorten the model's wait.
       // Exit, stop and input errors can still release it immediately.
-      if (wait && s.status === 'running' && !s.stopping && !s.stdinError && !owner.cancelled?.()) await new Promise(resolve => {
+      if (wait && s.status === 'running' && !s.stopping && !owner.cancelled?.()) await new Promise(resolve => {
         const wake = () => { clearTimeout(timer); s.waiters.delete(wake); owner.signal?.removeEventListener('abort', wake); resolve() }
         const timer = setTimeout(wake, wait); s.waiters.add(wake)
         owner.signal?.addEventListener('abort', wake, { once: true })

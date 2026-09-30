@@ -151,6 +151,7 @@ test('输入成功通知不提前返回，输入错误和停止仍立即释放�
   manager.inputError(s, Error('write failed'))
   assert.equal((await error).stdin_error, 'write failed')
   const next = manager.read(owner, { session_id: s.id })
+  t.mock.timers.tick(5000)
   assert.equal((await next).stdin_error, 'write failed')
   delete s.stdinError
   const stopped = manager.read(owner, { session_id: s.id, yield_time_ms: 300000 })
