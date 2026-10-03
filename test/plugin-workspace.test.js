@@ -46,7 +46,7 @@ test('新增目录即可发现、构建、启停、恢复及扩展公开类型�
       {type:'copy',input:'private.json',output:'private.json'},
     ],
   },{
-    'client.ts':"import type { ClientContext, ClientSDK } from '@cordis-notebook/host'; export default function(ctx: ClientContext, sdk:ClientSDK) { sdk.provide('sample', { value: 42 }) }",
+    'client.ts':"import type { ClientContext, ClientSDK } from '@cordis-notebook/host'; export const environment = process.env.NODE_ENV; export default function(ctx: ClientContext, sdk:ClientSDK) { sdk.provide('sample', { value: 42 }) }",
     'server.js':"globalThis.workspaceSampleImports=(globalThis.workspaceSampleImports||0)+1; export default function(ctx) { ctx.http.route(ctx, 'GET', /^\\/api\\/sample$/, () => ({ok:true})) }",
     'assets/icon.svg':'<svg xmlns="http://www.w3.org/2000/svg"/>','private.json':'{"private":true}',
   })
@@ -62,6 +62,8 @@ test('新增目录即可发现、构建、启停、恢复及扩展公开类型�
   assert.equal(check.status,0,check.stdout+check.stderr)
   assert.equal((await discoverBuiltins(plugins)).length,1); assert.equal(globalThis.workspaceSampleImports,undefined)
   await buildPlugins(plugins); assert.equal(globalThis.workspaceSampleImports,undefined)
+  const browserBundle = await import(pathToFileURL(join(sample.folder, 'dist/client.js')).href)
+  assert.equal(browserBundle.environment, 'production')
   let app=await createApp({port:0,file:join(root,'data/notes.json'),pluginsDir:plugins})
   const clientRoot=new Context()
   try {

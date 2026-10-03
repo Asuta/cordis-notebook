@@ -18,7 +18,7 @@ pnpm start
 - [笔记应用](applications/notebook/README.md)：29 个插件，普通笔记、Markdown、自由页面、图片、搜索、主题、配置和 Agent 工具。
 - [画图应用](applications/drawing/README.md)：2 个独立插件，基础画笔、撤销、自动保存和 PNG 导出，验证完全不同的应用组合。
 
-需要内置 AI 时运行 `pnpm workbench`，打开 http://127.0.0.1:3211/ 。工作台使用独立 Pi 进程和 DeepSeek API，提供右下角聊天、代码编辑、应用工具与「选区添加到 Chat」，支持执行时间线、Markdown、模型与推理强度选择、上下文压缩和多图输入（Flash）。应用进程崩溃后聊天仍可用。密钥在聊天设置中配置，保存在 Git 忽略的 `.workbench/`。详见 [Agent 工作台设计与使用](docs/Agent工作台设计与使用.md)。
+需要内置 AI 时运行 `pnpm workbench`，打开 http://127.0.0.1:3211/ 。内嵌应用默认以 Vite 开发模式运行，Agent 改完代码自动热更新；发布前验收用 `pnpm workbench:production`。工作台使用独立 Pi 进程和 DeepSeek API，提供右下角聊天、代码编辑、应用工具与「选区添加到 Chat」，支持执行时间线、Markdown、模型与推理强度选择、上下文压缩和多图输入（Flash）。应用进程崩溃后聊天仍可用。密钥在聊天设置中配置，保存在 Git 忽略的 `.workbench/`。详见 [Agent 工作台设计与使用](docs/Agent工作台设计与使用.md)。
 
 ## 目录与开发
 
@@ -47,11 +47,13 @@ agent/ARCHITECTURE.md       Agent 的通用架构上下文
 pnpm build                  # 全部应用及宿主浏览器入口
 pnpm build drawing          # 指定应用及宿主入口
 pnpm test                   # 类型检查、构建和运行时测试
-pnpm dev                    # 首次构建后监视后端，不是前端 HMR
+pnpm dev                    # Vite 源码开发：前端热更新、CSS 更新、后端保存后重启
 pnpm export:app drawing work/drawing-release
 ```
 
-运行入口为各插件 dist。修改源码后重新构建；修改后端或清单后还需重启服务，浏览器刷新。导出只含应用清单、图标及插件清单和 dist，不包含用户数据；宿主单独提供。
+`pnpm dev` 由 Vite 提供页面和前端源码模块，按清单加载插件。JS/JSX 更新会先保存编辑内容，再通过 Cordis 释放和重建受影响的前端插件；CSS 直接更新。后端和清单变更会先编译、等待已就绪页面保存，再重启后端并刷新页面。依赖安装或构建工具变更后重新运行开发命令。详见 [Vite 开发与热更新](docs/Vite开发与热更新.md)。
+
+`pnpm start` / `pnpm start:runtime` 仍使用各插件 dist。正式构建的前端由 Vite 打包，后端由 esbuild 打包；修改源码后重新构建，修改后端或清单后还需重启服务并刷新浏览器。导出只含应用清单、图标及插件清单和 dist，不包含用户数据；宿主单独提供。
 
 支持环境变量 PORT、DATA_DIR、APPLICATIONS_DIR、APP。APP 指定本次启动的应用，成功后保存为最后选择；没有 .env 自动加载。旧 PLUGINS_DIR / createApp() 保留为单目录开发测试入口，默认使用应用宿主 createHost()。
 
@@ -75,6 +77,7 @@ data/
 
 - [应用开发与切换指南](docs/应用开发与切换指南.md)：应用清单、切换流程、数据隔离与交付。
 - [项目接手与维护指南](docs/项目接手与维护指南.md)：启动、源码入口、API、备份和排错。
+- [Vite 开发与热更新](docs/Vite开发与热更新.md)：开发服务器、更新策略、保存保护和错误恢复。
 - [Workspace 插件开发指南](docs/Workspace插件开发指南.md)：自声明、构建、资源、类型和生命周期。
 - [插件设计与协作指南](docs/插件设计与协作指南.md)：设计建议，保留插件实现自由。
 - [内置插件服务契约](docs/内置插件服务契约.md)、[React 界面插件开发指南](docs/React界面插件开发指南.md)：笔记应用的服务与 UI 扩展。

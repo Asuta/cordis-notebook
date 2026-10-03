@@ -10,8 +10,10 @@ import { mountStyles } from './styles.js'
 import { applicationStorage } from './application-storage.js'
 import { applicationView } from './application-view.js'
 import { createAgentBridge } from './agent-bridge.js'
+import { installDevelopmentSave } from './development-save.js'
 let application = await (await fetch('/api/applications')).json()
 const pageSession = application.session
+const development = import.meta.hot ? await (await fetch('/__cordis/dev')).json() : null
 let leaving = false
 const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), mounts = createMounts()
 mounts.register(root, 'app', $('#app'))
@@ -50,8 +52,10 @@ function sdkFor(ctx, plugin) {
   }; return sdk
 }
 const host = new ClientPlugins(root, {
-  stylesFor: (ctx, plugin) => mountStyles(ctx, { ...plugin, resourceQuery: 'appSession=' + pageSession }),
-  sdkFor, load: plugin => import('/builtin/' + plugin.id + '/' + plugin.client + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt + '&appSession=' + pageSession),
+  stylesFor: (ctx, plugin) => mountStyles(ctx, { ...plugin, resourceQuery: 'appSession=' + pageSession }, development?.plugins?.[application.current?.id]?.[plugin.id]?.styles),
+  sdkFor, load: plugin => import(/* @vite-ignore */ development?.plugins?.[application.current?.id]?.[plugin.id]?.client
+    ? development.plugins[application.current.id][plugin.id].client + '?t=' + development.version
+    : '/builtin/' + plugin.id + '/' + plugin.client + '?generation=' + plugin.generation + '&attempt=' + plugin.attempt + '&appSession=' + pageSession),
   onChange: () => queueMicrotask(renderManager),
 })
 const settingsView = createSettingsView({ el, getSnapshot: () => snapshot, save: (plugin, config) => operate(() => saveConfig(plugin, config), true) })
@@ -241,5 +245,29 @@ events.addEventListener('applications', event => {
 events.addEventListener('plugins', () => { $('#connection').textContent = '本地连接正常'; scheduleSync() })
 events.onerror = () => { $('#connection').textContent = '正在重新连接…' }
 await scheduleSync()
+if (import.meta.hot) {
+  // CSS is updated without replacing the page, including after a build error.
+  import.meta.hot.on('vite:beforeUpdate', () => document.querySelectorAll('vite-error-overlay').forEach(node => node.remove()))
+  import.meta.hot.on('cordis:plugins', ({ version, targets }) => {
+    const ids = targets[application.current?.id] || []
+    if (!ids.length) return
+    const task = syncQueue.then(() => stopping.run({ reason: 'reload', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, async () => {
+      development.version = version
+      await host.reload(ids)
+      document.querySelectorAll('vite-error-overlay').forEach(node => node.remove())
+      renderManager()
+    }))
+    syncQueue = task.catch(error => toast('热更新未完成：' + error.message))
+  })
+  const ready = () => import.meta.hot.send('cordis:ready', { application: application.current?.name || application.current?.id })
+  root.effect(() => installDevelopmentSave({ hot: import.meta.hot, ready, report: toast,
+    enqueue(action) { const task = syncQueue.then(action); syncQueue = task.catch(() => {}); return task },
+    protect: action => stopping.run({ reason: 'reload', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, action),
+  }))
+  import.meta.hot.on('cordis:blocked', ({ message, clients }) => toast(message + ' 等待：' + clients.map(client => client.application + '（' + client.id.slice(0, 8) + '）').join('、')))
+  import.meta.hot.on('cordis:restart', () => location.reload())
+  import.meta.hot.on('vite:ws:connect', ready)
+  ready()
+}
 
 if (!application.current && !leaving) applicationsView.open()

@@ -1,8 +1,8 @@
-export async function mountStyles(ctx, plugin) {
+export async function mountStyles(ctx, plugin, developmentStyles) {
   await Promise.all((plugin.styles || []).map(name => new Promise((resolve, reject) => {
     const link = document.createElement('link')
     link.rel = 'stylesheet'
-    link.href = `/builtin/${plugin.id}/${name}${plugin.resourceQuery ? "?" + plugin.resourceQuery : ""}`
+    link.href = developmentStyles?.[name] || `/builtin/${plugin.id}/${name}${plugin.resourceQuery ? "?" + plugin.resourceQuery : ""}`
     let done = false
     const finish = error => {
       if (done) return

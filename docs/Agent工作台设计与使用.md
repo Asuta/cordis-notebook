@@ -13,13 +13,19 @@ pnpm workbench
 
 打开 `http://127.0.0.1:3211/`，点击网页右下角 Agent。业务应用仍使用 `http://127.0.0.1:3210/`，嵌在工作台 iframe 内，保持原来的浏览器存储来源。`/chat` 提供独立聊天页；此页可进行代码操作，但没有内嵌应用页面，不能直接修改正在另一个页面编辑的内容。
 
+`pnpm workbench` 默认以 Vite 开发模式运行业务应用：工作台启动 `scripts/dev.js`，Agent 保存源码后自动热更新，无需构建、重启或手动刷新。前端插件由 Cordis 重载受影响插件，CSS 直接更新；后端、清单和宿主修改会先保存页面，再自动重启后端并刷新内嵌页面，Agent 随后自动绑定新页面继续操作。`workspace_status` 会等待最近的修改处理完成，并在 `development.events` 返回本轮的 plugins/css/reload/error 结果，编译错误因此能直接交给 Agent 修复。连接状态末尾的「热更新」只在开发服务身份与本工作台启动的子进程一致、且应用在线时显示。行为细节见 [Vite 开发与热更新](Vite开发与热更新.md)。
+
+保存超时会显示「热更新等待 N 个页面保存」，并在 `development.blocked.clients` 返回应用名和页面标识。这个等待状态独立于最近事件列表，不会因日志截断消失。页面恢复或关闭后会自动重新尝试保存和更新；Agent 应报告等待原因，不要声称修改已经生效，也不要用 `workspace_restart` 绕过未确认的保存。
+
+发布前验收使用 `pnpm workbench:production`：先完整构建，应用运行 `server/server.js` 读取各插件 dist；修改后需要 `workspace_build` 和 `workspace_restart`。开发缓存按工作台实际监听端口和应用端口分目录，同一实例重启复用缓存；多个工作台以及普通 `pnpm dev` 可使用各自缓存，但仍需不同端口和数据目录。
+
 第一次在聊天设置中填写 API 密钥。默认基础地址 `https://api.deepseek.com/v1`，模型 `deepseek-v4-pro`，推理强度 High。也接受粘贴完整 `/chat/completions` 地址，保存时规范化为基础地址。密钥只在工作台后端传给模型请求，不返回前端。环境变量 `DEEPSEEK_API_KEY` 可作为初始值，本地配置优先；不自动读取 .env。
 
 默认目录 `.workbench/` 被 Git 忽略，含 `config.json`（明文密钥）、`conversations.json`（界面历史与执行时间线）、`attachments/`（原始图片与元数据）和 `pi/sessions/`（Pi 对话与工具结果，含发给模型的图片）。备份时按私有资料处理；不要提交或分享这些文件。完全信任模式下，文件工具和命令具有当前账户权限，提示词中的约定不是密钥隔离沙箱。
 
-`pnpm workbench:runtime` 跳过构建。环境变量：`WORKBENCH_PORT` 默认 3211，`WORKBENCH_APP_PORT` 默认 3210，`WORKBENCH_DATA_DIR` 指定工作台私有目录，`DATA_DIR` 指定业务数据目录。工作台使用本仓库的 applications；单目录 PLUGINS_DIR 开发入口不属于此启动方式。
+`pnpm workbench:runtime` 以正式模式启动且跳过构建。环境变量：`WORKBENCH_PORT` 默认 3211，`WORKBENCH_APP_PORT` 默认 3210，`WORKBENCH_APP_MODE` 可设为 development 或 runtime，`WORKBENCH_DATA_DIR` 指定工作台私有目录，`DATA_DIR` 指定业务数据目录。工作台使用本仓库的 applications；单目录 PLUGINS_DIR 开发入口不属于此启动方式。
 
-如果 3210 已有服务，工作台可连接它，但不会杀死或接管它。要使用受管理的重启，请先停止原服务，再启动工作台。不要同时用两个业务进程写同一数据目录。
+开发模式下，如果应用端口已有外部服务（包括另一个 Vite 实例），工作台会报告端口占用，返回 `mode: external`、`managed: false`，不会杀死或接管它。停止原服务或修改 `WORKBENCH_APP_PORT` 后再启动。正式模式仍允许连接端口上已有的运行服务，但不能代替它重启。不要同时用两个业务进程写同一数据目录。
 
 ## 三个进程
 
@@ -27,7 +33,7 @@ pnpm workbench
 浏览器工作台（3211，聊天 + iframe）
   ├─ 工作台服务：会话、模型设置、SSE、页面工具转发、应用进程管理
   ├─ Pi 子进程：模型循环、上下文压缩、文件读写、PowerShell/bash
-  └─ 业务子进程（3210）：Cordis 宿主 + 当前应用插件
+  └─ 业务子进程（3210）：开发模式为 Vite 开发服务及其 Cordis 后端；正式模式为 Cordis 宿主 + dist
 ```
 
 业务进程退出后，聊天继续运行；Agent 可读取日志、修改代码、构建并恢复业务进程。重启业务不会丢失会话。Agent 进程异常退出时，工作台保留聊天，再发消息会重新创建 Agent。工作台服务关闭则其子进程关闭；这不是守护整个操作系统或浏览器渲染器的高可用方案。业务插件若让浏览器标签页卡死，应使用独立 `/chat` 页操作代码。
@@ -154,4 +160,4 @@ Pi 提供文件读取、编辑、写入和模型循环。工作台提供：
 
 ## 修改和验证
 
-修改业务插件后构建对应应用、运行相关测试，后端或清单修改后重启。工作台代码变更需要重启工作台自身。`pnpm build` 同时生成工作台 Markdown 浏览器模块；仅修改工作台时可执行 `node workbench/build.js`。`pnpm test` 包含工作台协议、选区桥接和现有应用回归；新增测试使用真实 Pi SDK + 模拟模型端点验证三档强度、多图和压缩请求，并测试 Markdown 与稳定 DOM 更新。真实 API 验证会产生模型费用，不把密钥放入测试夹具。
+开发模式下修改业务插件只需保存并运行相关测试；正式模式下构建对应应用，后端或清单修改后重启。依赖或 `scripts/` 变更需要用 `workspace_restart` 重启开发服务。工作台代码变更需要重启工作台自身。`pnpm build` 同时生成工作台 Markdown 浏览器模块；仅修改工作台时可执行 `node workbench/build.js`。`pnpm test` 包含工作台协议、选区桥接和现有应用回归；新增测试使用真实 Pi SDK + 模拟模型端点验证三档强度、多图和压缩请求，并测试 Markdown 与稳定 DOM 更新。真实 API 验证会产生模型费用，不把密钥放入测试夹具。

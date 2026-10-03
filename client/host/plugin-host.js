@@ -108,6 +108,14 @@ export class ClientPlugins {
     if (entry?.fiber) await entry.fiber.dispose()
     await this.sync(this.plugins)
   }
+  async reload(ids = this.plugins.map(plugin => plugin.id)) {
+    for (const id of ids) {
+      const entry = this.entries.get(id)
+      this.entries.delete(id)
+      if (entry?.fiber) await entry.fiber.dispose()
+    }
+    await this.sync(this.plugins)
+  }
 }
 async function activate(ctx, sdk, apply, timeoutMs) {
   const controller = new AbortController()

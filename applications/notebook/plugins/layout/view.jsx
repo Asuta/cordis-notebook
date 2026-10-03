@@ -48,7 +48,8 @@ export function mountLayout(ctx, sdk, main, targets) {
   }
   function Layout() {
     const [collapsed, setCollapsed] = React.useState(false),
-      [mobileEditor, setMobileEditor] = React.useState(false)
+      [mobileEditor, setMobileEditor] = React.useState(() => sdk.storage.session.getItem('mobile-editor') === 'true')
+    React.useEffect(() => { sdk.storage.session.setItem('mobile-editor', String(mobileEditor)) }, [mobileEditor])
     React.useEffect(() => {
       const show = () => setMobileEditor(true)
       main.addEventListener('show-editor', show)

@@ -62,7 +62,7 @@ export default function (ctx: ClientContext, sdk: ClientSDK) {
 
 在仓库根目录执行 `pnpm install`、`pnpm build`，重启服务并刷新页面，在管理器中启用插件。安装引起的 `pnpm-lock.yaml` 变更需要提交；不需要修改 `server/builtins.js`、宿主类型入口或 `scripts/build.js`。
 
-`private: true` 表示这些包供当前 workspace 使用，不要求发布到 npm。JavaScript 插件同样受支持。新增声明或依赖后需要重新安装、构建和重启；目前没有清单热发现或构建热更新。
+`private: true` 表示这些包供当前 workspace 使用，不要求发布到 npm。JavaScript 插件同样受支持。开发时可运行 `pnpm dev`：前端源码由 Vite 转换，清单变更会重新发现、编译后端并在页面保存后重启。新增 npm 依赖后先安装，再重新运行开发命令，以更新 Vite 的依赖预构建。正式运行仍需构建和重启。详见 [Vite 开发与热更新](Vite开发与热更新.md)。
 
 ## 2. 清单字段与路径
 
@@ -88,7 +88,7 @@ export default function (ctx: ClientContext, sdk: ClientSDK) {
 
 清单中不写任意 shell 命令。当前支持指定的一套构建方式；新增通用构建方式才需要扩展执行器。
 
-发现器只读取所选应用的 `plugins/*/package.json`。未知字段、无效版本、重复 ID、非法路径或公开后端入口都会使发现失败，并指出插件名称。构建模式额外检查输入文件、公开资源的构建来源及 Node 产物；运行模式只要求清单和已构建的入口、公开文件，不读取源码，也允许清单省略 build。不会悄悄跳过损坏的插件。目录符号链接及越出插件根目录的文件链接不被接受。
+运行时发现器只读取所选应用的 `plugins/*/package.json`。未知字段、无效版本、重复 ID、非法路径或公开后端入口都会使发现失败，并指出插件名称。构建模式额外检查输入文件和公开资源的构建来源；运行模式只要求清单和已构建的入口、公开文件，不读取源码，也允许清单省略 build。开发模式检查源码及已编译后端，前端无需 dist；开发工具会扫描全部应用并编译后端，但不会执行未打开应用的业务插件。不会悄悄跳过损坏的插件。目录符号链接及越出插件根目录的文件链接不被接受。
 
 宿主 API 的 `packageDependencies` 展示代码包依赖，`requires` / `provides` 展示运行时服务需求与能力。代码包关系不会进入服务启动拓扑，也不会因为一个公开类型引用就禁止停用对应插件。
 
@@ -97,6 +97,8 @@ export default function (ctx: ClientContext, sdk: ClientSDK) {
 `pnpm build` 构建全部应用，`pnpm build drawing` 只构建指定应用；二者均构建宿主入口。每个应用独立校验共享运行时提供者。
 
 所有 `input` 相对插件源码目录，`output` 相对插件 `dist/`。构建前清理该插件的 dist；不要在 dist 存放手工文件。宿主浏览器入口仍生成到 `public/runtime.js`。
+
+浏览器 bundle 和 Tailwind 使用 Vite，后端 bundle 使用 esbuild；清单和产物路径继续由插件声明。开发模式只编译后端到 dist，前端与公开资源按构建任务映射到源码，无需先生成前端 dist。
 
 | type | 用途 | 示例 |
 | --- | --- | --- |
@@ -112,6 +114,8 @@ bundle 支持 `minify` 和 `jsx: { "factory":"h", "fragment":"Fragment" }`。JSX
 构建器检查本包直接导入的 npm 包是否声明 dependencies；拒绝跨插件或宿主目录实现导入、workspace 包运行时导入、从浏览器入口导入后端入口，以及不属于本插件的共享运行时包。**类型引用使用 `import type`，运行时协作使用 `ctx`。** 这些是架构约束，不构成恶意代码沙箱。
 
 `/builtin/<id>/<资源路径>` 对应当前应用的 `plugins/<目录>/dist/<资源路径>`。前端宿主加载模块和样式时附加 appSession，过期页面资源请求被拒绝。只有 public 中的文件可以访问；即使 dist 中有 server.js 或未公开 JSON，HTTP 也返回 404。源码、package.json、类型文件和 source map 不会因为在插件目录中就自动公开。新增静态资源需要同时声明构建任务及 public。
+
+上一段描述正式运行。Vite 开发模式允许访问清单映射的前端入口、公开资源及其解析出的浏览器依赖图，提供源码调试与 source map；不开放整个源码目录。后端入口、宿主 server、用户数据及未声明文件仍不可访问，应用资源仍需经过清单声明。开发服务只接受本机同源请求。
 
 ## 4. 类型归属与前后端隔离
 
@@ -145,11 +149,11 @@ declare module '@cordis-notebook/host' {
 
 后端使用 `ServerServices`。使用服务的一方引用提供者的 `/client` 或 `/server` 类型入口，使用 `ClientContext` 或 `ServerContext`。不要再把业务属性直接合并到全局 Cordis Context，否则同名服务的前后端接口会混在一起。业务事件声明保留在其所有者插件中；宿主只声明通用生命周期事件。
 
-类型检查自动收集 `applications/*/plugins/*/types/*.d.ts` 和 `applications/*/plugins/*/test/*.types.ts`，因此新插件不需要加入类型总表。现有根类型测试是类型的消费者，其 imports 对应根包 devDependencies；这不是运行时插件注册机制。esbuild 会移除 TS 类型，但不负责类型检查；插件作者应在自己的 test/*.types.ts 中引用并检验实现或契约。
+类型检查自动收集 `applications/*/plugins/*/types/*.d.ts` 和 `applications/*/plugins/*/test/*.types.ts`，因此新插件不需要加入类型总表。现有根类型测试是类型的消费者，其 imports 对应根包 devDependencies；这不是运行时插件注册机制。Vite 和 esbuild 会移除 TS 类型，但不负责类型检查；插件作者应在自己的 test/*.types.ts 中引用并检验实现或契约。
 
 ## 5. 加载与兼容
 
-发现阶段不 import 后端入口，即使扫描一个默认关闭的插件，其顶层代码也不会运行。先读已保存启停选择，启用记录才进入 Cordis；后端服务依赖满足后才导入 dist 入口并执行 apply。等待服务时仍保留启用选择。Node 会缓存模块，启停用于释放/重新创建插件实例，修改后端代码后需构建并重启进程。
+发现阶段不 import 后端入口，即使扫描一个默认关闭的插件，其顶层代码也不会运行。先读已保存启停选择，启用记录才进入 Cordis；后端服务依赖满足后才导入 dist 入口并执行 apply。等待服务时仍保留启用选择。Node 会缓存模块，启停用于释放/重新创建插件实例；正式运行修改后端代码后需构建并重启进程，`pnpm dev` 会编译并在页面保存后自动重启。
 
 应用目录迁移保留原有插件 ID、服务、启用选择、配置与笔记结构。笔记数据根目录改为 `data/apps/notebook/`；首次使用复制旧数据且保留原件，应用内相对路径不变。旧 API v1 插件不再加载，磁盘上的旧安装文件和专属数据不会自动删除。Workspace 后端仍在宿主进程内按完全信任模式执行。
 

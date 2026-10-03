@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "workbench": "pnpm build && node workbench/server.js",
-    "workbench:runtime": "node workbench/server.js",
+    "workbench": "node workbench/build.js && node workbench/server.js",
+    "workbench:production": "pnpm build && node workbench/server.js --production",
+    "workbench:runtime": "node workbench/server.js --production",
     "build": "node scripts/build.js",
     "export:plugins": "node scripts/export-plugins.js",
     "export:app": "node scripts/export-application.js",
     "start:runtime": "node server/server.js",
-    "dev": "pnpm build && node --watch server/server.js",
+    "dev": "node scripts/dev.js",
     "start": "pnpm build && node server/server.js",
     "typecheck": "tsc -p tsconfig.contracts.json",
     "test": "pnpm typecheck && pnpm build && node --test test/*.test.js"
@@ -33,9 +34,11 @@
     "@cordis-notebook/rich-text": "workspace:*",
     "@cordis-notebook/theme-engine": "workspace:*",
     "@tailwindcss/cli": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.14.5",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
   }
 }

@@ -12,12 +12,12 @@ const rootDir = fileURLToPath(new URL('../', import.meta.url))
 export function createApp({ port = 3210, file, dataDir = file ? dirname(file) : resolve(rootDir, 'data'), pluginsDir = defaultPluginsDir } = {}) {
   return createHost({ port, dataDir, file, standalone: { id: 'standalone', name: '插件应用', pluginsDir, default: true } })
 }
-export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data'), applicationsDir = defaultApplicationsDir, initialApplication, standalone, file } = {}) {
+export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data'), applicationsDir = defaultApplicationsDir, initialApplication, standalone, file, discoveryMode = 'runtime' } = {}) {
   const catalog = standalone ? [standalone] : await discoverApplications(applicationsDir)
   const ctx = new Context(); let applications
   try {
     await ctx.plugin(Http, { port }); await ctx.http.ready
-    applications = new Applications(ctx.http, { applications: catalog, dataDir, standalone: !!standalone, file })
+    applications = new Applications(ctx.http, { applications: catalog, dataDir, standalone: !!standalone, file, discoveryMode })
     const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
     const manage = handler => request => applications.withCurrent(request, runtime => handler(runtime.manager, request))
     route('GET', /^\/api\/applications$/, () => applications.describe())
@@ -60,8 +60,9 @@ export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const app = process.env.PLUGINS_DIR
     ? await createApp({ port: Number(process.env.PORT || 3210), pluginsDir: process.env.PLUGINS_DIR, dataDir: process.env.DATA_DIR })
-    : await createHost({ port: Number(process.env.PORT || 3210), applicationsDir: process.env.APPLICATIONS_DIR || defaultApplicationsDir, dataDir: process.env.DATA_DIR, initialApplication: process.env.APP })
+    : await createHost({ port: Number(process.env.PORT || 3210), applicationsDir: process.env.APPLICATIONS_DIR || defaultApplicationsDir, dataDir: process.env.DATA_DIR, initialApplication: process.env.APP, discoveryMode: process.env.CORDIS_DEV === '1' ? 'development' : 'runtime' })
   console.log(`Cordis Applications: http://127.0.0.1:${app.server.address().port}`)
+  if (process.connected) process.send({ type: 'cordis-ready', port: app.server.address().port })
   let closing = false
   const shutdown = async () => { if (closing) return; closing = true; await app.close(); process.exit(0) }
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, shutdown)

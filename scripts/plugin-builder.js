@@ -1,11 +1,10 @@
 import { build } from 'esbuild'
-import { mkdir, copyFile, realpath, rm } from 'node:fs/promises'
+import { buildBrowser } from './vite-build.js'
+import { mkdir, copyFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { resolve, dirname, sep } from 'node:path'
-import { createRequire, isBuiltin } from 'node:module'
-import { spawn } from 'node:child_process'
+import { isBuiltin } from 'node:module'
 import { discoverBuiltins, defaultPluginsDir, containedFile, inside } from '../server/plugin-discovery.js'
 
-const require = createRequire(import.meta.url)
 const packageName = path => path.startsWith('@') ? path.split('/').slice(0,2).join('/') : path.split('/')[0]
 function boundaries(entry, task) {
   return { name:'plugin-boundaries', setup(builder) {
@@ -32,35 +31,37 @@ function boundaries(entry, task) {
     })
   }}
 }
-async function command(file, args, cwd) {
-  await new Promise((accept,reject)=>{
-    const child=spawn(process.execPath,[file,...args],{cwd,stdio:'inherit',windowsHide:true})
-    child.once('error',reject)
-    child.once('exit',code=>code===0?accept():reject(new Error(`构建命令退出码：${code}`)))
-  })
-}
-export async function buildPlugins(directory = defaultPluginsDir) {
+export async function buildPlugins(directory = defaultPluginsDir, { backendOnly = false, onDependencies = () => {}, stagedOutputs } = {}) {
   const entries = await discoverBuiltins(directory)
+  const pending = []
   for (const entry of entries) {
     const output = resolve(entry.sourceRoot,'dist')
     // Only remove this fixed, verified child. Never follow an external link.
     if (!inside(entry.sourceRoot,output) || (await realpath(output).catch(()=>output)) !== output) throw new Error('dist 目录不能是外部链接')
-    await rm(output,{recursive:true,force:true}); await mkdir(output,{recursive:true})
+    if (!backendOnly) await rm(output,{recursive:true,force:true})
+    await mkdir(output,{recursive:true})
     for (const task of entry.package.cordis.build) {
+      if (backendOnly && task.platform !== 'node') continue
       const input = await containedFile(entry.sourceRoot,task.input), target = resolve(output,task.output)
       if (!inside(output,target)) throw new Error('构建输出超出 dist')
       await mkdir(dirname(target),{recursive:true})
       if (task.type === 'copy') await copyFile(input,target)
-      else if (task.type === 'tailwind') {
-        const cli=resolve(dirname(require.resolve('@tailwindcss/cli/package.json')),'dist/index.mjs')
-        await command(cli,['-i',input,'-o',target,'--minify'],entry.sourceRoot)
-      } else await build({
+      else if (task.type === 'tailwind' || task.platform === 'browser') await buildBrowser(entry, task, input, target)
+      else {
+        const result = await build({
         absWorkingDir:entry.sourceRoot, entryPoints:[input],outfile:target,bundle:true,format:'esm',platform:task.platform,logLevel:'silent',
         target:'es2022',minify:task.minify ?? false, ...(task.platform==='node'?{packages:'external'}:{}),
         ...(task.jsx?{jsxFactory:task.jsx.factory,jsxFragment:task.jsx.fragment}:{}),
-        define:{'process.env.NODE_ENV':'"production"'}, plugins:[boundaries(entry,task)],
+        define:{'process.env.NODE_ENV':JSON.stringify(backendOnly ? 'development' : 'production')}, plugins:[boundaries(entry,task)],
+        write: !backendOnly, metafile: true,
       })
+        onDependencies(Object.keys(result.metafile.inputs).map(file => resolve(entry.sourceRoot, file)))
+        if (backendOnly) pending.push(...result.outputFiles)
+      }
     }
   }
+  // Do not publish partially compiled backends after a compilation error.
+  if (stagedOutputs) stagedOutputs.push(...pending)
+  else for (const file of pending) await writeFile(file.path, file.contents)
   return entries
 }

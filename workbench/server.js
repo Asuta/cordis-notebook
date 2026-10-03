@@ -19,7 +19,7 @@ async function body(req) {
   for await (const chunk of req) { size += chunk.length; if (size > 2 * 1024 * 1024) throw fail(413, '请求过大'); chunks.push(chunk) }
   try { return JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { throw fail(400, 'JSON 无效') }
 }
-export async function createWorkbench({ root = project, port = 3211, appPort = 3210, dataDir = join(root, '.workbench'), appDataDir = join(root, 'data'), autoStart = true, workerFile = join(here, 'agent-worker.js') } = {}) {
+export async function createWorkbench({ root = project, port = 3211, appPort = 3210, dataDir = join(root, '.workbench'), appDataDir = join(root, 'data'), autoStart = true, workerFile = join(here, 'agent-worker.js'), appMode = 'runtime' } = {}) {
   await mkdir(dataDir, { recursive: true })
   let config = normalizeConfig({ apiKey: process.env.DEEPSEEK_API_KEY || '', ...await readJSON(join(dataDir, 'config.json'), {}) })
   const imageStore = new AttachmentStore(dataDir)
@@ -66,7 +66,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     item.commands = item.commands.filter(entry => !removed.has(entry.session_id))
     changed(item)
   } })
-  const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir, commands })
+  const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir, commands, mode: appMode })
   const ownerFor = task => ({ threadId: task.thread.id, turnId: task.turn.id, signal: task.controller?.signal, cancelled: () => !!task.cancelled || closing })
   const updateTrace = (task, event) => {
     const turn = task.turn
@@ -105,7 +105,13 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (name === 'write_stdin') return commands.read(ownerFor(task), args)
     if (name === 'terminate_command') return commands.terminate(ownerFor(task), args.session_id)
     if (name === 'list_commands') return { commands: commands.list(ownerFor(task)) }
-    if (name === 'workspace_status') return { ...await application.status(), appId: task.appId, root }
+    if (name === 'workspace_status') {
+      // Give Vite time to notice the last file edit before reporting its result.
+      await application.settle()
+      const status = await application.status()
+      if (status.development) status.development.events = status.development.events.filter(event => event.seq > (task.devSequence ?? 0))
+      return { ...status, appId: task.appId, root }
+    }
     if (name === 'workspace_build') return application.build(task.appId, ownerFor(task), args)
     if (name === 'workspace_restart') {
       const status = await application.status()
@@ -116,11 +122,19 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       try { await application.restart() }
       catch (error) { await pageCall(task, 'workspace_release_reload').catch(() => {}); throw error }
       task.awaitingRebind = true
+      task.reloads = application.reloads
       notify({ type: 'reload-app' })
-      return { restarted: true, message: '页面正在重新连接。请先 workspace_status 或 app_list_tools 确认后再操作数据。' }
+      return { restarted: true, mode: application.mode, message: '页面正在重新连接。请先 workspace_status 或 app_list_tools 确认后再操作数据。' }
+    }
+    // Vite reloads the page after backend, manifest or host edits; follow the new page.
+    if (application.mode === 'development') {
+      await application.settle({ delay: 0 })
+      if ((task.reloads ?? application.reloads) !== application.reloads) task.awaitingRebind = true
+      task.reloads = application.reloads
     }
     if (task.awaitingRebind) {
-      for (let i = 0; i < 30 && !task.cancelled; i++) {
+      // A Vite page load transforms source modules, so allow it longer than a built page.
+      for (let i = 0; i < (application.mode === 'development' ? 150 : 30) && !task.cancelled; i++) {
         const page = clients.get(task.clientId)
         if (page && (page.appId !== task.appId || page.pageId !== task.pageId)) break
         await new Promise(resolve => setTimeout(resolve, 100))
@@ -217,7 +231,8 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (!item) { item = { id: randomUUID(), appId: input.appId, title: input.prompt.trim().slice(0, 35) || '图片对话', messages: [], turns: [], revision: 0 }; conversations.push(item) }
     const turn = { id: randomUUID(), presentationVersion: 1, mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [] }
     item.turns.push(turn); item.hasImages ||= images.length > 0
-    active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController() }
+    active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController(),
+      devSequence: application.sequence, reloads: application.reloads }
     item.running = true
     if (mode === 'chat') item.messages.push({ id: randomUUID(), role: 'user', turnId: turn.id, text: input.prompt, attachments, images })
     changed(item)
@@ -227,7 +242,9 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       for (let i = 0; !child.ready && i < 900; i++) { if (!worker || task.cancelled || closing) break; await new Promise(resolve => setTimeout(resolve, 100)) }
       if (active !== task) return
       if (!child.ready || !child.connected || task.cancelled || closing) { finish('任务在启动阶段已停止'); return }
-      child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'), config: taskConfig, task: { mode, appId: item.appId, prompt: input.prompt || '请分析这些图片。', attachments, images, sessionFile: item.sessionFile } })
+      const status = await application.status()
+      if (active !== task || task.cancelled || closing) return
+      child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'), config: taskConfig, task: { mode, appMode: status.mode, appOnline: status.online, appManaged: status.managed, appError: status.error, appId: item.appId, prompt: input.prompt || '请分析这些图片。', attachments, images, sessionFile: item.sessionFile } })
     })().catch(error => { if (active === task) finish(error.message) })
     return publicThread(item)
   }
@@ -307,6 +324,8 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     } catch (error) { json(error.status || 500, { error: redact(error.message) }) }
   })
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
+  // The actual listening port also isolates instances started with port: 0.
+  application.env.CORDIS_VITE_CACHE_DIR = join(root, 'node_modules/.vite', `cordis-workbench-${server.address().port}-${appPort}`)
   if (autoStart) void application.start().catch(error => application.log(error.message))
   return { server, application, commands, execute, clients, async close() {
     closing = true
@@ -323,7 +342,8 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   } }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const app = await createWorkbench({ port: Number(process.env.WORKBENCH_PORT || 3211), appPort: Number(process.env.WORKBENCH_APP_PORT || 3210), dataDir: process.env.WORKBENCH_DATA_DIR || join(project, '.workbench'), appDataDir: process.env.DATA_DIR || join(project, 'data') })
-  console.log(`Agent 工作台：http://127.0.0.1:${app.server.address().port}`)
+  const appMode = process.argv.includes('--production') ? 'runtime' : process.env.WORKBENCH_APP_MODE || 'development'
+  const app = await createWorkbench({ port: Number(process.env.WORKBENCH_PORT || 3211), appPort: Number(process.env.WORKBENCH_APP_PORT || 3210), dataDir: process.env.WORKBENCH_DATA_DIR || join(project, '.workbench'), appDataDir: process.env.DATA_DIR || join(project, 'data'), appMode })
+  console.log(`Agent 工作台：http://127.0.0.1:${app.server.address().port}（应用${appMode === 'development' ? 'Vite 开发模式' : '正式构建模式'}）`)
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0) })
 }

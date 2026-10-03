@@ -13,6 +13,27 @@ import { join } from 'node:path'
 const spec = (id, requires = [], provides = []) => ({ id, name: id, enabled: true, state: 'enabled', serverState: 'not-applicable', client: id + '.js', generation: 1, requires: { server: [], client: requires }, provides: { server: [], client: provides } })
 const sdkFor = ctx => ({ provide(name, value) { const service = new Service(ctx, name); Object.assign(service, value); return service } })
 
+test('选择性热更新保留无关插件，服务提供者重载后消费者自动恢复', async () => {
+  const root = new Context(), starts = { provider: 0, consumer: 0, unrelated: 0 }, stops = { provider: 0, consumer: 0, unrelated: 0 }
+  const host = new ClientPlugins(root, { sdkFor, load: async p => ({ default(ctx, sdk) {
+    starts[p.id]++
+    if (p.id === 'provider') sdk.provide('hotService', { version: starts.provider })
+    if (p.id === 'consumer') assert.equal(ctx.hotService.version, starts.provider)
+    ctx.effect(() => () => { stops[p.id]++ })
+  } }) })
+  try {
+    await host.sync([spec('provider', [], ['hotService']), spec('consumer', ['hotService']), spec('unrelated')])
+    const unchanged = host.entries.get('unrelated').fiber
+    await host.reload(['provider'])
+    assert.deepEqual(starts, { provider: 2, consumer: 2, unrelated: 1 })
+    assert.deepEqual(stops, { provider: 1, consumer: 1, unrelated: 0 })
+    assert.equal(host.entries.get('unrelated').fiber, unchanged)
+    assert.equal(host.state('consumer'), 'enabled')
+    await host.reload(['consumer'])
+    assert.deepEqual(starts, { provider: 2, consumer: 3, unrelated: 1 })
+  } finally { await root.fiber.dispose() }
+})
+
 test('后端状态随 Cordis 等待、激活、服务消失及重启失败变化', async () => {
   const ctx = new Context()
   try {

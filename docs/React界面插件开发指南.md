@@ -13,7 +13,7 @@
 - 插件业务 CSS 由所属插件清单的 styles 声明，不依赖布局插件代管；自动加载完成才激活，停用时自动清理。
 - `applications/notebook/plugins/plugin-manager-ui/`：新版插件中心，通过宿主提供的 pluginManagement 操作现有管理流程。
 
-`pnpm build` 编译 Tailwind、UI 运行时、各插件 JSX 和宿主入口。`pnpm dev` 只监视后端导入图，修改 JSX 后需要重新构建并刷新。
+`pnpm build` 通过 Vite 编译 Tailwind、UI 运行时、各插件 JSX 和宿主入口。`pnpm dev` 直接加载经 Vite 转换的前端源码，CSS 即时更新，JSX 变更由 Cordis 重建受影响插件及其服务消费者。这里使用插件生命周期重载，组件局部状态可能重置；不是 React Fast Refresh。笔记保存与草稿继续由业务插件管理。详见 [Vite 开发与热更新](Vite开发与热更新.md)。
 
 ## 消费 UI 服务
 

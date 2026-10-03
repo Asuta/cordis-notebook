@@ -1,4 +1,4 @@
-import { build } from 'esbuild'
+import { build as viteBuild } from 'vite'
 import { buildPlugins } from './plugin-builder.js'
 import { discoverApplications } from '../server/application-discovery.js'
 import '../workbench/build.js'
@@ -10,5 +10,5 @@ for (const app of selected) {
   await buildPlugins(app.pluginsDir)
   console.log(`已构建应用：${app.name}`)
 }
-await build({ entryPoints:['client/host/runtime.js'], bundle:true, format:'esm', platform:'browser', target:'es2022', outfile:'public/runtime.js' })
+await viteBuild({ configFile:false, publicDir:false, logLevel:'error', define:{'process.env.NODE_ENV':JSON.stringify('production')}, build:{ target:'es2022', outDir:'public', emptyOutDir:false, minify:false, lib:{entry:'client/host/runtime.js',formats:['es'],fileName:()=>'runtime.js'}, rolldownOptions:{output:{codeSplitting:false}} } })
 console.log('应用插件与通用浏览器宿主已构建')

@@ -64,21 +64,21 @@ async function readPlugin(root, mode) {
     } else if (task.platform || task.jsx || task.minify !== undefined) invalid('平台和 JSX/minify 选项仅用于 bundle')
     if (task.type === 'tailwind' && (!task.input.endsWith('.css') || !task.output.endsWith('.css'))) invalid('tailwind 需要 CSS 输入输出')
     if (task.type === 'copy' && [task.input,task.output].some(path => /\.[cm]?[jt]sx?$/.test(path))) invalid('JS/TS 代码请使用 bundle，copy 仅用于静态资源')
-    if (mode === 'build') await containedFile(root, task.input)
+    if (mode !== 'runtime') await containedFile(root, task.input)
     outputs.set(task.output.toLowerCase(), task)
   }
   const published = new Set()
   for (const name of m.public) {
     if (!relativePath(name) || published.has(name.toLowerCase())) invalid(`非法或重复公开资源：${name}`)
     const task = outputs.get(name.toLowerCase())
-    if (task?.platform === 'node' || mode === 'build' && (!task || task.output !== name)) invalid(`公开资源没有对应浏览器构建任务：${name}`)
+    if (task?.platform === 'node' || mode !== 'runtime' && (!task || task.output !== name)) invalid(`公开资源没有对应浏览器构建任务：${name}`)
     if (m.server?.entry.toLowerCase() === name.toLowerCase()) invalid('后端入口不能公开')
     if (mode === 'runtime') await containedFile(resolve(root,'dist'), name)
     published.add(name.toLowerCase())
   }
   if (m.client && !m.public.includes(m.client)) invalid('client 入口必须在 public 中')
-  if (m.server && mode === 'build' && outputs.get(m.server.entry.toLowerCase())?.platform !== 'node') invalid('server 入口必须来自 node 构建任务')
-  if (m.server && mode === 'runtime') await containedFile(resolve(root,'dist'), m.server.entry)
+  if (m.server && mode !== 'runtime' && outputs.get(m.server.entry.toLowerCase())?.platform !== 'node') invalid('server 入口必须来自 node 构建任务')
+  if (m.server && mode !== 'build') await containedFile(resolve(root,'dist'), m.server.entry)
   if (m.styles !== undefined && (!Array.isArray(m.styles) || m.styles.length && !m.client || new Set(m.styles).size !== m.styles.length || m.styles.some(name => typeof name !== 'string' || !name.endsWith('.css') || !m.public.includes(name)))) invalid('styles 必须是公开 CSS 资源数组，且有 client 入口')
   if (m.category !== undefined) {
     if (!object(m.category) || !/^[a-z][a-z0-9-]*$/.test(m.category.id || '') || ['all','dependencies'].includes(m.category.id) || typeof m.category.label !== 'string' || !m.category.label.trim()) invalid('category 需要有效 id 和 label')
@@ -114,7 +114,7 @@ async function readPlugin(root, mode) {
 
 /** Read JSON and validate paths; never import any plugin implementation. */
 export async function discoverBuiltins(directory = defaultPluginsDir, { mode = 'build' } = {}) {
-  if (!['build','runtime'].includes(mode)) invalid('未知发现模式')
+  if (!['build','runtime','development'].includes(mode)) invalid('未知发现模式')
   const root = await realpath(directory), entries = [], ids = new Set(), packages = new Set(), owners = new Map()
   for (const folder of (await readdir(root, {withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))) {
     if (folder.name.startsWith('.') || folder.name === 'node_modules') continue
@@ -133,7 +133,7 @@ export async function discoverBuiltins(directory = defaultPluginsDir, { mode = '
   const byPackage = new Map(entries.map(item=>[item.package.name,item.manifest.id]))
   for (const entry of entries) {
     for (const [name, version] of Object.entries(entry.package.dependencies || {})) {
-      if (mode === 'build' && version.startsWith('workspace:') && name !== '@cordis-notebook/host' && !byPackage.has(name)) invalid(`${entry.manifest.id} 缺少 workspace 包：${name}`)
+      if (mode !== 'runtime' && version.startsWith('workspace:') && name !== '@cordis-notebook/host' && !byPackage.has(name)) invalid(`${entry.manifest.id} 缺少 workspace 包：${name}`)
     }
     entry.runtimeOwners = owners
   }
