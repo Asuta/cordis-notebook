@@ -7,13 +7,15 @@ import { startDevelopment } from '../scripts/dev.js'
 test('Vite 开发服务限制源码公开、编译失败保留后端，并等待页面保存后原地更新插件', { timeout: 60000 }, async () => {
   const directory = await mkdtemp(resolve('vite-test-')), apps = join(directory, 'applications')
   const folder = join(apps, 'sample/plugins/sample'), source = join(folder, 'server.js')
-  let dev, socket, stalledSocket
+  let dev, socket, stalledSocket, prepareHook, savePage = true, saveStalledPage = false, sequence = 0
+  const confirm = (client, token) => client.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token, success: true } }))
   const listeners = new Set(), messages = []
-  const message = (predicate, label) => new Promise((accept, reject) => {
-    const found = messages.find(predicate)
+  const message = (predicate, label, after = 0) => new Promise((accept, reject) => {
+    const matches = value => value.sequence > after && predicate(value)
+    const found = messages.find(matches)
     if (found) { messages.splice(messages.indexOf(found), 1); accept(found); return }
     const timer = setTimeout(() => { listeners.delete(receive); reject(Error('等待开发事件超时：' + label + '，收到 ' + JSON.stringify(messages))) }, 12000)
-    const receive = value => { if (!predicate(value)) return false; clearTimeout(timer); listeners.delete(receive); accept(value); return true }
+    const receive = value => { if (!matches(value)) return false; clearTimeout(timer); listeners.delete(receive); accept(value); return true }
     listeners.add(receive)
   })
   try {
@@ -34,7 +36,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     await writeFile(join(folder, 'helper.js'), 'export const value = (')
     const backend = version => `export default ctx => { ctx.http.route(ctx, 'GET', new RegExp('^/api/sample$'), () => ({version:${version}})) }`
     await writeFile(source, backend(1))
-    dev = await startDevelopment({ port: 0, dataDir: join(directory, 'data'), applicationsDir: apps, initialApplication: 'sample', saveTimeout: 1500 })
+    dev = await startDevelopment({ port: 0, dataDir: join(directory, 'data'), cacheDir: join(directory, 'cache'), applicationsDir: apps, initialApplication: 'sample', saveTimeout: 1500 })
     const base = `http://127.0.0.1:${dev.vite.httpServer.address().port}`
     const get = async () => (await fetch(base + '/api/sample')).json()
     assert.deepEqual(await get(), { version: 1 })
@@ -44,7 +46,12 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     }
     socket = new WebSocket(base.replace('http:', 'ws:') + '/?token=' + dev.vite.config.webSocketToken, 'vite-hmr')
     socket.addEventListener('message', event => {
-      const value = JSON.parse(event.data)
+      const value = { ...JSON.parse(event.data), sequence: ++sequence }
+      // A real page answers every save request, including Vite's automatic reloads.
+      if (value.event === 'cordis:prepare') {
+        prepareHook?.(value)
+        if (savePage) confirm(socket, value.data.token)
+      }
       if (![...listeners].some(receive => receive(value))) messages.push(value)
     })
     await message(value => value.type === 'connected', '连接')
@@ -61,10 +68,10 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     const updated = await message(value => value.event === 'cordis:plugins', '前端恢复')
     assert.deepEqual(updated.data.targets, { sample: ['sample'] })
     assert.ok((await (await fetch(base + resources.client + '?t=' + updated.data.version)).text()).includes('42'))
+    const htmlAfter = sequence
     dev.vite.ws.send({ type: 'full-reload', path: '*' })
-    const html = await message(value => value.event === 'cordis:prepare', '整页刷新保存保护')
-    socket.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token: html.data.token, success: true } }))
-    await message(value => value.event === 'cordis:restart', '保存后整页刷新')
+    const html = await message(value => value.event === 'cordis:prepare', '整页刷新保存保护', htmlAfter)
+    await message(value => value.event === 'cordis:restart', '保存后整页刷新', html.sequence)
     const sibling = join(folder, 'helper.js')
     await writeFile(join(folder, 'client.js'), "import { value } from './helper.js'; export default () => value")
     await message(value => value.type === 'error', '新增相对模块编译错误')
@@ -83,59 +90,75 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     assert.equal(dev.backendPort, port)
     await assert.rejects(readFile(join(folder, 'dist/server.js')), { code: 'ENOENT' })
     assert.deepEqual(await get(), { version: 1 })
+    savePage = false
+    const failedAfter = sequence
     await writeFile(source, backend(2))
-    const preparation = await message(value => value.event === 'cordis:prepare', '保存准备')
+    const preparation = await message(value => value.event === 'cordis:prepare', '保存准备', failedAfter)
     assert.deepEqual(await get(), { version: 1 })
     socket.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token: preparation.data.token, success: false, error: '测试保存失败' } }))
     await message(value => value.type === 'error', '保存失败')
     assert.equal(dev.backendPort, port)
     await assert.rejects(readFile(join(folder, 'dist/server.js')), { code: 'ENOENT' })
+    const retryAfter = sequence
     await writeFile(source, backend(3))
-    const retry = await message(value => value.event === 'cordis:prepare', '再次保存准备')
+    const retry = await message(value => value.event === 'cordis:prepare', '再次保存准备', retryAfter)
     socket.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token: retry.data.token, success: true } }))
-    await message(value => value.event === 'cordis:catalog', '原地更新')
+    await message(value => value.event === 'cordis:catalog', '原地更新', retry.sequence)
+    savePage = true
     assert.equal(dev.backendPort, port); assert.equal(dev.backendPid, pid)
     assert.deepEqual(await get(), { version: 3 })
     stalledSocket = new WebSocket(base.replace('http:', 'ws:') + '/?token=' + dev.vite.config.webSocketToken, 'vite-hmr')
+    stalledSocket.addEventListener('message', event => {
+      const value = JSON.parse(event.data)
+      if (saveStalledPage && value.event === 'cordis:prepare') confirm(stalledSocket, value.data.token)
+    })
     await new Promise(resolve => stalledSocket.addEventListener('open', resolve, { once: true }))
     stalledSocket.send(JSON.stringify({ type: 'custom', event: 'cordis:ready', data: { application: '未响应的页面' } }))
-    const confirm = (client, token) => client.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token, success: true } }))
+    const delayedAfter = sequence
     await writeFile(source, backend(4))
-    const delayed = await message(value => value.event === 'cordis:prepare', '等待第二个页面')
-    confirm(socket, delayed.data.token)
-    const blocked = await message(value => value.event === 'cordis:blocked', '页面超时状态')
+    const delayed = await message(value => value.event === 'cordis:prepare', '等待第二个页面', delayedAfter)
+    const blocked = await message(value => value.event === 'cordis:blocked', '页面超时状态', delayed.sequence)
     assert.deepEqual(blocked.data.clients.map(client => client.application), ['未响应的页面'])
     assert.deepEqual(await get(), { version: 3 })
     await message(value => value.event === 'cordis:resume' && value.data.token === delayed.data.token, '超时解除保护')
     confirm(stalledSocket, delayed.data.token)
-    const recovered = await message(value => value.event === 'cordis:prepare', '页面恢复后无需再保存源码即可重试')
+    const recovered = await message(value => value.event === 'cordis:prepare', '页面恢复后无需再保存源码即可重试', delayed.sequence)
     assert.notEqual(recovered.data.token, delayed.data.token)
-    confirm(socket, recovered.data.token); confirm(stalledSocket, delayed.data.token)
+    confirm(stalledSocket, delayed.data.token)
     assert.deepEqual(await get(), { version: 3 })
     confirm(stalledSocket, recovered.data.token)
-    await message(value => value.event === 'cordis:catalog', '重新确认后原地更新')
+    await message(value => value.event === 'cordis:catalog', '重新确认后原地更新', recovered.sequence)
     assert.deepEqual(await get(), { version: 4 })
 
+    const pendingAfter = sequence
     await writeFile(source, backend(5))
-    const pending = await message(value => value.event === 'cordis:prepare', '待处理后端修改')
-    confirm(socket, pending.data.token)
-    await message(value => value.event === 'cordis:blocked', '后端修改暂缓')
+    const pending = await message(value => value.event === 'cordis:prepare', '待处理后端修改', pendingAfter)
+    await message(value => value.event === 'cordis:blocked', '后端修改暂缓', pending.sequence)
+    saveStalledPage = true
     // A host-only refresh must not drop the deferred backend update.
+    // Queue another refresh during preparation to exercise separate update batches.
+    prepareHook = () => {
+      prepareHook = undefined
+      dev.vite.ws.send({ type: 'full-reload', path: '*' })
+    }
+    const hostAfter = sequence
     dev.vite.ws.send({ type: 'full-reload', path: '*' })
-    const host = await message(value => value.event === 'cordis:prepare', '整页刷新再次检查后端')
-    confirm(socket, host.data.token); confirm(stalledSocket, host.data.token)
-    await message(value => value.event === 'cordis:catalog', '宿主刷新前先更新待处理插件')
-    await message(value => value.event === 'cordis:restart', '宿主刷新包含待处理后端')
+    const host = await message(value => value.event === 'cordis:prepare', '整页刷新再次检查后端', hostAfter)
+    await message(value => value.event === 'cordis:catalog', '宿主刷新前先更新待处理插件', host.sequence)
+    await message(value => value.event === 'cordis:restart', '宿主刷新包含待处理后端', host.sequence)
+    const extra = await message(value => value.event === 'cordis:prepare' && value.data.token !== host.data.token, '额外刷新重新确认保存', host.sequence)
+    await message(value => value.event === 'cordis:restart', '额外刷新完成', extra.sequence)
     assert.deepEqual(await get(), { version: 5 })
 
+    saveStalledPage = false
+    const closingAfter = sequence
     await writeFile(source, backend(6))
-    const closing = await message(value => value.event === 'cordis:prepare', '关闭页面之前的准备')
-    confirm(socket, closing.data.token)
-    await message(value => value.event === 'cordis:blocked', '关闭前暂缓')
+    const closing = await message(value => value.event === 'cordis:prepare', '关闭页面之前的准备', closingAfter)
+    await message(value => value.event === 'cordis:blocked', '关闭前暂缓', closing.sequence)
+    const closedAfter = sequence
     stalledSocket.close()
-    const closed = await message(value => value.event === 'cordis:prepare', '关闭失去响应页面后自动重试')
-    confirm(socket, closed.data.token)
-    await message(value => value.event === 'cordis:catalog', '关闭失去响应页面后原地更新')
+    const closed = await message(value => value.event === 'cordis:prepare', '关闭失去响应页面后自动重试', closedAfter)
+    await message(value => value.event === 'cordis:catalog', '关闭失去响应页面后原地更新', closed.sequence)
     assert.deepEqual(await get(), { version: 6 })
   } finally {
     socket?.close(); stalledSocket?.close()

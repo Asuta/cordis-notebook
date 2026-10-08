@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context, Service } from 'cordis'
 import { Window } from 'happy-dom'
+import { setTimeout as delay } from 'node:timers/promises'
 
 test('新格式的图标和宽版布局由声明驱动，缺失格式回退且切换不残留', async () => {
   const window = new Window(), previous = new Map(), root = new Context()
@@ -13,7 +14,17 @@ test('新格式的图标和宽版布局由声明驱动，缺失格式回退且�
   const listeners = new Set(), targets = Object.fromEntries(['sidebar','editor','toolbar'].map(name => [name, document.createElement('div')]))
   Object.values(targets).forEach(node => document.body.append(node))
   const observe = (owner, fn) => owner.effect(() => {listeners.add(fn); fn(); return () => listeners.delete(fn)})
-  const notify = async () => { for (const fn of listeners) fn(); await new Promise(resolve => setTimeout(resolve, 30)) }
+  const notify = async check => {
+    for (const fn of listeners) fn()
+    const deadline = Date.now() + 5000
+    while (true) {
+      try { check(); return }
+      catch (error) {
+        if (!(error instanceof assert.AssertionError) || Date.now() >= deadline) throw error
+      }
+      await delay(10)
+    }
+  }
   const notes = [{id:'a',type:'new-format',title:'自定义格式',content:'内容',updatedAt:'2026-09-25'}, {id:'b',type:'missing',title:'未知格式',content:'保留内容',updatedAt:'2026-09-25'}]
   let selected = notes[0]
   const formats = new Map([['new-format', {type:'new-format',label:'自定义格式',icon:'Sun',editor:'custom',editorLayout:'wide'}]])
@@ -41,26 +52,32 @@ test('新格式的图标和宽版布局由声明驱动，缺失格式回退且�
     const custom = document.createElement('section'), headingTarget = document.createElement('div')
     custom.append(headingTarget)
     const unregister = root.editorHost.register(root, 'custom', custom, { headingTarget })
-    await notify()
-    assert.equal(headingTarget.querySelector('#title').value, '自定义格式')
-    assert.equal(targets.editor.querySelectorAll('#title').length, 1)
-    assert.equal(targets.editor.querySelector('.editor-writing > .note-heading'), null)
+    await notify(() => {
+      assert.equal(headingTarget.querySelector('#title')?.value, '自定义格式')
+      assert.equal(targets.editor.querySelectorAll('#title').length, 1)
+      assert.ok(!targets.editor.querySelector('.editor-writing > .note-heading'))
+    })
     formats.set('new-format', {...formats.get('new-format'), icon:'Moon', editorLayout:'standard'})
-    await notify()
-    assert.ok(targets.sidebar.querySelector('.note-card svg.lucide-moon'))
-    assert.equal(targets.editor.querySelector('.editor-writing').dataset.editorLayout, 'standard')
+    await notify(() => {
+      assert.ok(targets.sidebar.querySelector('.note-card svg.lucide-moon'))
+      assert.equal(targets.editor.querySelector('.editor-writing').dataset.editorLayout, 'standard')
+    })
     formats.set('new-format', {...formats.get('new-format'), editorLayout:'wide'})
-    await notify()
-    selected = notes[1]; await notify()
-    assert.equal(headingTarget.querySelector('#title'), null)
-    assert.equal(targets.editor.querySelector('.editor-writing').dataset.editorLayout, 'standard')
-    assert.equal(targets.editor.querySelector('#title').value, '未知格式')
-    assert.match(targets.editor.textContent, /格式插件/)
-    selected = notes[0]; await notify()
-    assert.ok(headingTarget.querySelector('#title'))
-    unregister(); await notify()
-    assert.ok(targets.editor.querySelector('.editor-writing > .note-heading > #title'))
-    assert.equal(targets.editor.querySelectorAll('#title').length, 1)
+    await notify(() => assert.equal(targets.editor.querySelector('.editor-writing').dataset.editorLayout, 'wide'))
+    selected = notes[1]
+    await notify(() => {
+      assert.ok(!headingTarget.querySelector('#title'))
+      assert.equal(targets.editor.querySelector('.editor-writing').dataset.editorLayout, 'standard')
+      assert.equal(targets.editor.querySelector('#title')?.value, '未知格式')
+      assert.match(targets.editor.textContent, /格式插件/)
+    })
+    selected = notes[0]
+    await notify(() => assert.ok(headingTarget.querySelector('#title')))
+    unregister()
+    await notify(() => {
+      assert.ok(targets.editor.querySelector('.editor-writing > .note-heading > #title'))
+      assert.equal(targets.editor.querySelectorAll('#title').length, 1)
+    })
     await editorFiber.dispose(); await listFiber.dispose()
     assert.equal(targets.editor.childElementCount, 0)
     assert.equal(targets.sidebar.childElementCount, 0)
