@@ -8,7 +8,7 @@ script = "pnpm install"
 [[actions]]
 name = "运行"
 icon = "run"
-command = "pnpm workbench:runtime"
+command = "pnpm workbench"
 
 [[actions]]
 name = "同步"
