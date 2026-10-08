@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rename, rm } from 'node:f
 import { resolve, join, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { startDevelopment, preflightHost } from '../scripts/dev.js'
+import { buildPlugins } from '../scripts/plugin-builder.js'
 
 async function eventually(check, label) {
   const end = Date.now() + 12000
@@ -48,6 +49,26 @@ async function fixture(t, { setup, initialApplication = 'sample' } = {}) {
   }
   return { dir, plugins, stamp, dev, events, base, add, json, state, find, mutate }
 }
+
+test('插件构建后撤销源码留下 dist，开发应用仍能启动并重新发现恢复的插件', { timeout: 60000 }, async t => {
+  const server = "export default ctx => ctx.http.route(ctx, 'GET', new RegExp('^/api/restored$'), () => ({ ok: true }))"
+  let removed
+  const f = await fixture(t, { setup: async ({ add, apps }) => {
+    removed = await add('removed', { requires: ['http'], server })
+    await buildPlugins(join(apps, 'sample/plugins'))
+    await rm(join(removed.folder, 'package.json'))
+    await rm(join(removed.folder, 'server.js'))
+  } })
+  const before = await f.json('/api/stable')
+  assert.equal(await f.find('removed'), undefined)
+  assert.equal((await fetch(f.base + '/api/restored')).status, 404, '残留后端产物不能被执行')
+  assert.ok(await readFile(join(removed.folder, 'dist/server.js'), 'utf8'))
+  await f.add('removed', { requires: ['http'], server })
+  await eventually(async () => (await f.find('removed'))?.state === 'enabled', '恢复清单与源码后重新接入')
+  assert.deepEqual(await f.json('/api/restored'), { ok: true })
+  assert.deepEqual(await f.json('/api/stable'), before)
+  assert.equal(f.dev.backendPid, before.pid)
+})
 
 test('源码模式新增前后端插件不生成 dist、不重启，服务替换与失败回滚不影响无关插件', { timeout: 60000 }, async t => {
   const f = await fixture(t), before = await f.json('/api/stable'), port = f.dev.backendPort

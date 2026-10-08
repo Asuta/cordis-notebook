@@ -114,7 +114,7 @@ async function readPlugin(root, mode, loadServer) {
 }
 
 /** Read JSON and validate paths; never import any plugin implementation. */
-export async function discoverBuiltins(directory = defaultPluginsDir, { mode = 'build', loadServer } = {}) {
+export async function discoverBuiltins(directory = defaultPluginsDir, { mode = 'build', loadServer, onWarning = console.warn } = {}) {
   if (!['build','runtime','development'].includes(mode)) invalid('未知发现模式')
   const root = await realpath(directory), entries = [], ids = new Set(), packages = new Set(), owners = new Map()
   for (const folder of (await readdir(root, {withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))) {
@@ -122,7 +122,16 @@ export async function discoverBuiltins(directory = defaultPluginsDir, { mode = '
     if (folder.isSymbolicLink()) invalid(`插件目录不支持符号链接：${folder.name}`)
     if (!folder.isDirectory()) continue
     let entry
-    try { entry = await readPlugin(resolve(root,folder.name), mode, loadServer) }
+    const pluginRoot = resolve(root,folder.name)
+    try {
+      const contents = await readdir(pluginRoot, {withFileTypes:true})
+      // Git can remove a plugin's tracked files while leaving ignored build/install artifacts.
+      if (contents.length && contents.every(item => item.isDirectory() && ['dist','node_modules'].includes(item.name))) {
+        onWarning(`插件目录 ${pluginRoot} 缺少 package.json，仅剩 dist/node_modules 产物，已跳过；可清理残留目录，或恢复清单与源码。`)
+        continue
+      }
+      entry = await readPlugin(pluginRoot, mode, loadServer)
+    }
     catch (error) { throw new Error(`插件 ${folder.name} 清单无效：${error.message}`, {cause:error}) }
     if (ids.has(entry.manifest.id) || packages.has(entry.package.name)) invalid(`插件 ID 或包名重复：${entry.manifest.id}`)
     ids.add(entry.manifest.id); packages.add(entry.package.name); entries.push(entry)

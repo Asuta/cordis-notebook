@@ -106,6 +106,52 @@ test('包依赖不自动启用服务；缺少服务等待，提供者启用后�
   } finally { await app.close() }
 })
 
+test('撤销插件源码后跳过残留产物并警告，构建和正式启动仍可用',async t=>{
+  const {root,plugins}=await fixture(t)
+  await plugin(plugins,'healthy',{defaultEnabled:true})
+  const removed=await plugin(plugins,'removed')
+  await buildPlugins(plugins)
+  const artifact=join(removed.folder,'dist/client.js'), before=await readFile(artifact,'utf8')
+  await rm(join(removed.folder,'package.json'))
+  await rm(join(removed.folder,'client.js'))
+  await mkdir(join(removed.folder,'node_modules'))
+  for (const mode of ['build','development','runtime']) {
+    const warnings=[]
+    const entries=await discoverBuiltins(plugins,{mode,onWarning:message=>warnings.push(message)})
+    assert.deepEqual(entries.map(entry=>entry.manifest.id),['healthy'])
+    assert.equal(warnings.length,1)
+    assert.ok(warnings[0].includes(removed.folder))
+    assert.match(warnings[0],/缺少 package\.json.*已跳过/)
+  }
+  await buildPlugins(plugins)
+  const app=await createApp({port:0,file:join(root,'data/notes.json'),pluginsDir:plugins})
+  try {
+    assert.equal(app.manager.records.get('healthy').state,'enabled')
+    assert.equal(app.manager.records.has('removed'),false)
+    assert.equal((await fetch(`http://127.0.0.1:${app.server.address().port}/api/plugins`)).status,200)
+    assert.equal(await readFile(artifact,'utf8'),before,'跳过扫描不会删除残留文件')
+  } finally { await app.close() }
+})
+
+test('缺少清单但仍有源码、空目录或损坏清单不能作为构建残留跳过',async t=>{
+  for (const kind of ['source-file','source-directory','empty','dist-file','invalid-manifest']) {
+    await t.test(kind,async t=>{
+      const {plugins}=await fixture(t), folder=join(plugins,'broken')
+      await mkdir(folder)
+      if (kind!=='empty' && kind!=='dist-file') await mkdir(join(folder,'dist'))
+      if (kind==='source-file') await writeFile(join(folder,'server.js'),'export default () => {}')
+      if (kind==='source-directory') await mkdir(join(folder,'src'))
+      if (kind==='dist-file') await writeFile(join(folder,'dist'),'not a directory')
+      if (kind==='invalid-manifest') await writeFile(join(folder,'package.json'),'{ invalid JSON')
+      for (const mode of ['build','development','runtime']) {
+        const warnings=[]
+        await assert.rejects(discoverBuiltins(plugins,{mode,onWarning:message=>warnings.push(message)}),/插件 broken 清单无效/)
+        assert.deepEqual(warnings,[])
+      }
+    })
+  }
+})
+
 test('无效清单、重复 ID、缺失入口和后端资源公开在发现阶段被拒绝',async t=>{
   const {plugins}=await fixture(t), item=await plugin(plugins,'invalid')
   const good=structuredClone(item.pkg)
