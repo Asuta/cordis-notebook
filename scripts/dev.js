@@ -14,6 +14,7 @@ import { createDevelopmentSaveGuard } from './development-save-guard.js'
 import { developmentRPC } from './development-rpc.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
+const viteEnvironment = fileURLToPath(new URL('../client/env.mjs', import.meta.resolve('vite')))
 const urlFor = file => '/@fs/' + normalizePath(file)
 const fileKey = file => normalizePath(resolve(file)).toLowerCase()
 
@@ -56,6 +57,8 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
   function refreshBrowserPermissions() {
     allowed.clear()
     register(resolve(root, 'client/host/runtime.js')); register(resolve(root, 'public/style.css'))
+    // Vite's client imports this runtime before the application's module graph exists.
+    register(viteEnvironment)
     for (const app of Object.values(plugins)) for (const plugin of Object.values(app)) Object.values(plugin.assets).forEach(register)
     const graph = vite?.environments.client.moduleGraph
     if (!graph) return

@@ -41,6 +41,12 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     const get = async () => (await fetch(base + '/api/sample')).json()
     assert.deepEqual(await get(), { version: 1 })
     assert.ok((await (await fetch(base)).text()).includes('/@vite/client'))
+    const viteClient = await (await fetch(base + '/@vite/client')).text()
+    const environmentImport = viteClient.match(/\bimport\s+["']([^"']+\/env\.mjs)["']/)
+    assert.ok(environmentImport, 'Vite 客户端声明环境运行库')
+    const environmentResponse = await fetch(new URL(environmentImport[1], base))
+    assert.equal(environmentResponse.status, 200, 'Vite 环境运行库不能被源码白名单拦截')
+    assert.match(environmentResponse.headers.get('content-type'), /javascript/)
     for (const path of ['/server/server.js', '/package.json', '/@fs/' + source.replaceAll('\\', '/')]) {
       assert.equal((await fetch(base + path)).status, 404, path)
     }
