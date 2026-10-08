@@ -7,8 +7,8 @@ import { fail } from './http.js'
 import { discoverBuiltins } from '../plugin-discovery.js'
 
 export class Applications {
-  constructor(http, { applications, dataDir, standalone = false, file, discoveryMode = 'runtime' }) {
-    Object.assign(this, { http, applications, dataDir, standalone, file, discoveryMode })
+  constructor(http, { applications, dataDir, standalone = false, file, discoveryMode = 'runtime', discoverPlugins = discoverBuiltins }) {
+    Object.assign(this, { http, applications, dataDir, standalone, file, discoveryMode, discoverPlugins })
     this.current = null; this.session = randomUUID(); this.phase = 'idle'; this.error = ''
     this.queue = Promise.resolve(); this.inflight = new Set(); this.closed = false
   }
@@ -116,7 +116,7 @@ export class Applications {
     if (id !== null && !app) throw fail(404, '应用不存在')
     if (app?.error) throw fail(400, app.error)
     // Validate inactive metadata/artifacts before disturbing the running application.
-    const entries = app ? await discoverBuiltins(app.pluginsDir, { mode: this.discoveryMode }) : []
+    const entries = app ? await this.discoverPlugins(app.pluginsDir, { mode: this.discoveryMode }) : []
     const dataDir = app ? await this.applicationData(app) : null
     const previous = this.current
     this.phase = 'switching'; this.error = ''; this.notify()

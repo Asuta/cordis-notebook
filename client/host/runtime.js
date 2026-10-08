@@ -13,7 +13,7 @@ import { createAgentBridge } from './agent-bridge.js'
 import { installDevelopmentSave } from './development-save.js'
 let application = await (await fetch('/api/applications')).json()
 const pageSession = application.session
-const development = import.meta.hot ? await (await fetch('/__cordis/dev')).json() : null
+let development = import.meta.hot ? await (await fetch('/__cordis/dev')).json() : null
 let leaving = false
 const $ = s => document.querySelector(s), root = new Context(), failures = new Map(), mounts = createMounts()
 mounts.register(root, 'app', $('#app'))
@@ -211,6 +211,7 @@ async function synchronize() {
   const removed = snapshot.plugins.filter(p => p.enabled && p.client && !next.plugins.some(n => n.id === p.id && n.enabled)).map(p => p.id)
   if (removed.length && !stopping.running) await root.parallel('plugins/remote-stop', { targets: removed }).catch(error => toast(error.message))
   snapshot = next
+  if (development) development = await (await fetch('/__cordis/dev')).json()
   await host.sync(snapshot.plugins)
   renderManager()
 }
@@ -259,10 +260,17 @@ if (import.meta.hot) {
     }))
     syncQueue = task.catch(error => toast('热更新未完成：' + error.message))
   })
+  import.meta.hot.on('cordis:catalog', () => {
+    void scheduleSync().then(() => document.querySelectorAll('vite-error-overlay').forEach(node => node.remove()))
+  })
   const ready = () => import.meta.hot.send('cordis:ready', { application: application.current?.name || application.current?.id })
   root.effect(() => installDevelopmentSave({ hot: import.meta.hot, ready, report: toast,
     enqueue(action) { const task = syncQueue.then(action); syncQueue = task.catch(() => {}); return task },
-    protect: action => stopping.run({ reason: 'reload', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, action),
+    protect: action => stopping.run({ reason: 'reload', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, async () => {
+      await action()
+      // Mount the new generations while the page's editing holds are still active.
+      await synchronize()
+    }),
   }))
   import.meta.hot.on('cordis:blocked', ({ message, clients }) => toast(message + ' 等待：' + clients.map(client => client.application + '（' + client.id.slice(0, 8) + '）').join('、')))
   import.meta.hot.on('cordis:restart', () => location.reload())

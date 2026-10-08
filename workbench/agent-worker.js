@@ -49,7 +49,7 @@ async function run(input) {
         task.appMode === 'external' ? `应用端口被外部服务占用，工作台没有接管它，也没有启用热更新。${task.appError || ''}用 workspace_status 确认状态，不要承诺保存即生效。`
           : !task.appOnline ? '业务应用目前离线。可以继续修改代码，启动或恢复后用 workspace_status 确认实际运行模式和更新结果。'
           : task.appMode === 'development' && task.appManaged
-          ? '应用运行在工作台管理的 Vite 开发模式：保存源码后自动更新，不需要 workspace_build 或 workspace_restart，也不要让用户手动刷新。前端插件 JS/JSX 由 Cordis 重载受影响插件，CSS 直接更新；后端、清单和宿主修改会先保存页面再自动重启后端并刷新页面。修改后用 workspace_status 查看 development.events 中的 plugins/css/reload/error 结果，有 error 就修复。development.blocked 非空表示有页面尚未确认保存，更新暂缓；提示用户唤醒列出的页面或保存草稿后关闭它，恢复后自动重试，不要用 workspace_restart 绕过等待。workspace_build 只用于检查正式构建；workspace_restart 仅在开发服务卡住、崩溃，或新增依赖、修改 scripts/ 后使用。'
+          ? '应用运行在工作台管理的 Vite 开发模式：保存源码后自动更新，不需要 workspace_build 或 workspace_restart，也不要让用户手动刷新。前端插件 JS/JSX 由 Cordis 重载受影响插件，CSS 直接更新；新增前后端插件、修改插件后端及清单会先校验源码并保存页面，再原地登记或重载插件，后端进程与页面均不重启；只有宿主 server/shared 修改才会重启后端并刷新。修改后用 workspace_status 查看 development.events 中的 plugins/css/reload/error 结果，有 error 就修复。development.blocked 非空表示有页面尚未确认保存，更新暂缓；提示用户唤醒列出的页面或保存草稿后关闭它，恢复后自动重试，不要用 workspace_restart 绕过等待。workspace_build 只用于检查正式构建；workspace_restart 仅在开发服务卡住、崩溃，或修改 scripts/、升级宿主共享运行库后使用；新增依赖先 pnpm install，安装完成后会自动重试插件加载。'
           : '应用运行在正式构建模式：代码修改后运行 workspace_build，必要时 workspace_restart；页面不会热更新。',
         '优先 pnpm。代码修改后运行相关测试。不要自动提交、推送或部署。保留用户已有改动，不用 git reset 或 checkout 丢弃修改。不要读取或展示 .workbench/config.json 中的密钥。',
         '应用工具的版本冲突意味着用户继续编辑了内容，应重新读取，不要强制覆盖。自动重启只针对工作台管理的应用进程。修改工作台自身需要用户重启工作台。',

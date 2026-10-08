@@ -12,12 +12,12 @@ const rootDir = fileURLToPath(new URL('../', import.meta.url))
 export function createApp({ port = 3210, file, dataDir = file ? dirname(file) : resolve(rootDir, 'data'), pluginsDir = defaultPluginsDir } = {}) {
   return createHost({ port, dataDir, file, standalone: { id: 'standalone', name: '插件应用', pluginsDir, default: true } })
 }
-export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data'), applicationsDir = defaultApplicationsDir, initialApplication, standalone, file, discoveryMode = 'runtime' } = {}) {
+export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data'), applicationsDir = defaultApplicationsDir, initialApplication, standalone, file, discoveryMode = 'runtime', discoverPlugins } = {}) {
   const catalog = standalone ? [standalone] : await discoverApplications(applicationsDir)
   const ctx = new Context(); let applications
   try {
     await ctx.plugin(Http, { port }); await ctx.http.ready
-    applications = new Applications(ctx.http, { applications: catalog, dataDir, standalone: !!standalone, file, discoveryMode })
+    applications = new Applications(ctx.http, { applications: catalog, dataDir, standalone: !!standalone, file, discoveryMode, discoverPlugins })
     const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
     const manage = handler => request => applications.withCurrent(request, runtime => handler(runtime.manager, request))
     route('GET', /^\/api\/applications$/, () => applications.describe())
@@ -39,7 +39,7 @@ export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data
       res.writeHead(200, { 'Content-Type': ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf' }[extname(path)] || 'application/octet-stream'), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.end(content)
     }
     route('GET', /^\/applications\/([a-z][a-z0-9-]+)\/icon$/, async ({ res, match }) => {
-      const app = catalog.find(app => app.id === match[1])
+      const app = applications.applications.find(app => app.id === match[1])
       if (!app?.icon || app.error) throw fail(404, '应用图标不存在')
       return serve(res, await containedFile(app.root, app.icon))
     })

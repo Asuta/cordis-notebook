@@ -47,11 +47,11 @@ agent/ARCHITECTURE.md       Agent 的通用架构上下文
 pnpm build                  # 全部应用及宿主浏览器入口
 pnpm build drawing          # 指定应用及宿主入口
 pnpm test                   # 类型检查、构建和运行时测试
-pnpm dev                    # Vite 源码开发：前端热更新、CSS 更新、后端保存后重启
+pnpm dev                    # Vite 源码开发：前后端插件源码热更新，新增插件无需重启
 pnpm export:app drawing work/drawing-release
 ```
 
-`pnpm dev` 由 Vite 提供页面和前端源码模块，按清单加载插件。JS/JSX 更新会先保存编辑内容，再通过 Cordis 释放和重建受影响的前端插件；CSS 直接更新。后端和清单变更会先编译、等待已就绪页面保存，再重启后端并刷新页面。依赖安装或构建工具变更后重新运行开发命令。详见 [Vite 开发与热更新](docs/Vite开发与热更新.md)。
+`pnpm dev` 由 Vite 提供页面和前端源码模块，按清单加载插件。JS/JSX 更新会先保存编辑内容，再通过 Cordis 释放和重建受影响的前端插件；CSS 直接更新。后端插件通过 Vite Module Runner 按需执行源码；新增或修改插件与清单会先校验、等待已就绪页面保存，再原地更新，后端 PID 与页面不变。缺失依赖安装完成后会自动重试。宿主实现或构建工具更新仍可能需要重启。详见 [Vite 开发与热更新](docs/Vite开发与热更新.md)。
 
 `pnpm start` / `pnpm start:runtime` 仍使用各插件 dist。正式构建的前端由 Vite 打包，后端由 esbuild 打包；修改源码后重新构建，修改后端或清单后还需重启服务并刷新浏览器。导出只含应用清单、图标及插件清单和 dist，不包含用户数据；宿主单独提供。
 

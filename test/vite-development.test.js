@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { resolve, join, sep } from 'node:path'
 import { startDevelopment } from '../scripts/dev.js'
 
-test('Vite 开发服务限制源码公开、编译失败保留后端，并等待页面保存后重启', { timeout: 60000 }, async () => {
+test('Vite 开发服务限制源码公开、编译失败保留后端，并等待页面保存后原地更新插件', { timeout: 60000 }, async () => {
   const directory = await mkdtemp(resolve('vite-test-')), apps = join(directory, 'applications')
   const folder = join(apps, 'sample/plugins/sample'), source = join(folder, 'server.js')
   let dev, socket, stalledSocket
@@ -76,11 +76,12 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     await writeFile(join(folder, 'client.js'), 'export default () => 44')
     const removed = await message(value => value.event === 'cordis:plugins', '移除相对导入后恢复')
     assert.deepEqual(removed.data.targets, { sample: ['sample'] })
-    const port = dev.backendPort, output = await readFile(join(folder, 'dist/server.js'), 'utf8')
+    const port = dev.backendPort, pid = dev.backendPid
+    await assert.rejects(readFile(join(folder, 'dist/server.js')), { code: 'ENOENT' })
     await writeFile(source, 'export default (')
     await message(value => value.type === 'error', '编译错误')
     assert.equal(dev.backendPort, port)
-    assert.equal(await readFile(join(folder, 'dist/server.js'), 'utf8'), output)
+    await assert.rejects(readFile(join(folder, 'dist/server.js')), { code: 'ENOENT' })
     assert.deepEqual(await get(), { version: 1 })
     await writeFile(source, backend(2))
     const preparation = await message(value => value.event === 'cordis:prepare', '保存准备')
@@ -88,12 +89,12 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     socket.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token: preparation.data.token, success: false, error: '测试保存失败' } }))
     await message(value => value.type === 'error', '保存失败')
     assert.equal(dev.backendPort, port)
-    assert.equal(await readFile(join(folder, 'dist/server.js'), 'utf8'), output)
+    await assert.rejects(readFile(join(folder, 'dist/server.js')), { code: 'ENOENT' })
     await writeFile(source, backend(3))
     const retry = await message(value => value.event === 'cordis:prepare', '再次保存准备')
     socket.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token: retry.data.token, success: true } }))
-    await message(value => value.event === 'cordis:restart', '重启')
-    assert.notEqual(dev.backendPort, port)
+    await message(value => value.event === 'cordis:catalog', '原地更新')
+    assert.equal(dev.backendPort, port); assert.equal(dev.backendPid, pid)
     assert.deepEqual(await get(), { version: 3 })
     stalledSocket = new WebSocket(base.replace('http:', 'ws:') + '/?token=' + dev.vite.config.webSocketToken, 'vite-hmr')
     await new Promise(resolve => stalledSocket.addEventListener('open', resolve, { once: true }))
@@ -112,7 +113,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     confirm(socket, recovered.data.token); confirm(stalledSocket, delayed.data.token)
     assert.deepEqual(await get(), { version: 3 })
     confirm(stalledSocket, recovered.data.token)
-    await message(value => value.event === 'cordis:restart', '重新确认后重启')
+    await message(value => value.event === 'cordis:catalog', '重新确认后原地更新')
     assert.deepEqual(await get(), { version: 4 })
 
     await writeFile(source, backend(5))
@@ -123,6 +124,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     dev.vite.ws.send({ type: 'full-reload', path: '*' })
     const host = await message(value => value.event === 'cordis:prepare', '整页刷新再次检查后端')
     confirm(socket, host.data.token); confirm(stalledSocket, host.data.token)
+    await message(value => value.event === 'cordis:catalog', '宿主刷新前先更新待处理插件')
     await message(value => value.event === 'cordis:restart', '宿主刷新包含待处理后端')
     assert.deepEqual(await get(), { version: 5 })
 
@@ -133,7 +135,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     stalledSocket.close()
     const closed = await message(value => value.event === 'cordis:prepare', '关闭失去响应页面后自动重试')
     confirm(socket, closed.data.token)
-    await message(value => value.event === 'cordis:restart', '关闭失去响应页面后重启')
+    await message(value => value.event === 'cordis:catalog', '关闭失去响应页面后原地更新')
     assert.deepEqual(await get(), { version: 6 })
   } finally {
     socket?.close(); stalledSocket?.close()

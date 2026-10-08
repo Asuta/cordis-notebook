@@ -11,8 +11,8 @@
   "cordis": {
     "schemaVersion": 1,
     "id": "theme-rose",
-    "name": "绯樱主题",
-    "description": "柔和的绯樱与暖米底色，长时间书写安静不刺眼。",
+    "name": "紫藤主题",
+    "description": "柔和的紫藤与冷白底色，长时间书写安静不刺眼。",
     "requires": {
       "server": [
         "themeEngine"
@@ -32,7 +32,7 @@
     },
     "exclusiveGroup": "appearance.theme",
     "groupLabel": "主题",
-    "swatch": "#b04a68",
+    "swatch": "#6d4bb0",
     "order": 29,
     "defaultEnabled": false,
     "client": "client.js",

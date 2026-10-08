@@ -22,7 +22,10 @@ export function pluginSources(entries, { register = () => {} } = {}) {
         if (entry.package.dependencies?.[name]?.startsWith('workspace:')) throw Error('workspace 包仅允许 import type；运行时请使用 ctx 服务：' + source)
         const provider = entry.runtimeOwners.get(name)
         if (provider && provider !== entry.manifest.id) throw Error(`${name} 运行时由 ${provider} 提供，请声明服务依赖`)
-        if (isBuiltin(source)) throw Error('浏览器不能导入 Node 内置模块：' + source)
+        if (isBuiltin(source)) {
+          if (this.environment?.name === 'ssr') return { id: source, external: true }
+          throw Error('浏览器不能导入 Node 内置模块：' + source)
+        }
         if (!Object.hasOwn(entry.package.dependencies || {}, name)) throw Error('代码包依赖未声明：' + name)
       }
       const result = await this.resolve(source, importer, { skipSelf: true })
@@ -32,11 +35,11 @@ export function pluginSources(entries, { register = () => {} } = {}) {
         const target = await realpath(file)
         if (!inside(await realpath(entry.sourceRoot), target)) throw Error('禁止跨插件或宿主目录导入实现：' + source)
       }
-      if (entry) {
+      if (entry && this.environment?.name !== 'ssr') {
         const task = entry.package.cordis.build.find(task => task.output === entry.serverEntry?.entry)
         if (task && resolve(entry.sourceRoot, task.input) === resolve(file)) throw Error('浏览器构建不能包含后端入口')
       }
-      register(file)
+      if (this.environment?.name !== 'ssr') register(file)
       return result
     },
     async transform(code, id) {

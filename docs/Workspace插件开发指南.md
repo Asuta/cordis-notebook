@@ -62,7 +62,7 @@ export default function (ctx: ClientContext, sdk: ClientSDK) {
 
 在仓库根目录执行 `pnpm install`、`pnpm build`，重启服务并刷新页面，在管理器中启用插件。安装引起的 `pnpm-lock.yaml` 变更需要提交；不需要修改 `server/builtins.js`、宿主类型入口或 `scripts/build.js`。
 
-`private: true` 表示这些包供当前 workspace 使用，不要求发布到 npm。JavaScript 插件同样受支持。开发时可运行 `pnpm dev`：前端源码由 Vite 转换，清单变更会重新发现、编译后端并在页面保存后重启。新增 npm 依赖后先安装，再重新运行开发命令，以更新 Vite 的依赖预构建。正式运行仍需构建和重启。详见 [Vite 开发与热更新](Vite开发与热更新.md)。
+`private: true` 表示这些包供当前 workspace 使用，不要求发布到 npm。JavaScript 插件同样受支持。开发时可运行 `pnpm dev`：前端源码由 Vite 转换，后端源码由 Vite Module Runner 按需执行，开发时不生成插件 dist。新增插件或清单变更会重新发现、校验并在页面保存后原地登记与加载，后端和页面均不重启。新增 npm 依赖后运行 pnpm install，依赖安装完成会自动重试加载。正式运行仍需构建和重启。详见 [Vite 开发与热更新](Vite开发与热更新.md)。
 
 ## 2. 清单字段与路径
 

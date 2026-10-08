@@ -12,6 +12,7 @@ export class Plugins extends Service {
   constructor(ctx, { dataDir, file, builtinPlugins = [] }) {
     super(ctx, 'plugins'); this.dataDir = resolve(dataDir); this.file = file; this.records = new Map(); this.queue = Promise.resolve(); this.revision = 0
     this.pendingSwitch = null
+    this.savedFlags = {}
     this.settings = new PluginSettings(this)
     for (const item of builtinPlugins) this.records.set(item.manifest.id, { ...item, state: 'disabled', enabled: item.defaultEnabled !== false, error: '' })
     ctx.on('internal/status', fiber => {
@@ -45,14 +46,16 @@ export class Plugins extends Service {
   async persist(commitSwitch = false) {
     const path = join(this.dataDir, 'plugins-state.json')
     const pending = this.pendingSwitch
-    const flags = Object.fromEntries([...this.records].map(([id, record]) => [id,
-      pending && !commitSwitch && record.manifest.exclusiveGroup === pending.group ? pending.previous.includes(id) : record.enabled]))
+    const flags = { ...this.savedFlags, ...Object.fromEntries([...this.records].map(([id, record]) => [id,
+      pending && !commitSwitch && record.manifest.exclusiveGroup === pending.group ? pending.previous.includes(id) : record.enabled])) }
     await writeFile(path + '.tmp', JSON.stringify(flags, null, 2)); await rename(path + '.tmp', path)
+    this.savedFlags = flags
   }
   async init() {
     await mkdir(join(this.dataDir, 'plugin-data'), { recursive: true })
     let state = {}
     try { state = JSON.parse(await readFile(join(this.dataDir, 'plugins-state.json'), 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+    this.savedFlags = state
     await this.settings.load()
     for (const [id, record] of this.records) if (typeof state[id] === 'boolean') record.enabled = state[id]
     // Repair conflicting saved choices deterministically; newly added themes default off.

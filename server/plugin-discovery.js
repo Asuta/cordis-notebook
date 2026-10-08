@@ -25,7 +25,7 @@ function names(value, label) {
 function keys(value, allowed, label) {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) invalid(`${label} 未知字段：${key}`)
 }
-async function readPlugin(root, mode) {
+async function readPlugin(root, mode, loadServer) {
   const pkg = JSON.parse(await readFile(await containedFile(root, 'package.json'), 'utf8'))
   const m = pkg.cordis
   if (!object(m)) invalid('缺少 cordis 清单')
@@ -78,7 +78,7 @@ async function readPlugin(root, mode) {
   }
   if (m.client && !m.public.includes(m.client)) invalid('client 入口必须在 public 中')
   if (m.server && mode !== 'runtime' && outputs.get(m.server.entry.toLowerCase())?.platform !== 'node') invalid('server 入口必须来自 node 构建任务')
-  if (m.server && mode !== 'build') await containedFile(resolve(root,'dist'), m.server.entry)
+  if (m.server && mode === 'runtime') await containedFile(resolve(root,'dist'), m.server.entry)
   if (m.styles !== undefined && (!Array.isArray(m.styles) || m.styles.length && !m.client || new Set(m.styles).size !== m.styles.length || m.styles.some(name => typeof name !== 'string' || !name.endsWith('.css') || !m.public.includes(name)))) invalid('styles 必须是公开 CSS 资源数组，且有 client 入口')
   if (m.category !== undefined) {
     if (!object(m.category) || !/^[a-z][a-z0-9-]*$/.test(m.category.id || '') || ['all','dependencies'].includes(m.category.id) || typeof m.category.label !== 'string' || !m.category.label.trim()) invalid('category 需要有效 id 和 label')
@@ -100,8 +100,9 @@ async function readPlugin(root, mode) {
   return { manifest, package:pkg, sourceRoot:root, assetRoot:resolve(root,'dist'), clientAssets:m.public,
     serverEntry:server, defaultEnabled:m.defaultEnabled !== false, order:m.order ?? 1000,
     server:server ? { inject:requires.server, async apply(ctx, activation) {
-      const path = await containedFile(resolve(root,'dist'), server.entry)
-      const plugin = (await import(pathToFileURL(path).href))[server.export]
+      const plugin = loadServer
+        ? await loadServer(root, pkg)
+        : (await import(pathToFileURL(await containedFile(resolve(root,'dist'), server.entry)).href))[server.export]
       const apply = typeof plugin === 'function' ? plugin : plugin?.apply
       if (typeof apply !== 'function') invalid(`${m.id} 后端导出 ${server.export} 不是插件入口`)
       if (plugin.inject && JSON.stringify([...plugin.inject].sort()) !== JSON.stringify([...requires.server].sort())) invalid(`${m.id} 后端 inject 与清单 requires.server 不一致`)
@@ -113,7 +114,7 @@ async function readPlugin(root, mode) {
 }
 
 /** Read JSON and validate paths; never import any plugin implementation. */
-export async function discoverBuiltins(directory = defaultPluginsDir, { mode = 'build' } = {}) {
+export async function discoverBuiltins(directory = defaultPluginsDir, { mode = 'build', loadServer } = {}) {
   if (!['build','runtime','development'].includes(mode)) invalid('未知发现模式')
   const root = await realpath(directory), entries = [], ids = new Set(), packages = new Set(), owners = new Map()
   for (const folder of (await readdir(root, {withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))) {
@@ -121,7 +122,7 @@ export async function discoverBuiltins(directory = defaultPluginsDir, { mode = '
     if (folder.isSymbolicLink()) invalid(`插件目录不支持符号链接：${folder.name}`)
     if (!folder.isDirectory()) continue
     let entry
-    try { entry = await readPlugin(resolve(root,folder.name), mode) }
+    try { entry = await readPlugin(resolve(root,folder.name), mode, loadServer) }
     catch (error) { throw new Error(`插件 ${folder.name} 清单无效：${error.message}`, {cause:error}) }
     if (ids.has(entry.manifest.id) || packages.has(entry.package.name)) invalid(`插件 ID 或包名重复：${entry.manifest.id}`)
     ids.add(entry.manifest.id); packages.add(entry.package.name); entries.push(entry)

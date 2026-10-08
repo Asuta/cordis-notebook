@@ -1,70 +1,85 @@
 import { createServer, normalizePath } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
-import { fork } from 'node:child_process'
-import { readFile, realpath, mkdir, writeFile, rm } from 'node:fs/promises'
 import { build } from 'esbuild'
+import { fork } from 'node:child_process'
+import { readFile, realpath, mkdir } from 'node:fs/promises'
+import { watchFile, unwatchFile } from 'node:fs'
 import { resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { discoverApplications, defaultApplicationsDir } from '../server/application-discovery.js'
-import { inside } from '../server/plugin-discovery.js'
-import { buildPlugins } from './plugin-builder.js'
+import { inside, discoverBuiltins } from '../server/plugin-discovery.js'
 import { pluginSources } from './vite-build.js'
 import { createDevelopmentSaveGuard } from './development-save-guard.js'
+import { developmentRPC } from './development-rpc.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const urlFor = file => '/@fs/' + normalizePath(file)
 const fileKey = file => normalizePath(resolve(file)).toLowerCase()
 
+// Validate the native host import graph without executing it or writing build output.
+export async function preflightHost(entry = resolve(root, 'scripts/development-backend.js')) {
+  await build({ entryPoints: [entry], bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false, logLevel: 'silent' })
+}
+
 /** Vite owns the public port. Backend restarts never disconnect its HMR channel. */
 export async function startDevelopment({ port = Number(process.env.PORT || 3210), dataDir = process.env.DATA_DIR || resolve(root, 'data'), applicationsDir = process.env.APPLICATIONS_DIR || defaultApplicationsDir, initialApplication = process.env.APP,
   cacheDir = process.env.CORDIS_VITE_CACHE_DIR || resolve(root, 'node_modules/.vite/cordis'), onEvent = () => {},
-  session = process.env.CORDIS_DEV_SESSION || randomUUID(), saveTimeout = 15000 } = {}) {
+  session = process.env.CORDIS_DEV_SESSION || randomUUID(), saveTimeout = 15000,
+  dependencyFiles = [resolve(root, 'pnpm-lock.yaml'), resolve(root, 'node_modules/.modules.yaml')] } = {}) {
   await mkdir(dataDir, { recursive: true })
   const entries = [], allowed = new Set(), backendSources = new Set()
-  let catalog, plugins, backend, backendPort, backendProxy, version = Date.now(), closing = false, timer, queue = Promise.resolve(), working = 0, backendReloadPending = false
+  let catalog, plugins, backend, backendPort, backendProxy, backendRPC, version = Date.now(), closing = false, timer, queue = Promise.resolve(), working = 0
+  const pendingPlugins = new Set()
+  const dependencyKeys = new Set(dependencyFiles.map(fileKey)), dependencyListeners = []
   // Development events let a supervising process (the Agent workbench) observe
   // updates, errors and page reloads without parsing console output.
   const emit = event => { try { onEvent(event) } catch {} }
   const register = file => allowed.add(fileKey(file))
-  async function compile() {
-    const nextCatalog = await discoverApplications(applicationsDir), nextEntries = [], nextPlugins = {}, nextBackend = new Set(), outputs = []
-    const host = await build({ entryPoints: [resolve(root, 'server/server.js')], bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false, metafile: true, logLevel: 'silent' })
-    Object.keys(host.metafile.inputs).forEach(file => nextBackend.add(fileKey(file)))
+  async function discoverPlan() {
+    const nextCatalog = await discoverApplications(applicationsDir), nextEntries = [], nextPlugins = {}, nextBackend = new Set()
     for (const app of nextCatalog) {
       if (app.error) throw Error(`${app.id}: ${app.error}`)
-      // Validate and compile all backends before stopping a live process.
-      const found = await buildPlugins(app.pluginsDir, { backendOnly: true, stagedOutputs: outputs, onDependencies: files => files.forEach(file => nextBackend.add(fileKey(file))) })
+      const found = await discoverBuiltins(app.pluginsDir, { mode: 'development' })
       nextEntries.push(...found.map(entry => ({ ...entry, applicationId: app.id }))); nextPlugins[app.id] = {}
       for (const entry of found) {
         const source = output => entry.package.cordis.build.find(task => task.output === output)
+        if (entry.serverEntry) nextBackend.add(fileKey(resolve(entry.sourceRoot, source(entry.serverEntry.entry).input)))
         const client = entry.manifest.client && resolve(entry.sourceRoot, source(entry.manifest.client).input)
         const styles = Object.fromEntries(entry.manifest.styles.map(name => [name, urlFor(resolve(entry.sourceRoot, source(name).input)) + '?direct']))
         const assets = Object.fromEntries(entry.clientAssets.map(name => [name, resolve(entry.sourceRoot, source(name).input)]))
         nextPlugins[app.id][entry.manifest.id] = { client: client && urlFor(client), styles, assets }
       }
     }
-    return { catalog: nextCatalog, entries: nextEntries, plugins: nextPlugins, sources: nextBackend, outputs }
+    return { catalog: nextCatalog, entries: nextEntries, plugins: nextPlugins, sources: nextBackend }
+  }
+  function refreshBrowserPermissions() {
+    allowed.clear()
+    register(resolve(root, 'client/host/runtime.js')); register(resolve(root, 'public/style.css'))
+    for (const app of Object.values(plugins)) for (const plugin of Object.values(app)) Object.values(plugin.assets).forEach(register)
+    const graph = vite?.environments.client.moduleGraph
+    if (!graph) return
+    const seeds = [...graph.idToModuleMap.values()].filter(mod => mod.file && allowed.has(fileKey(mod.file))), seen = new Set()
+    const visit = mod => {
+      if (seen.has(mod)) return
+      seen.add(mod); if (mod.file) register(mod.file)
+      mod.importedModules.forEach(visit)
+    }
+    seeds.forEach(visit)
   }
   function applyPlan(plan) {
     catalog = plan.catalog; plugins = plan.plugins; entries.splice(0, entries.length, ...plan.entries)
     backendSources.clear(); plan.sources.forEach(file => backendSources.add(file))
-    allowed.clear()
-    register(resolve(root, 'client/host/runtime.js')); register(resolve(root, 'public/style.css'))
-    for (const app of Object.values(plugins)) for (const plugin of Object.values(app)) Object.values(plugin.assets).forEach(register)
+    refreshBrowserPermissions()
   }
-  async function publish(plan) {
-    const previous = await Promise.all(plan.outputs.map(async file => ({ path: file.path, contents: await readFile(file.path).catch(() => null) })))
-    const restore = async () => { for (const file of previous) file.contents === null ? await rm(file.path, { force: true }) : await writeFile(file.path, file.contents) }
-    try { for (const file of plan.outputs) await writeFile(file.path, file.contents) }
-    catch (error) { await restore(); throw error }
-    return restore
-  }
-  const initial = await compile(); await publish(initial); applyPlan(initial)
+  let vite, saveGuard
+  const initial = await discoverPlan(); applyPlan(initial)
   async function launch() {
-    const child = fork(resolve(root, 'server/server.js'), [], { cwd: root, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-      env: { ...process.env, PORT: '0', DATA_DIR: resolve(dataDir), APPLICATIONS_DIR: resolve(applicationsDir), CORDIS_DEV: '1', ...(initialApplication ? { APP: initialApplication } : {}) } })
+    const child = fork(resolve(root, 'scripts/development-backend.js'), [], { cwd: root, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+      env: { ...process.env, PORT: '0', DATA_DIR: resolve(dataDir), APPLICATIONS_DIR: resolve(applicationsDir), CORDIS_DEV: '1', CORDIS_VITE_CACHE_DIR: cacheDir, ...(initialApplication ? { APP: initialApplication } : {}) } })
     backend = child
+    backendRPC = developmentRPC(child)
+    child.on('message', message => { if (message?.type === 'cordis-sources') message.files.forEach(file => backendSources.add(fileKey(file))) })
     await new Promise((accept, reject) => {
       const timeout = setTimeout(() => { child.kill(); reject(Error('开发后端启动超时')) }, 30000)
       const finish = error => { clearTimeout(timeout); child.off('exit', exit); child.off('error', finish); child.off('message', ready); error ? reject(error) : accept() }
@@ -74,6 +89,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
     })
   }
   async function stopBackend() {
+    backendRPC?.close()
     const child = backend; backend = null
     if (!child || child.exitCode !== null || child.signalCode !== null) return
     await new Promise(resolve => {
@@ -83,46 +99,84 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
     })
   }
   await launch()
-  let vite, saveGuard
   const report = error => {
     if (error.code === 'DEVELOPMENT_SAVE_PENDING' || closing) return
+    if (/Cannot find|Failed to (?:load|resolve)|ERR_MODULE_NOT_FOUND/.test(error.message)) error.message += '\n若依赖尚未安装，请运行 pnpm install；安装结束后开发服务会自动重试。'
     console.error(error)
     vite?.ws.send({ type: 'error', err: { message: error.message, stack: error.stack || '', plugin: 'cordis-development' } })
   }
   async function reloadBackend() {
-    backendReloadPending = true
-    const plan = await compile()
+    const plan = await discoverPlan()
+    await preflightHost()
     const previous = { catalog, plugins, entries: [...entries], sources: new Set(backendSources) }
-    let restore
     await saveGuard.run(async () => {
-      restore = await publish(plan)
       applyPlan(plan)
       // Remove old module permissions and rebuild them from the current import graph.
       vite.environments.client.moduleGraph.invalidateAll()
       await stopBackend()
       try { await launch() }
       catch (error) {
-        await restore(); applyPlan(previous)
+        applyPlan(previous)
         await launch().catch(recovery => { error.message += '\n后端尚未恢复，请修正源码：' + recovery.message })
         throw error
       }
       vite.ws.send('cordis:restart', {})
     }, () => schedule(resolve(root, 'server/server.js')))
-    backendReloadPending = false
+    pendingPlugins.clear()
+  }
+  async function reloadPlugins(files) {
+    files.forEach(file => pendingPlugins.add(file))
+    const plan = await discoverPlan()
+    const previous = { catalog, plugins, entries: [...entries], sources: new Set(backendSources) }
+    try {
+      // Make new entry points resolvable for preflight, but publish browser mappings only at commit.
+      entries.splice(0, entries.length, ...plan.entries)
+      const prepared = await backendRPC.call('prepare', { changes: [...pendingPlugins] })
+      const nextVersion = Math.max(Date.now(), version + 1)
+      invalidatePluginModules(nextVersion)
+      for (const entry of plan.entries) if (entry.manifest.client && prepared.targets[entry.applicationId]?.includes(entry.manifest.id)) {
+        await preflight(plan.plugins[entry.applicationId][entry.manifest.id].client)
+      }
+      await saveGuard.run(async () => {
+        applyPlan(plan); version = nextVersion
+        const result = await backendRPC.call('commit')
+        result.sources.forEach(file => backendSources.add(fileKey(file)))
+        pendingPlugins.clear()
+        vite.ws.send('cordis:catalog', { version, targets: result.targets })
+      }, () => schedule([...pendingPlugins][0]))
+    } catch (error) {
+      applyPlan(previous)
+      await backendRPC.call('discard').catch(() => {})
+      throw error
+    }
+  }
+  async function preflight(url) {
+    const graph = vite.environments.client.moduleGraph, checked = new Set(), pending = [url]
+    while (pending.length) {
+      const item = pending.pop()
+      if (checked.has(item)) continue
+      checked.add(item)
+      await vite.transformRequest(item)
+      const mod = await graph.getModuleByUrl(item)
+      for (const child of mod?.importedModules || []) if (child.file && !child.file.includes('/node_modules/') && !child.file.endsWith('.css')) pending.push(child.url)
+    }
+  }
+  const ownModule = mod => mod.file && entries.some(entry => inside(entry.sourceRoot, resolve(mod.file))) && !mod.file.includes('/node_modules/')
+  function invalidatePluginModules(timestamp) {
+    const graph = vite.environments.client.moduleGraph
+    // Version relative imports too: changing only the entry URL retains cached children.
+    for (const mod of [...graph.idToModuleMap.values()].filter(ownModule)) graph.invalidateModule(mod, new Set(), timestamp, true)
   }
   async function update(file) {
     if (closing) return
     const key = fileKey(file), local = normalizePath(relative(root, file))
-    if (backendSources.has(key) || local.startsWith('server/') || file.endsWith('package.json') || local.startsWith('shared/')) {
-      await reloadBackend(); return
-    }
     if (local.startsWith('scripts/') || key === fileKey(resolve(root, 'pnpm-lock.yaml'))) {
       console.log('构建工具或依赖已修改，请重新运行 pnpm dev。'); return
     }
     // A newly created import may have been missing during the last compilation.
     // Rebuild its owning application plan so frontend and backend can recover.
     if (!allowed.has(key) && entries.some(entry => inside(entry.sourceRoot, resolve(file)))) {
-      await reloadBackend(); return
+      await reloadPlugins([file]); return
     }
     if (!allowed.has(key) && local !== 'public/index.html') return
     if (local.startsWith('client/') || file.endsWith('.html')) {
@@ -141,9 +195,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
       mod.file && fileKey(mod.file) === fileKey(resolve(entry.sourceRoot, entry.package.cordis.build.find(task => task.output === entry.manifest.client).input))
     ))) (targets[entry.applicationId] ||= []).push(entry.manifest.id)
     // Give every plugin source a new graph timestamp. React/dependencies retain one instance.
-    const ownModule = mod => mod.file && entries.some(entry => inside(entry.sourceRoot, resolve(mod.file))) && !mod.file.includes('/node_modules/')
-    const modules = [...graph.idToModuleMap.values()].filter(ownModule)
-    for (const mod of modules) graph.invalidateModule(mod, new Set(), version, true)
+    invalidatePluginModules(version)
     // Compilation errors leave active Cordis fibers in place.
     const pending = entries.filter(entry => targets[entry.applicationId]?.includes(entry.manifest.id)).flatMap(entry =>
       [...graph.getModulesByFile(normalizePath(resolve(entry.sourceRoot, entry.package.cordis.build.find(task => task.output === entry.manifest.client).input))) || []])
@@ -156,7 +208,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
       // Preflight those as well before releasing any active plugin.
       for (const imported of mod.importedModules) if (ownModule(imported) && !checked.has(imported)) pending.push(imported)
     }
-    vite.ws.send('cordis:plugins', { version, targets })
+    if (Object.keys(targets).length) vite.ws.send('cordis:plugins', { version, targets })
   }
   const schedule = file => {
     if (closing) return
@@ -167,9 +219,17 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
       timer = null
       const batch = [...changes]; changes.clear()
       queue = queue.then(async () => {
-        const restart = batch.find(file => backendSources.has(fileKey(file)) || ['server/', 'shared/'].some(prefix => normalizePath(relative(root, file)).startsWith(prefix)) || file.endsWith('package.json'))
-        if (restart || backendReloadPending) await reloadBackend()
-        else for (const file of batch) await update(file)
+        const local = file => normalizePath(relative(root, file))
+        if (batch.some(file => ['server/', 'shared/'].some(prefix => local(file).startsWith(prefix)))) await reloadBackend()
+        else {
+          const manifest = batch.some(file => file.endsWith('package.json') && inside(resolve(applicationsDir), resolve(file)))
+          const backendFiles = batch.filter(file => backendSources.has(fileKey(file)) || /\.[cm]?[jt]sx?$/.test(file) && !allowed.has(fileKey(file)) && entries.some(entry => entry.serverEntry && inside(entry.sourceRoot, resolve(file))))
+          const dependency = batch.some(file => dependencyKeys.has(fileKey(file)))
+          if (manifest || backendFiles.length || pendingPlugins.size || dependency) {
+            await reloadPlugins(batch)
+            if (batch.some(file => local(file).startsWith('client/') || local(file) === 'public/index.html')) vite.ws.send('cordis:restart', {})
+          } else for (const file of batch) await update(file)
+        }
       }).catch(report).finally(() => { if (--working === 0) emit({ type: 'idle' }) })
     }, 120)
   }
@@ -201,6 +261,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
             if (event === 'error') emit({ type: 'error', message: String(payload.err?.message || '开发服务错误').slice(0, 4000) })
             else if (event === 'update') emit({ type: 'css', paths: (payload.updates || []).map(update => update.path) })
             else if (event === 'cordis:plugins') emit({ type: 'plugins', targets: (data ?? payload.data)?.targets || {} })
+            else if (event === 'cordis:catalog') emit({ type: 'plugins', targets: (data ?? payload.data)?.targets || {} })
             else if (event === 'cordis:restart') emit({ type: 'reload' })
           }
           server.ws.send = (payload, ...args) => {
@@ -217,7 +278,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
               const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
               if (pathname === '/__cordis/identity') {
                 res.setHeader('Content-Type', 'application/json'); res.setHeader('Cache-Control', 'no-store')
-                res.end(JSON.stringify({ mode: 'development', session, pid: process.pid })); return
+                res.end(JSON.stringify({ mode: 'development', session, pid: process.pid, backendPid: backend?.pid })); return
               }
               if (pathname === '/__cordis/dev') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ version, plugins })); return }
               if (pathname === '/') {
@@ -256,17 +317,24 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
     })
     // Files outside the frontend module graph still need backend/manifest watching.
     vite.watcher.add([resolve(root, 'server'), resolve(root, 'shared'), resolve(root, 'scripts'), resolve(applicationsDir)])
-    vite.watcher.add([resolve(root, 'public/index.html'), resolve(root, 'pnpm-lock.yaml')])
-    const backendChange = file => backendSources.has(fileKey(file)) || file.endsWith('package.json') || ['server/', 'shared/', 'scripts/'].some(prefix => normalizePath(relative(root, file)).startsWith(prefix)) || ['public/index.html', 'pnpm-lock.yaml'].includes(normalizePath(relative(root, file)))
+    vite.watcher.add([resolve(root, 'public/index.html'), resolve(root, 'pnpm-lock.yaml'), resolve(root, 'node_modules/.modules.yaml')])
+    const backendChange = file => backendSources.has(fileKey(file)) || inside(resolve(applicationsDir), resolve(file)) && (!allowed.has(fileKey(file)) || file.endsWith('package.json')) || ['server/', 'shared/', 'scripts/'].some(prefix => normalizePath(relative(root, file)).startsWith(prefix)) || ['public/index.html', 'pnpm-lock.yaml', 'node_modules/.modules.yaml'].includes(normalizePath(relative(root, file)))
     vite.watcher.on('change', file => { if (backendChange(file)) schedule(file) })
-    vite.watcher.on('add', file => { if (file.endsWith('package.json')) schedule(file) })
+    vite.watcher.on('add', file => { if (backendChange(file)) schedule(file) })
     vite.watcher.on('unlink', file => { if (allowed.has(fileKey(file)) || backendSources.has(fileKey(file)) || file.endsWith('package.json')) schedule(file) })
     await vite.listen()
     await vite.cordisWatcherReady
+    // Vite intentionally ignores node_modules. pnpm's completion stamp is watched separately.
+    for (const file of dependencyFiles) {
+      const listener = (next, old) => { if (next.mtimeMs !== old.mtimeMs && next.mtimeMs) schedule(file) }
+      watchFile(file, { interval: 500, persistent: false }, listener); dependencyListeners.push([file, listener])
+    }
     console.log(`Cordis Vite: http://127.0.0.1:${vite.httpServer.address().port}`)
     emit({ type: 'ready' })
-    return { vite, get backendPort() { return backendPort }, async close() {
-      closing = true; clearTimeout(timer); saveGuard.close(); await queue; await vite.close(); await stopBackend()
+    return { vite, get backendPort() { return backendPort }, get backendPid() { return backend?.pid }, async close() {
+      closing = true; clearTimeout(timer); dependencyListeners.forEach(([file, listener]) => unwatchFile(file, listener)); saveGuard.close()
+      // Closing IPC also releases an outstanding prepare/commit before draining the queue.
+      await stopBackend(); await queue; await vite.close()
     } }
   } catch (error) { saveGuard?.close(); await vite?.close(); await stopBackend(); throw error }
 }

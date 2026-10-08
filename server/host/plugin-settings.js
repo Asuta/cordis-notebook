@@ -6,7 +6,7 @@ import { fail } from './http.js'
 
 // Only the initiating page previews uncommitted settings. SSE carries committed values.
 export class PluginSettings {
-  constructor(manager) { this.manager = manager; this.pending = null; this.values = new Map(); this.errors = new Map() }
+  constructor(manager) { this.manager = manager; this.pending = null; this.values = new Map(); this.errors = new Map(); this.savedValues = {} }
   describe(record) {
     if (!record.manifest.settings) return {}
     const saved = this.values.get(record.manifest.id)
@@ -16,6 +16,7 @@ export class PluginSettings {
     let saved = {}
     try { saved = JSON.parse(await readFile(join(this.manager.dataDir, 'plugins-config.json'), 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('插件配置文件格式无效')
+    this.savedValues = saved
     for (const record of this.manager.records.values()) {
       const { id, settings } = record.manifest
       if (!settings || !Object.hasOwn(saved, id)) continue
@@ -28,7 +29,9 @@ export class PluginSettings {
   async persist(id, value, revision) {
     const next = new Map(this.values); next.set(id, { value, revision })
     const path = join(this.manager.dataDir, 'plugins-config.json')
-    await writeFile(path + '.tmp', JSON.stringify(Object.fromEntries(next), null, 2)); await rename(path + '.tmp', path)
+    const stored = { ...this.savedValues, ...Object.fromEntries(next) }
+    await writeFile(path + '.tmp', JSON.stringify(stored, null, 2)); await rename(path + '.tmp', path)
+    this.savedValues = stored
     this.values = next
   }
   assertIdle() { if (this.pending) throw fail(409, '正在应用插件配置，请稍后再试') }
