@@ -1,12 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CommandSessions } from '../workbench/command-sessions.js'
+import { CommandSessions, commandEnvironment } from '../workbench/command-sessions.js'
 import { resolve, join, delimiter } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtemp, writeFile, rm, access } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 
 const owner = { threadId: 'chat-a', turnId: 'turn-a' }
+test('命令环境保留 Git 配置并显式显示中文路径，不污染父进程', () => {
+  const previous = process.env.GIT_CONFIG_COUNT
+  const env = commandEnvironment(resolve('.')), index = Number(previous || 0)
+  assert.equal(env[`GIT_CONFIG_KEY_${index}`], 'core.quotePath')
+  assert.equal(env[`GIT_CONFIG_VALUE_${index}`], 'false')
+  assert.equal(process.env.GIT_CONFIG_COUNT, previous)
+})
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function until(check) { for (let i = 0; i < 150; i++) { const result = await check(); if (result) return result; await pause(50) }; throw Error('等待命令状态超时') }
 function fixture(t) {

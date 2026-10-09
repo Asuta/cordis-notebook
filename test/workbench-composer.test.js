@@ -14,7 +14,7 @@ async function fixture(t) {
   window.setInterval = () => 0
   window.EventSource = class {}
   window.Option = function (text, value) { const option = window.document.createElement('option'); option.textContent = text; option.value = value; return option }
-  const calls = [], pending = [], removed = []
+  const calls = [], pending = [], removed = [], preferences = []
   let imageId = 0
   window.fetch = async (path, options = {}) => {
     const data = options.headers?.['Content-Type'] === 'application/json' ? JSON.parse(options.body) : undefined
@@ -22,6 +22,7 @@ async function fixture(t) {
     if (path === '/api/config') return response({ model: 'deepseek-flash', thinking: true, reasoningEffort: 'high', models: [{ id: 'deepseek-flash', name: 'Flash', images: true }], compaction: { threshold: 128000 } })
     if (path === '/api/state') return response({ applications: [{ id: 'notebook', name: '笔记' }, { id: 'drawing', name: '画图', error: '清单解析失败' }], application: { online: false, logs: [] }, appUrl: 'http://127.0.0.1:9998', threads: [{ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [] }] })
     if (path === '/api/run' || path === '/api/compact') return new Promise(resolve => pending.push({ resolve, data }))
+    if (path === '/api/thread-preferences') return new Promise(resolve => preferences.push({ resolve, data }))
     if (path === '/api/images') return response({ id: 'image-' + ++imageId, bytes: 10, width: 1, height: 1, mimeType: 'image/png' })
     if (path === '/api/images/remove') { removed.push(data.id); return response({ removed: true }) }
     throw Error('意外的请求：' + path)
@@ -37,8 +38,46 @@ async function fixture(t) {
     $('chat').dispatchEvent(event)
     await new Promise(resolve => setImmediate(resolve))
   }
-  return { window, $, type, send, finish, upload, calls, pending, removed }
+  return { window, $, type, send, finish, upload, calls, pending, removed, preferences }
 }
+
+test('等待验收偏好保存时切换应用，仍发送原应用的消息和开关快照', async t => {
+  const { $, type, send, finish, preferences, pending } = await fixture(t)
+  $('threads').value = 'history'; $('threads').onchange()
+  $('browser-verification').checked = true; $('browser-verification').onchange()
+  type('原应用验收'); const sending = send()
+  $('app-select').value = 'drawing'; $('app-select').onchange(); type('新应用草稿')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(pending.length, 0)
+  preferences[0].resolve(response({ id: 'history', appId: 'notebook', title: '历史对话', browserVerificationEnabled: true, messages: [], turns: [], revision: 1 }))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(pending[0].data.appId, 'notebook'); assert.equal(pending[0].data.threadId, 'history')
+  assert.equal(pending[0].data.browserVerificationEnabled, true)
+  finish(); await sending
+  assert.equal($('prompt').value, '新应用草稿')
+  assert.equal($('browser-verification').checked, false)
+})
+
+test('快速开关再开启时，旧响应不覆盖最新选择或发送快照', async t => {
+  const { $, type, send, finish, preferences, pending } = await fixture(t)
+  $('threads').value = 'history'; $('threads').onchange()
+  for (const enabled of [true, false, true]) {
+    $('browser-verification').checked = enabled; $('browser-verification').onchange()
+  }
+  const settle = () => new Promise(resolve => setImmediate(resolve))
+  const saved = index => preferences[index].resolve(response({ id: 'history', appId: 'notebook', title: '历史对话',
+    browserVerificationEnabled: preferences[index].data.browserVerificationEnabled, messages: [], turns: [], revision: index + 1 }))
+  await settle()
+  saved(0); await settle()
+  saved(1); await settle()
+  assert.equal($('browser-verification').checked, true, '旧的关闭响应不能覆盖最后一次开启')
+  type('按最后一次选择验收'); const sending = send()
+  assert.equal(pending.length, 0, '发送等待最后一次偏好保存')
+  saved(2); await settle()
+  assert.equal($('browser-verification').checked, true)
+  assert.equal(pending[0].data.browserVerificationEnabled, true)
+  finish(); await sending
+})
 
 for (const destination of ['application', 'history', 'new']) test('发送响应不覆盖切换后的草稿：' + destination, async t => {
   const { window, $, type, send, finish } = await fixture(t)

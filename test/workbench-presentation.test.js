@@ -4,6 +4,23 @@ import { Window } from 'happy-dom'
 import { renderMarkdown } from '../workbench/markdown.js'
 import { createTurn, updateTurn, finalAnswer, developmentStatus } from '../workbench/public/timeline.js'
 
+test('浏览器验收区分用户关闭、未执行和失败，展示本地截图与报告', () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const element = createTurn(), turn = { status: 'done', startedAt: 1, events: [], browserVerification: { status: 'disabled' } }
+    updateTurn(element, turn)
+    const panel = element.querySelector('.browser-report')
+    assert.match(panel.textContent, /用户关闭，未执行/)
+    const id = '00000000-0000-0000-0000-000000000001'
+    turn.browserVerification = { status: 'failed', errors: ['控件不可见'], reportUrl: `/api/browser-artifacts/${id}/report.json`, screenshots: [{ url: `/api/browser-artifacts/${id}/1.jpg` }, { url: 'https://example.com/tracker' }] }
+    panel.open = true; updateTurn(element, turn)
+    assert.equal(panel.open, true); assert.match(panel.textContent, /失败.*控件不可见/)
+    assert.equal(panel.querySelectorAll('img').length, 1)
+    assert.equal(panel.querySelectorAll('a').length, 2)
+  } finally { globalThis.document = previous; window.happyDOM.abort() }
+})
+
 test('热更新状态展示等待阶段和错误，尚未响应不能写成正在保存', () => {
   const waiting = developmentStatus({ blocked: { clients: [{ id: 'one-page', application: '笔记', phase: 'unresponsive', elapsedMs: 16000 },
     { id: 'two-page', application: '笔记', phase: 'saving', elapsedMs: 16000 }] } })

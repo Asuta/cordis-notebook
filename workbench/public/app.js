@@ -5,6 +5,11 @@ let state, config, binding, lastPageAppId, threadId = sessionStorage.getItem('ag
 let attachments = [], images = [], appOrigin, toastTimer, polling = false, uploading = 0, submitting = false, renderedThread, renderTimer
 let promptRevision = 0, pendingImages = new Set()
 const rows = new Map()
+const browserDrafts = new Map()
+let preferenceQueue = Promise.resolve()
+let preferenceWrites = 0
+const browserChoiceKey = () => threadId || 'new:' + appId
+const browserChoice = () => browserDrafts.get(browserChoiceKey())?.enabled ?? current()?.browserVerificationEnabled ?? false
 document.body.classList.toggle('standalone', standalone)
 let closingAnimation, chatShown = false
 const motion = () => !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -98,6 +103,8 @@ function render() {
 }
 function needsVision() { return (images.length || current()?.hasImages) && !config?.models?.find(m => m.id === $('compose-model').value)?.images }
 function renderComposer() {
+  $('browser-verification').checked = browserChoice()
+  $('browser-verification').disabled = submitting
   const vision = needsVision()
   $('vision-hint').hidden = !vision
   $('vision-hint').querySelector('span').textContent = current()?.hasImages ? '此对话含图片历史，需使用 Flash。' : 'Pro 不支持图片。'
@@ -153,7 +160,7 @@ function clearDraftAttachments() {
   for (const image of images) void removeDraftImage(image.id).catch(() => {})
   images = []; renderAttachments()
 }
-function newThread() { threadId = ''; clearDraftAttachments(); render() }
+function newThread() { threadId = ''; browserDrafts.delete(browserChoiceKey()); clearDraftAttachments(); render() }
 function connectFrame() { if (!standalone && appOrigin) frame.contentWindow.postMessage({ channel: 'cordis-agent', type: 'connect' }, appOrigin) }
 async function refresh() {
   if (polling) return; polling = true
@@ -206,20 +213,37 @@ $('latest').onclick = () => { const box = $('messages'); box.scrollTo({ top: box
 $('new-thread').onclick = newThread
 $('app-select').onchange = () => { appId = $('app-select').value; newThread() }
 $('threads').onchange = () => { threadId = $('threads').value; clearDraftAttachments(); render(); $('messages').scrollTop = $('messages').scrollHeight }
+$('browser-verification').onchange = () => {
+  const key = browserChoiceKey(), enabled = $('browser-verification').checked, id = threadId
+  const draft = { enabled }
+  browserDrafts.set(key, draft)
+  if (!id) return
+  preferenceWrites++
+  preferenceQueue = preferenceQueue.catch(() => {}).then(async () => {
+    const thread = await api('thread-preferences', { threadId: id, browserVerificationEnabled: enabled })
+    upsert(thread)
+    if (browserDrafts.get(key) === draft) browserDrafts.delete(key)
+    render()
+  }).catch(error => toast('验收偏好保存失败：' + error.message)).finally(() => { preferenceWrites-- })
+}
 async function send(mode = 'chat') {
   if (state.activeThreadId || uploading || submitting) return
   const prompt = $('prompt').value.trim(); if (mode === 'chat' && !prompt && !images.length) return
   if (needsVision()) { toast('请点击「切换 Flash 并发送」，或选择 Flash 模型后操作。'); return }
   const submitted = { appId, threadId, generation: draftGeneration, prompt: $('prompt').value, revision: promptRevision,
+    browserVerificationEnabled: browserChoice(),
     images: new Set(mode === 'chat' ? images.map(image => image.id) : []), attachments: new Set(mode === 'chat' ? attachments.map(item => item.id) : []) }
   let accepted = false
   pendingImages = submitted.images
   submitting = true; renderComposer()
   try {
     const effort = $('compose-effort').value
-    const thread = await api(mode === 'compact' ? 'compact' : 'run', { appId, threadId: threadId || undefined, clientId: binding?.appId === appId ? clientId : undefined, prompt, attachments: mode === 'chat' ? attachments : [], images: mode === 'chat' ? images.map(image => image.id) : [], model: $('compose-model').value, thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort })
+    const payload = { appId: submitted.appId, threadId: submitted.threadId || undefined, clientId: binding?.appId === submitted.appId ? clientId : undefined, prompt, attachments: mode === 'chat' ? [...attachments] : [], images: mode === 'chat' ? images.map(image => image.id) : [], model: $('compose-model').value, thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, browserVerificationEnabled: submitted.browserVerificationEnabled }
+    if (preferenceWrites) await preferenceQueue
+    const thread = await api(mode === 'compact' ? 'compact' : 'run', payload)
     accepted = true; upsert(thread)
     if (appId === submitted.appId && threadId === submitted.threadId && draftGeneration === submitted.generation) {
+      browserDrafts.delete(browserChoiceKey())
       threadId = thread.id
       if (mode === 'chat') {
         if (promptRevision === submitted.revision && $('prompt').value === submitted.prompt) $('prompt').value = ''

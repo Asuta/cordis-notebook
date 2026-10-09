@@ -31,7 +31,7 @@ test('所有声明的主题提供者均能激活前后端、互斥切换并清�
       assert.equal(document.documentElement.dataset.theme, id)
       assert.equal(document.head.querySelectorAll('style').length, 1)
       assert.doesNotMatch(document.head.textContent, /undefined|null/)
-      assert.equal([...document.head.textContent.matchAll(/--theme-[a-z]+:/g)].length, 8)
+      assert.equal([...document.head.textContent.matchAll(/--theme-[a-z-]+:/g)].length, 10)
       await host.sync([])
       assert.equal(document.head.querySelectorAll('style').length, 0)
       assert.equal(document.documentElement.dataset.theme, undefined)

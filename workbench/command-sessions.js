@@ -14,6 +14,10 @@ export function commandEnvironment(root) {
   const key = Object.keys(env).find(key => key.toLowerCase() === 'path') || 'PATH'
   env[key] = [dirname(rgPath), join(root, 'node_modules', '.bin'), env[key] || ''].join(delimiter)
   delete env.DEEPSEEK_API_KEY
+  const gitConfigCount = Number(env.GIT_CONFIG_COUNT || 0)
+  env.GIT_CONFIG_COUNT = String(gitConfigCount + 1)
+  env[`GIT_CONFIG_KEY_${gitConfigCount}`] = 'core.quotePath'
+  env[`GIT_CONFIG_VALUE_${gitConfigCount}`] = 'false'
   return env
 }
 
@@ -85,7 +89,7 @@ export class CommandSessions {
       let file = executable?.file || this.shell, argv = executable?.args
       if (!argv) {
         if (process.platform === 'win32') {
-          const script = `[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding\n${args.command}\n$cordisSucceeded=$?; if (-not $cordisSucceeded) { if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; exit 1 }; exit 0`
+          const script = `[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; $ProgressPreference='SilentlyContinue'\n${args.command}\n$cordisSucceeded=$?; if (-not $cordisSucceeded) { if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; exit 1 }; exit 0`
           const encoded = Buffer.from(script, 'utf16le').toString('base64')
           argv = ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', ...(s.tty ? [] : ['-NonInteractive'])]
           if (encoded.length < 24000) argv.push('-EncodedCommand', encoded)

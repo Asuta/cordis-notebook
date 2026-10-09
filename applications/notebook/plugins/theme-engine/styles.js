@@ -1,8 +1,10 @@
-export function applyTheme(owner, { id, colors, dark = false }) {
+import { normalizeColors } from './palette.js'
+export function applyTheme(owner, { id, colors: input, dark = false }) {
+  const colors = normalizeColors(input)
   const style = document.createElement('style')
   style.dataset.themeStyle = id
-  const [background, surface, panel, text, muted, border, accent, selected] = colors
-  style.textContent = `:root[data-theme="${id}"]{color-scheme:${dark ? 'dark' : 'light'};--theme-bg:${background};--theme-surface:${surface};--theme-panel:${panel};--theme-text:${text};--theme-muted:${muted};--theme-border:${border};--theme-accent:${accent};--theme-selected:${selected}}`
+  const variables = Object.entries(colors).map(([key, value]) => `--theme-${key === 'background' ? 'bg' : key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())}:${value}`).join(';')
+  style.textContent = `:root[data-theme="${id}"]{color-scheme:${dark ? 'dark' : 'light'};${variables}}`
   return owner.effect(() => {
     document.head.append(style); document.documentElement.dataset.theme = id
     document.documentElement.dataset.themeMode = dark ? 'dark' : 'light'

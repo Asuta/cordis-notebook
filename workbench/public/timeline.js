@@ -30,14 +30,15 @@ export function createTurn() {
   const disclosure = node('div', 'turn-disclosure'), inner = node('div', 'turn-process'), answer = node('div', 'turn-answer markdown'), notice = node('p', 'turn-notice')
   header.type = 'button'; header.setAttribute('aria-expanded', 'false')
   inner.id = 'process-' + crypto.randomUUID(); header.setAttribute('aria-controls', inner.id); inner.inert = true; inner.setAttribute('aria-hidden', 'true')
-  inner.append(list); disclosure.append(inner); header.append(label, meta); element.append(header, disclosure, notice, answer)
+  const browserReport = node('details', 'browser-report')
+  inner.append(list); disclosure.append(inner); header.append(label, meta); element.append(header, disclosure, notice, answer, browserReport)
   header.onclick = () => {
     const open = header.getAttribute('aria-expanded') !== 'true'
     header.setAttribute('aria-expanded', String(open)); element.classList.toggle('process-open', open)
     inner.inert = !open; inner.setAttribute('aria-hidden', String(!open))
     element.dispatchEvent(new CustomEvent('process-toggle', { bubbles: true }))
   }
-  element._parts = { header, label, meta, list, answer, notice, events: new Map() }
+  element._parts = { header, label, meta, list, answer, notice, browserReport, events: new Map() }
   return element
 }
 
@@ -59,6 +60,7 @@ export function finalAnswer(turn, messages = []) {
   return null
 }
 export function updateTurn(element, turn, { messages = [], commands = [], onTerminate } = {}) {
+  updateBrowserReport(element._parts.browserReport, turn.browserVerification)
   const { label, meta, list, events, answer, notice } = element._parts
   const commandRows = updateCommands(element, commands, onTerminate)
   const commandsById = new Map(commands.map(command => [command.session_id, command]))
@@ -188,4 +190,25 @@ export function developmentStatus(development) {
   const details = clients.map(client => `${client.application}（${client.id.slice(0, 8)}）：${phases[client.phase] || '等待保存'}，已等待 ${Math.floor((client.elapsedMs || 0) / 1000)} 秒${client.error ? '；' + client.error : ''}`).join('\n')
   return { label: round.status === 'failed' ? '热更新未完成' : `热更新等待 ${clients.filter(client => client.phase !== 'confirmed').length} 个页面确认`,
     details: [round.message, details].filter(Boolean).join('\n'), attention: !!development.blocked || round.status === 'failed' }
+}
+
+function updateBrowserReport(element, report) {
+  element.hidden = !report
+  const signature = JSON.stringify(report)
+  if (!report || element._signature === signature) return
+  element._signature = signature
+  const labels = { disabled: '用户关闭，未执行', 'not-run': '已开启，本轮未调用', running: '进行中', passed: '通过', failed: '失败', incomplete: '未完成', stopped: '已停止' }
+  const summary = node('summary', '', '浏览器验收 · ' + (labels[report.status] || report.status))
+  const text = node('p', '', report.summary || '')
+  const errors = node('pre', '', (report.errors || []).join('\n'))
+  const links = node('div', 'browser-artifacts')
+  for (const screenshot of (report.screenshots || []).slice(-6)) {
+    if (!/^\/api\/browser-artifacts\/[a-f0-9-]{36}\/[1-9][0-9]*\.jpg$/.test(screenshot.url)) continue
+    const link = node('a'), image = node('img'); link.href = image.src = screenshot.url
+    link.target = '_blank'; link.rel = 'noopener'; image.alt = '浏览器验收截图'; image.loading = 'lazy'; link.append(image); links.append(link)
+  }
+  if (/^\/api\/browser-artifacts\/[a-f0-9-]{36}\/report\.json$/.test(report.reportUrl || '')) {
+    const link = node('a', '', '查看完整验收报告'); link.href = report.reportUrl; link.target = '_blank'; link.rel = 'noopener'; links.append(link)
+  }
+  element.replaceChildren(summary, text, errors, links)
 }

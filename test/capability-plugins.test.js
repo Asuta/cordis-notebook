@@ -111,7 +111,7 @@ test('主题样式归属主题消费者，停用主题和引擎均能清理，�
     assert.equal(document.documentElement.dataset.themeMode, 'light')
     assert.equal(root.theme.id, 'theme-amber')
     assert.match([...styles][0].textContent, /--theme-accent:#b3701f/)
-    assert.equal([...[...styles][0].textContent.matchAll(/--theme-[a-z]+:/g)].length, 8)
+    assert.equal([...[...styles][0].textContent.matchAll(/--theme-[a-z-]+:/g)].length, 10)
     await host.sync([])
     assert.equal(styles.size, 0)
     assert.equal(document.documentElement.dataset.theme, undefined)

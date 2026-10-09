@@ -86,7 +86,7 @@
   display: grid;
   place-items: center;
   background: var(--theme-selected);
-  color: var(--theme-accent);
+  color: var(--theme-accent-text, var(--theme-accent));
   width: 36px;
   height: 36px;
   border-radius: 8px;

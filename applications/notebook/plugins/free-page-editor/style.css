@@ -59,7 +59,7 @@
   border-bottom: 2px solid transparent;
 }
 .outline-ribbon-tabs > [aria-selected='true'] {
-  color: var(--theme-accent);
+  color: var(--theme-accent-text, var(--theme-accent));
   border-bottom-color: var(--theme-accent);
   font-weight: 600;
 }

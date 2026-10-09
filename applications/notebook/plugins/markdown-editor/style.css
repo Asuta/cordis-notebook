@@ -123,7 +123,7 @@
   list-style-type: square;
 }
 .markdown-preview a {
-  color: var(--theme-accent, #547dae);
+  color: var(--theme-accent-text, var(--theme-accent, #547dae));
   text-decoration: underline;
 }
 .markdown-preview pre {
@@ -222,7 +222,7 @@
   line-height: 1.9;
 }
 .markdown-modes button[aria-pressed='true'] {
-  color: var(--theme-accent);
+  color: var(--theme-accent-text, var(--theme-accent));
 }
 @media (max-width: 620px) {
   .markdown-toolbar {

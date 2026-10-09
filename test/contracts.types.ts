@@ -16,6 +16,9 @@ snapshot.nested.text = 'changed'
 // @ts-expect-error Markdown accepts source strings only.
 ctx.markdown.render({ source: '' })
 ctx.themeEngine.apply(ctx, { id: 'sample', name: '示例', colors: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] })
+ctx.themeEngine.apply(ctx, { id: 'named', name: '命名配色', colors: { background: '#000000', surface: '#111111', panel: '#222222', text: '#ffffff', muted: '#cccccc', border: '#333333', accent: '#eeeeee', selected: '#333333', onAccent: '#000000' } })
+// @ts-expect-error Named palettes require the foreground on accent backgrounds.
+ctx.themeEngine.apply(ctx, { id: 'invalid', name: '缺少按钮文字', colors: { background: '#000000', surface: '#111111', panel: '#222222', text: '#ffffff', muted: '#cccccc', border: '#333333', accent: '#eeeeee', selected: '#333333' } })
 // @ts-expect-error Theme palettes must supply all eight colors.
 ctx.themeEngine.apply(ctx, { id: 'sample', name: '示例', colors: ['red'] })
 const notebook: NotebookService = ctx.notebook

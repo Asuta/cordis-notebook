@@ -1122,3 +1122,9 @@ body.standalone #prompt {
 .command-stop{font-size:12px}
 .command-session .trace-output{overflow:auto;overflow-wrap:anywhere}
 .command-session .trace-state{white-space:normal;text-align:right}
+.compose-toolbar{flex-wrap:wrap}
+.browser-option{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.browser-option input{width:14px;height:14px;margin:0;accent-color:var(--accent)}
+.browser-report{margin-top:12px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted)}
+.browser-report summary{cursor:pointer}.browser-report pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.browser-artifacts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.browser-artifacts img{width:180px;max-width:100%;border-radius:6px}

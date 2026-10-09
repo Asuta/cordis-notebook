@@ -19,6 +19,7 @@
         <div class="compose-toolbar">
           <button id="attach-image" type="button" aria-label="添加图片" title="添加图片，也支持粘贴或拖入">＋</button><input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
           <div class="compose-options"><select id="compose-model" aria-label="调用模型"></select><select id="compose-effort" aria-label="推理强度"><option value="off">思考关闭</option><option value="low">思考 Low</option><option value="high" selected>思考 High</option><option value="max">思考 Max</option></select></div>
+          <label class="browser-option" title="按会话记住；发送时确定本轮设置，执行中更改从下一轮生效"><input id="browser-verification" type="checkbox">浏览器验收</label>
           <div class="compose-actions"><button type="button" id="stop" aria-label="停止任务" title="停止任务" hidden>■</button><button id="send" type="submit" aria-label="发送消息" title="发送消息">↑</button></div>
         </div>
       </form>

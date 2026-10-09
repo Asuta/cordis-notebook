@@ -10,6 +10,7 @@ import { MODELS, modelInfo, normalizeConfig, validateSettings } from './config.j
 import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
 import { discoverApplications } from '../server/application-discovery.js'
 import { writeSnapshot } from './persistence.js'
+import { BrowserVerification } from './browser-verification.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -19,7 +20,7 @@ async function body(req) {
   for await (const chunk of req) { size += chunk.length; if (size > 2 * 1024 * 1024) throw fail(413, '请求过大'); chunks.push(chunk) }
   try { return JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { throw fail(400, 'JSON 无效') }
 }
-export async function createWorkbench({ root = project, port = 3211, appPort = 3210, dataDir = join(root, '.workbench'), appDataDir = join(root, 'data'), autoStart = true, workerFile = join(here, 'agent-worker.js'), appMode = 'runtime' } = {}) {
+export async function createWorkbench({ root = project, port = 3211, appPort = 3210, dataDir = join(root, '.workbench'), appDataDir = join(root, 'data'), autoStart = true, workerFile = join(here, 'agent-worker.js'), appMode = 'runtime', browserFactory = options => new BrowserVerification(options) } = {}) {
   await mkdir(dataDir, { recursive: true })
   let config = normalizeConfig({ apiKey: process.env.DEEPSEEK_API_KEY || '', ...await readJSON(join(dataDir, 'config.json'), {}) })
   const imageStore = new AttachmentStore(dataDir)
@@ -34,6 +35,12 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       item.running = false; item.messages.push({ role: 'system', text: '工作台曾中断；可以继续此会话。' })
       for (const turn of item.turns.filter(turn => turn.status === 'running')) {
         turn.status = 'stopped'; turn.endedAt = Date.now()
+        if (turn.browserVerification?.status === 'running') {
+          const report = turn.browserVerification
+          report.status = 'stopped'; report.endedAt = turn.endedAt
+          report.errors ||= []; report.errors.push('工作台中断，浏览器验收未完成。')
+          if (/^[a-f0-9-]{36}$/.test(report.id || '')) await writeSnapshot(join(dataDir, 'browser', report.id, 'report.json'), JSON.stringify(report, null, 2)).catch(error => { if (error.code !== 'ENOENT') throw error })
+        }
         for (const event of turn.events.filter(event => event.status === 'running')) { event.status = 'stopped'; event.endedAt = turn.endedAt }
       }
     }
@@ -45,7 +52,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     .map(({ id, name, error }) => ({ id, name, ...(error ? { error } : {}) }))
   let active, worker, closing = false, persistence = Promise.resolve(), traceTimer
   const redact = text => config.apiKey ? String(text).split(config.apiKey).join('[密钥已隐藏]') : String(text)
-  const publicThread = item => ({ id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, commands: item.commands || [], revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, partial: active?.thread === item ? active.partial : '' })
+  const publicThread = item => ({ id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, browserVerificationEnabled: item.browserVerificationEnabled === true, commands: item.commands || [], revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, partial: active?.thread === item ? active.partial : '' })
   const notify = message => { const value = JSON.stringify(message); for (const res of streams) res.write(`data: ${value}\n\n`) }
   const persist = () => {
     const snapshot = JSON.stringify(conversations, null, 2)
@@ -101,6 +108,15 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   const selectionTool = { name: 'replace_selection', description: '仅替换用户添加的选区并保留撤销。默认传 text；若附件 formats 包含 richtext，可传 format:"richtext" 和 content，结构见附件 richText/replacementHint。不要同时传 text 和 content。选区变化或跨页面时拒绝。', inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, format: { type: 'string', enum: ['text', 'richtext'] }, text: { type: 'string' }, content: { type: 'object', description: '由选区所属插件定义的结构化替换片段；仅对声明支持的选区使用。' } }, required: ['id'], oneOf: [{ required: ['text'], properties: { format: { const: 'text' } }, not: { required: ['content'] } }, { required: ['format', 'content'], properties: { format: { const: 'richtext' } }, not: { required: ['text'] } }] } }
   async function execute(task, name, args) {
     if (task.cancelled) throw Error('任务已停止')
+    if (name.startsWith('browser_')) {
+      if (!task.turn?.browserVerificationEnabled) throw Error('用户关闭了本轮浏览器验收，不能调用或绕过开关')
+      if (!['browser_open', 'browser_action', 'browser_finish'].includes(name)) throw Error('未知浏览器工具')
+      if (!task.browser && name !== 'browser_open') throw Error('请先 browser_open')
+      task.browser ||= browserFactory({ root, appId: task.appId, dataDir, signal: task.controller.signal,
+        onChange(report) { task.turn.browserVerification = report; changed(task.thread) },
+      })
+      return task.browser.run(name, args)
+    }
     if (name === 'exec_command') return commands.start(ownerFor(task), args)
     if (name === 'write_stdin') return commands.read(ownerFor(task), args)
     if (name === 'terminate_command') return commands.terminate(ownerFor(task), args.session_id)
@@ -154,6 +170,12 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   }
   function finish(error) {
     if (!active) return
+    if (active.browser && !active.browser.closed && !active.stopping) {
+      const task = active
+      task.stopping = task.browser.close(task.cancelled ? 'stopped' : 'incomplete').catch(error => {
+        task.failed = true; updateTrace(task, { kind: 'notice', text: '浏览器验收清理失败：' + error.message, status: 'error' })
+      })
+    }
     if (active.stopping) {
       const task = active, stopping = task.stopping
       if (!task.finishing) { task.finishing = true; void stopping.catch(() => {}).then(() => { if (active === task) { task.stopping = null; finish(error) } }) }
@@ -177,7 +199,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       worker = null
       if (active && !closing) {
         const task = active; task.cancelled = true; task.controller?.abort()
-        task.stopping ||= commands.stopTurn(ownerFor(task)).catch(error => updateTrace(task, { kind: 'notice', text: error.message, status: 'error' }))
+        task.stopping ||= Promise.all([commands.stopTurn(ownerFor(task)), task.browser?.close('stopped')]).catch(error => updateTrace(task, { kind: 'notice', text: error.message, status: 'error' }))
       }
       finish('Agent 进程已退出；会话已保留，可以重试。')
     } })
@@ -218,6 +240,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (!apps.some(app => app.id === input.appId)) throw fail(400, '应用不存在')
     let item = input.threadId && conversations.find(t => t.id === input.threadId)
     if (input.threadId && !item || item && item.appId !== input.appId) throw fail(400, '会话不属于当前应用')
+    if (input.browserVerificationEnabled !== undefined && typeof input.browserVerificationEnabled !== 'boolean') throw fail(400, '浏览器验收开关必须为布尔值')
     if (mode === 'compact' && !item?.sessionFile) throw fail(400, '此会话尚无可压缩的上下文')
     const client = clients.get(input.clientId)
     if (client && client.appId !== input.appId) throw fail(409, '页面应用已切换')
@@ -230,7 +253,10 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (!modelInfo(taskConfig.model).images && (images.length || item?.hasImages)) throw fail(409, '当前模型不支持此对话的图片，请明确切换到 Flash，或新建纯文字对话')
     if (active || closing) throw fail(409, '已有任务执行中，请等待或先停止')
     if (!item) { item = { id: randomUUID(), appId: input.appId, title: input.prompt.trim().slice(0, 35) || '图片对话', messages: [], turns: [], revision: 0 }; conversations.push(item) }
-    const turn = { id: randomUUID(), presentationVersion: 1, mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [] }
+    if (mode === 'chat' && input.browserVerificationEnabled !== undefined) item.browserVerificationEnabled = input.browserVerificationEnabled
+    const browserVerificationEnabled = mode === 'chat' && item.browserVerificationEnabled === true
+    const turn = { id: randomUUID(), presentationVersion: 1, mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [],
+      browserVerificationEnabled, ...(mode === 'chat' ? { browserVerification: { status: browserVerificationEnabled ? 'not-run' : 'disabled' } } : {}) }
     item.turns.push(turn); item.hasImages ||= images.length > 0
     active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController(),
       devSequence: application.sequence, reloads: application.reloads }
@@ -245,7 +271,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       if (!child.ready || !child.connected || task.cancelled || closing) { finish('任务在启动阶段已停止'); return }
       const status = await application.status()
       if (active !== task || task.cancelled || closing) return
-      child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'), config: taskConfig, task: { mode, appMode: status.mode, appOnline: status.online, appManaged: status.managed, appError: status.error, appId: item.appId, prompt: input.prompt || '请分析这些图片。', attachments, images, sessionFile: item.sessionFile } })
+      child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'), config: taskConfig, task: { mode, browserVerificationEnabled, appMode: status.mode, appOnline: status.online, appManaged: status.managed, appError: status.error, appId: item.appId, prompt: input.prompt || '请分析这些图片。', attachments, images, sessionFile: item.sessionFile } })
     })().catch(error => { if (active === task) finish(error.message) })
     return publicThread(item)
   }
@@ -255,6 +281,13 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       const host = req.headers.host || ''
       if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host) || req.headers.origin && req.headers.origin !== `http://${host}`) throw fail(403, '只允许本机工作台访问')
       const path = new URL(req.url, `http://${host}`).pathname
+      const artifact = path.match(/^\/api\/browser-artifacts\/([a-f0-9-]{36})\/(report\.json|[1-9][0-9]*\.jpg)$/)
+      if (req.method === 'GET' && artifact) {
+        const report = conversations.flatMap(thread => thread.turns).find(turn => turn.browserVerification?.id === artifact[1])?.browserVerification
+        if (!report) throw fail(404, '验收报告不存在')
+        const data = await readFile(join(dataDir, 'browser', artifact[1], artifact[2])).catch(error => { if (error.code === 'ENOENT') throw fail(404, '验收文件不存在'); throw error })
+        res.writeHead(200, { 'Content-Type': artifact[2].endsWith('.jpg') ? 'image/jpeg' : 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(data); return
+      }
       if (!['GET', 'HEAD'].includes(req.method) && path !== '/api/images' && req.headers['content-type'] !== 'application/json') throw fail(415, '需要 JSON 请求')
       if (req.method === 'GET' && ['/', '/chat', '/app.js', '/style.css', '/markdown.js', '/timeline.js'].includes(path)) {
         const file = path === '/' || path === '/chat' ? 'index.html' : path.slice(1)
@@ -287,6 +320,11 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         const { id } = await body(req)
         if (conversations.some(thread => thread.messages.some(message => message.images?.some(image => image.id === id)))) throw fail(409, '历史会话正在使用此图片')
         await imageStore.remove(id); result = { removed: true }
+      } else if (req.method === 'POST' && path === '/api/thread-preferences') {
+        const input = await body(req), item = conversations.find(item => item.id === input.threadId)
+        if (!item) throw fail(404, '聊天不存在')
+        if (typeof input.browserVerificationEnabled !== 'boolean') throw fail(400, '浏览器验收开关必须为布尔值')
+        item.browserVerificationEnabled = input.browserVerificationEnabled; changed(item); result = publicThread(item)
       } else if (req.method === 'POST' && path === '/api/run') result = await run(await body(req))
       else if (req.method === 'POST' && path === '/api/compact') result = await run(await body(req), 'compact')
       else if (req.method === 'POST' && path === '/api/interrupt') {
@@ -294,7 +332,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         if (task) {
           task.cancelled = true
           task.controller?.abort()
-          task.stopping ||= commands.stopTurn(ownerFor(task))
+          task.stopping ||= Promise.all([commands.stopTurn(ownerFor(task)), task.browser?.close('stopped')])
           if (worker?.connected) worker.send({ type: 'interrupt' })
           await task.stopping
         }
@@ -330,6 +368,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   if (autoStart) void application.start().catch(error => application.log(error.message))
   return { server, application, commands, execute, clients, async close() {
     closing = true
+    if (active) { active.cancelled = true; active.controller?.abort(); await active.browser?.close('stopped') }
     const child = worker
     const workerClosed = child ? new Promise(resolve => child.once('close', resolve)) : Promise.resolve()
     child?.kill()

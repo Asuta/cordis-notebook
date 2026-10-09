@@ -6,7 +6,8 @@
   --color-popover: var(--theme-surface, #fffefa);
   --color-popover-foreground: var(--theme-text, #303b33);
   --color-primary: var(--theme-accent, #506b50);
-  --color-primary-foreground: #fff;
+  --color-link: var(--theme-accent-text, #506b50);
+  --color-primary-foreground: var(--theme-on-accent, #fff);
   --color-secondary: var(--theme-panel, #f0f2ed);
   --color-secondary-foreground: var(--theme-text, #303b33);
   --color-muted: var(--theme-panel, #f0f2ed);

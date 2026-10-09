@@ -246,6 +246,7 @@ events.addEventListener('applications', event => {
 events.addEventListener('plugins', () => { $('#connection').textContent = '本地连接正常'; scheduleSync() })
 events.onerror = () => { $('#connection').textContent = '正在重新连接…' }
 await scheduleSync()
+document.documentElement.dataset.cordisReady = 'true'
 if (import.meta.hot) {
   // CSS is updated without replacing the page, including after a build error.
   import.meta.hot.on('vite:beforeUpdate', () => document.querySelectorAll('vite-error-overlay').forEach(node => node.remove()))
