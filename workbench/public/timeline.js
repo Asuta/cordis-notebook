@@ -86,7 +86,7 @@ export function updateTurn(element, turn, { messages = [], commands = [], onTerm
   for (const event of turn.events) {
     // Tool results provide the exact session link, including for older histories.
     // Polling calls keep their own place; only the launch is replaced by its live card.
-    if (event.kind === 'tool' && ['exec_command', 'workspace_build'].includes(event.name)) {
+    if (event.kind === 'tool' && ['exec_command', 'workspace_build', 'workspace_test'].includes(event.name)) {
       let sessionId
       try { sessionId = JSON.parse(event.output).session_id } catch {}
       if (commandsById.has(sessionId) && !linked.has(sessionId)) {
@@ -179,4 +179,13 @@ export function updateCommands(element, commands, onTerminate) {
     }
   }
   return rows
+}
+export function developmentStatus(development) {
+  const round = development?.blocked || development?.saving
+  const phases = { unresponsive: '尚未响应', queued: '排队中', saving: '正在保存', confirmed: '已确认', failed: '保存失败' }
+  if (!round) return { label: development?.pending ? '正在处理更新' : '热更新', details: '', attention: false }
+  const clients = round.clients || []
+  const details = clients.map(client => `${client.application}（${client.id.slice(0, 8)}）：${phases[client.phase] || '等待保存'}，已等待 ${Math.floor((client.elapsedMs || 0) / 1000)} 秒${client.error ? '；' + client.error : ''}`).join('\n')
+  return { label: round.status === 'failed' ? '热更新未完成' : `热更新等待 ${clients.filter(client => client.phase !== 'confirmed').length} 个页面确认`,
+    details: [round.message, details].filter(Boolean).join('\n'), attention: !!development.blocked || round.status === 'failed' }
 }

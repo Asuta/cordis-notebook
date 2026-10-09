@@ -113,6 +113,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       return { ...status, appId: task.appId, root }
     }
     if (name === 'workspace_build') return application.build(task.appId, ownerFor(task), args)
+    if (name === 'workspace_test') return application.test(task.appId, ownerFor(task), args)
     if (name === 'workspace_restart') {
       const status = await application.status()
       if (status.online) {

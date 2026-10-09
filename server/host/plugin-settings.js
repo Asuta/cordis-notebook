@@ -1,4 +1,5 @@
-import { readFile, writeFile, rename } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
+import { writeSnapshot } from '../../shared/persistence.js'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { normalizeConfig } from '../../shared/config-schema.js'
@@ -30,7 +31,7 @@ export class PluginSettings {
     const next = new Map(this.values); next.set(id, { value, revision })
     const path = join(this.manager.dataDir, 'plugins-config.json')
     const stored = { ...this.savedValues, ...Object.fromEntries(next) }
-    await writeFile(path + '.tmp', JSON.stringify(stored, null, 2)); await rename(path + '.tmp', path)
+    await writeSnapshot(path, JSON.stringify(stored, null, 2))
     this.savedValues = stored
     this.values = next
   }

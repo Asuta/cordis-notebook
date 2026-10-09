@@ -7,9 +7,11 @@ export function installDevelopmentSave({ hot, enqueue, protect, ready, report })
     let released = false, release
     const resumed = new Promise(resolve => { release = () => { released = true; resolve() } })
     rounds.set(token, { release })
+    hot.send('cordis:save-progress', { token, phase: 'queued' })
     const task = enqueue(async () => {
       // The server may have timed out before this task reached the front of the queue.
       if (released) { ready(); return }
+      hot.send('cordis:save-progress', { token, phase: 'saving' })
       await protect(async () => {
         if (released) { ready(); return }
         hot.send('cordis:prepared', { token, success: true })

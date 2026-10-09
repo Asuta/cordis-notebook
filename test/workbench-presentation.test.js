@@ -2,7 +2,18 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
 import { renderMarkdown } from '../workbench/markdown.js'
-import { createTurn, updateTurn, finalAnswer } from '../workbench/public/timeline.js'
+import { createTurn, updateTurn, finalAnswer, developmentStatus } from '../workbench/public/timeline.js'
+
+test('热更新状态展示等待阶段和错误，尚未响应不能写成正在保存', () => {
+  const waiting = developmentStatus({ blocked: { clients: [{ id: 'one-page', application: '笔记', phase: 'unresponsive', elapsedMs: 16000 },
+    { id: 'two-page', application: '笔记', phase: 'saving', elapsedMs: 16000 }] } })
+  assert.match(waiting.details, /one-page.*尚未响应.*16 秒/)
+  assert.match(waiting.details, /two-page.*正在保存/); assert.equal(waiting.attention, true)
+  const retrying = developmentStatus({ pending: true, blocked: null, saving: null })
+  assert.equal(retrying.label, '正在处理更新'); assert.equal(retrying.details, '')
+  const failed = developmentStatus({ saving: { status: 'failed', message: '磁盘写入失败', clients: [] } })
+  assert.equal(failed.label, '热更新未完成'); assert.match(failed.details, /磁盘写入失败/)
+})
 
 test('每轮仅展示最终答复，过程默认收起且手动展开跨流式更新保留', () => {
   const window = new Window(), previous = globalThis.document, previousEvent = globalThis.CustomEvent

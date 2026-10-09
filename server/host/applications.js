@@ -1,10 +1,11 @@
 import { Context, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile, rename, cp, stat } from 'node:fs/promises'
+import { mkdir, readFile, rename, cp, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Plugins } from './plugins.js'
 import { fail } from './http.js'
 import { discoverBuiltins } from '../plugin-discovery.js'
+import { writeSnapshot } from '../../shared/persistence.js'
 
 export class Applications {
   constructor(http, { applications, dataDir, standalone = false, file, discoveryMode = 'runtime', discoverPlugins = discoverBuiltins }) {
@@ -91,7 +92,7 @@ export class Applications {
   async persist(id) {
     if (this.standalone) return
     const file = join(this.dataDir, 'applications-state.json')
-    await writeFile(file + '.tmp', JSON.stringify({ active: id }, null, 2)); await rename(file + '.tmp', file)
+    await writeSnapshot(file, JSON.stringify({ active: id }, null, 2))
   }
   async init(initialId) {
     await mkdir(this.dataDir, { recursive: true })

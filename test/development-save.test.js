@@ -121,3 +121,34 @@ test('超时后慢保存完成会释放编辑器并请求重试，保存异常�
   assert.deepEqual(failure.errors, ['磁盘错误']); assert.equal(failure.readyCount, 0)
   failure.dispose()
 })
+
+test('保存进度区分排队和保存，未知或过期进度不能确认页面，失败保留原因', async t => {
+  const ws = channel(), events = [], guard = createDevelopmentSaveGuard(ws, { timeout: 1000, emit: event => events.push(event) })
+  t.after(() => guard.close())
+  const client = page(ws, '笔记'), run = guard.run(() => assert.fail('尚未确认不能更新'), () => {})
+  const token = ws.last('cordis:prepare').token
+  assert.equal(events.at(-1).clients[0].phase, 'unresponsive')
+  ws.emit('cordis:save-progress', { token, phase: 'queued' }, client)
+  assert.equal(events.at(-1).clients[0].phase, 'queued')
+  ws.emit('cordis:save-progress', { token, phase: 'saving' }, client)
+  ws.emit('cordis:save-progress', { token: 'old', phase: 'queued' }, client)
+  ws.emit('cordis:save-progress', { token, phase: 'confirmed' }, client)
+  assert.equal(events.at(-1).clients[0].phase, 'saving')
+  reply(ws, client, token, false)
+  await assert.rejects(run, /保存失败/)
+  const failure = events.at(-1)
+  assert.equal(failure.type, 'save-result'); assert.equal(failure.status, 'failed')
+  assert.equal(failure.clients[0].phase, 'failed'); assert.match(failure.clients[0].error, /保存失败/)
+  assert.ok(failure.clients[0].elapsedMs >= 0)
+})
+
+test('前端先报告排队，真正执行准备才报告保存，解除等待不等于更新完成', async () => {
+  let dispatch
+  const b = browser({ enqueue: action => new Promise(resolve => { dispatch = () => resolve(action()) }) })
+  b.hot.emit('cordis:prepare', { token: 'round' })
+  assert.equal(b.hot.last('cordis:save-progress').phase, 'queued')
+  dispatch(); await tick()
+  assert.equal(b.hot.last('cordis:save-progress').phase, 'saving')
+  assert.equal(b.hot.last('cordis:prepared').success, true)
+  b.hot.emit('cordis:resume', { token: 'round' }); await tick(); b.dispose()
+})

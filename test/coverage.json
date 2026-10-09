@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "tests": [
+    { "file": "test/theme-providers.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
+    { "file": "test/themes.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
+    { "file": "test/capability-plugins.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine", "noteFormats", "markdown", "richText", "noteAssets"], "client": ["theme", "themeEngine", "noteFormats", "markdown", "richText"] } },
+    { "file": "test/free-page.test.js", "application": "notebook", "plugins": ["free-page-editor", "format-freeform"] },
+    { "file": "test/free-page-viewport.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
+    { "file": "test/free-page-interaction.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
+    { "file": "test/free-page-async.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
+    { "file": "test/markdown.test.js", "application": "notebook", "plugins": ["markdown-editor", "format-markdown", "markdown"] }
+  ]
+}

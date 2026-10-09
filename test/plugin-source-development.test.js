@@ -70,6 +70,45 @@ test('插件构建后撤销源码留下 dist，开发应用仍能启动并重新
   assert.equal(f.dev.backendPid, before.pid)
 })
 
+test('重复清单与依赖扫描不请求页面保存，错误清单恢复会通知浏览器，应用元数据变化仍会更新', { timeout: 60000 }, async t => {
+  const f = await fixture(t), before = await f.json('/api/stable'), revision = (await f.state()).revision
+  const socket = new WebSocket(f.base.replace('http:', 'ws:') + '/?token=' + f.dev.vite.config.webSocketToken, 'vite-hmr')
+  t.after(() => socket.close())
+  let prepares = 0
+  const messages = []
+  socket.addEventListener('message', event => {
+    const message = JSON.parse(event.data)
+    messages.push(message)
+    if (message.event === 'cordis:prepare') {
+      prepares++
+      socket.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token: message.data.token, success: true } }))
+    }
+  })
+  await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }))
+  socket.send(JSON.stringify({ type: 'custom', event: 'cordis:ready', data: { application: '测试页面' } }))
+  const manifest = join(f.plugins, 'stable/package.json')
+  await writeFile(manifest, await readFile(manifest))
+  await eventually(() => f.events.some(event => event.type === 'noop'), '重复清单完成空扫描')
+  const count = f.events.filter(event => event.type === 'noop').length
+  await writeFile(f.stamp, 'installed')
+  await eventually(() => f.events.filter(event => event.type === 'noop').length > count, '安装标记不引发无变化重载')
+  assert.equal(prepares, 0); assert.equal((await f.state()).revision, revision)
+  assert.deepEqual(await f.json('/api/stable'), before)
+  const original = await readFile(manifest), version = (await f.json('/__cordis/dev')).version
+  await writeFile(manifest, '{')
+  await eventually(() => messages.some(message => message.type === 'error'), '无效清单向浏览器报告错误')
+  const afterError = messages.length
+  await writeFile(manifest, original)
+  await eventually(() => messages.slice(afterError).some(message => message.event === 'cordis:unchanged'), '恢复原清单后通知浏览器清除错误')
+  assert.equal(prepares, 0); assert.equal((await f.state()).revision, revision)
+  assert.equal((await f.json('/__cordis/dev')).version, version)
+  assert.deepEqual(await f.json('/api/stable'), before)
+  assert.equal(messages.some(message => ['cordis:catalog', 'cordis:plugins', 'cordis:restart'].includes(message.event)), false)
+  await writeFile(join(f.dir, 'applications/sample/package.json'), JSON.stringify({ cordisApp: { id: 'sample', name: '改名后的应用' } }))
+  await eventually(async () => (await f.json('/api/applications')).current?.name === '改名后的应用', '仅应用元数据变化不能被忽略')
+  assert.ok(prepares > 0); assert.deepEqual(await f.json('/api/stable'), before)
+})
+
 test('源码模式新增前后端插件不生成 dist、不重启，服务替换与失败回滚不影响无关插件', { timeout: 60000 }, async t => {
   const f = await fixture(t), before = await f.json('/api/stable'), port = f.dev.backendPort
   const frontend = await f.add('fresh-ui', { client: 'export default () => <span>123</span>' })

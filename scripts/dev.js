@@ -135,6 +135,16 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
       // Make new entry points resolvable for preflight, but publish browser mappings only at commit.
       entries.splice(0, entries.length, ...plan.entries)
       const prepared = await backendRPC.call('prepare', { changes: [...pendingPlugins] })
+      if (prepared.noop) {
+        await backendRPC.call('discard')
+        applyPlan(plan); prepared.sources.forEach(file => backendSources.add(fileKey(file)))
+        pendingPlugins.clear(); saveGuard.unchanged()
+        // A restored manifest can match the live plan after an earlier validation error.
+        // Clear its browser overlay without entering the save or plugin reload queues.
+        vite.ws.send('cordis:unchanged', {})
+        emit({ type: 'noop', message: '应用清单和插件加载计划没有变化，本次扫描无需页面保存或插件重载。' })
+        return
+      }
       const nextVersion = Math.max(Date.now(), version + 1)
       invalidatePluginModules(nextVersion)
       for (const entry of plan.entries) if (entry.manifest.client && prepared.targets[entry.applicationId]?.includes(entry.manifest.id)) {

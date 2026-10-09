@@ -98,6 +98,19 @@ test('等待页面的状态不随事件日志截断而丢失，恢复后清除',
   assert.equal((await app.status()).development.blocked, null)
 })
 
+test('工作台保留各页面保存阶段和耗时，解除等待后不伪报更新成功', async () => {
+  const app = new ApplicationProcess({ mode: 'development', port: 1 }), startedAt = Date.now() - 1200
+  app.receive({ type: 'cordis-dev', event: { type: 'save-progress', token: 'one', startedAt, clients: [{ id: 'page', application: '笔记', phase: 'queued' }] } })
+  const status = await app.status()
+  assert.equal(status.development.saving.clients[0].phase, 'queued')
+  assert.ok(status.development.saving.clients[0].elapsedMs >= 1200)
+  app.receive({ type: 'cordis-dev', event: { type: 'blocked', startedAt, clients: [{ id: 'page', application: '笔记', phase: 'saving' }] } })
+  app.receive({ type: 'cordis-dev', event: { type: 'unblocked', message: '重新尝试' } })
+  const resumed = (await app.status()).development
+  assert.equal(resumed.saving, null); assert.equal(resumed.blocked, null)
+  assert.equal(resumed.events.some(event => event.type === 'save-result' && event.status === 'completed'), false)
+})
+
 test('开发事件只返回本轮内容，Vite 刷新页面后任务自动绑定新页面', async t => {
   const wb = await fixture(t)
   const app = wb.application

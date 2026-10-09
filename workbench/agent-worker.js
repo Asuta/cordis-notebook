@@ -51,7 +51,7 @@ async function run(input) {
           : task.appMode === 'development' && task.appManaged
           ? '应用运行在工作台管理的 Vite 开发模式：保存源码后自动更新，不需要 workspace_build 或 workspace_restart，也不要让用户手动刷新。前端插件 JS/JSX 由 Cordis 重载受影响插件，CSS 直接更新；新增前后端插件、修改插件后端及清单会先校验源码并保存页面，再原地登记或重载插件，后端进程与页面均不重启；只有宿主 server/shared 修改才会重启后端并刷新。修改后用 workspace_status 查看 development.events 中的 plugins/css/reload/error 结果，有 error 就修复。development.blocked 非空表示有页面尚未确认保存，更新暂缓；提示用户唤醒列出的页面或保存草稿后关闭它，恢复后自动重试，不要用 workspace_restart 绕过等待。workspace_build 只用于检查正式构建；workspace_restart 仅在开发服务卡住、崩溃，或修改 scripts/、升级宿主共享运行库后使用；新增依赖先 pnpm install，安装完成后会自动重试插件加载。'
           : '应用运行在正式构建模式：代码修改后运行 workspace_build，必要时 workspace_restart；页面不会热更新。',
-        '优先 pnpm。代码修改后运行相关测试。不要自动提交、推送或部署。保留用户已有改动，不用 git reset 或 checkout 丢弃修改。不要读取或展示 .workbench/config.json 中的密钥。',
+        '优先 pnpm。普通插件改动使用 workspace_test（plugins 指定插件 ID）；它自动类型检查、构建目标应用并运行插件内及明确关联的测试。先读选择原因和覆盖缺口，不要把 passed-with-gaps 说成业务或视觉验收全部通过。界面修改还要实际验收页面。宿主、公共协议或全局依赖变更需扩大相关回归，必要时运行 pnpm test；自行解释依据，无需例行询问是否全量。失败后重跑成功也要保留首次失败，不推测偶发失败原因。不要自动提交、推送或部署。保留用户已有改动，不用 git reset 或 checkout 丢弃修改。不要读取或展示 .workbench/config.json 中的密钥。',
         '应用工具的版本冲突意味着用户继续编辑了内容，应重新读取，不要强制覆盖。自动重启只针对工作台管理的应用进程。修改工作台自身需要用户重启工作台。',
       ],
     })
@@ -63,6 +63,7 @@ async function run(input) {
       ['workspace_status', '读取实际应用运行模式、进程归属及最近日志；开发模式下等待最近的源码修改处理完成，development.events 返回本轮热更新、刷新和错误，development.blocked 列出仍在等待保存的页面。blocked 非空时更新尚未生效，不要强行重启。应用崩溃后仍可使用。', Type.Object({})],
       ['workspace_build', '正式构建本任务绑定的应用及通用浏览器入口，生成 dist。开发模式下仅用于检查正式构建，不影响热更新。返回命令会话；若仍 running，使用 write_stdin 等待退出码。不会自动重启。', Type.Object({ yield_time_ms: execWaitParameter })],
       ['workspace_restart', '先请求编辑器保存，再重启工作台管理的应用进程（开发模式即整个 Vite 开发服务）；应用已崩溃时可直接恢复。', Type.Object({})],
+      ['workspace_test', '验证绑定应用中的插件：自动类型检查、构建应用产物，执行插件内及明确关联的测试，输出覆盖缺口与独立报告。不会重启应用；running 时用 write_stdin 等待退出码。', Type.Object({ plugins: Type.Array(Type.String(), { minItems: 1 }), yield_time_ms: execWaitParameter })],
     ]
     const customTools = definitions.map(([name, description, parameters]) => ({ name, label: name, description, promptSnippet: description, parameters,
       async execute(id, args, signal) { const result = await callParent(name, args, signal); return { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} } },

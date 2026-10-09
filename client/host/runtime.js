@@ -249,6 +249,7 @@ await scheduleSync()
 if (import.meta.hot) {
   // CSS is updated without replacing the page, including after a build error.
   import.meta.hot.on('vite:beforeUpdate', () => document.querySelectorAll('vite-error-overlay').forEach(node => node.remove()))
+  import.meta.hot.on('cordis:unchanged', () => document.querySelectorAll('vite-error-overlay').forEach(node => node.remove()))
   import.meta.hot.on('cordis:plugins', ({ version, targets }) => {
     const ids = targets[application.current?.id] || []
     if (!ids.length) return
@@ -263,7 +264,7 @@ if (import.meta.hot) {
   import.meta.hot.on('cordis:catalog', () => {
     void scheduleSync().then(() => document.querySelectorAll('vite-error-overlay').forEach(node => node.remove()))
   })
-  const ready = () => import.meta.hot.send('cordis:ready', { application: application.current?.name || application.current?.id })
+  const ready = () => import.meta.hot.send('cordis:ready', { application: application.current?.name || application.current?.id, visibility: document.visibilityState })
   root.effect(() => installDevelopmentSave({ hot: import.meta.hot, ready, report: toast,
     enqueue(action) { const task = syncQueue.then(action); syncQueue = task.catch(() => {}); return task },
     protect: action => stopping.run({ reason: 'reload', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, async () => {

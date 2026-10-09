@@ -52,3 +52,25 @@ test('非占用类错误立即上报，不重试也不覆盖已有会话', async
   }), { code: 'EIO' })
   assert.equal(await readFile(file, 'utf8'), 'old')
 })
+
+test('同一文件并发保存顺序稳定，失败释放队列，并输出可定位诊断', async t => {
+  const { file } = await fixture(t), events = []
+  let release, entered
+  const ready = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  const first = writeSnapshot(file, 'first', { onEvent: event => events.push(event), replace: async () => {
+    entered(); await gate; throw Object.assign(Error('not permitted'), { code: 'EIO' })
+  } })
+  const rejected = assert.rejects(first, { code: 'EIO' })
+  await ready
+  let secondStarted = false
+  const second = writeSnapshot(file, 'second', { replace: async (source, target) => {
+    secondStarted = true; assert.equal(await readFile(file, 'utf8'), 'old'); await rename(source, target)
+  } })
+  assert.equal(secondStarted, false)
+  release(); await rejected; await second
+  assert.equal(await readFile(file, 'utf8'), 'second')
+  assert.equal(events[0].file, file); assert.equal(events[0].pid, process.pid)
+  assert.equal(events[0].stage, 'replace'); assert.equal(events[0].type, 'failed')
+  assert.equal(events[0].attempts, 1)
+})

@@ -209,6 +209,9 @@ pre {
   font-size: 21px !important;
   line-height: 1;
 }
+#development-progress { margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: #f7f9fc; color: #506078; font-size: 12px; }
+#development-progress summary { cursor: pointer; }
+#development-details { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 150px; overflow: auto; margin-top: 6px; }
 #connection {
   overflow: hidden;
   text-overflow: ellipsis;

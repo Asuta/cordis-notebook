@@ -13,7 +13,8 @@
     "dev": "node scripts/dev.js",
     "start": "pnpm build && node server/server.js",
     "typecheck": "tsc -p tsconfig.contracts.json",
-    "test": "pnpm typecheck && pnpm build && node --test test/*.test.js"
+    "test:plugin": "node scripts/test-plugin.js",
+    "test": "pnpm typecheck && pnpm build && node scripts/test-all.js"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.87.1",

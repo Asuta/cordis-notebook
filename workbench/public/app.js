@@ -1,4 +1,4 @@
-import { createMessage, createTurn, updateTurn } from './timeline.js'
+import { createMessage, createTurn, updateTurn, developmentStatus } from './timeline.js'
 const $ = id => document.getElementById(id)
 const frame = $('application'), standalone = location.pathname === '/chat', clientId = crypto.randomUUID()
 let state, config, binding, lastPageAppId, threadId = sessionStorage.getItem('agent-thread') || '', appId = sessionStorage.getItem('agent-app') || ''
@@ -81,10 +81,13 @@ function render() {
   $('stop').hidden = !state.activeThreadId
   $('send').hidden = !!state.activeThreadId
   $('activity').textContent = state.activeThreadId && state.activeThreadId !== threadId ? '另一个对话正在执行任务' : ''
-  const blocked = state.application.development?.blocked
+  const progress = developmentStatus(state.application.development)
   const hot = state.application.online && state.application.managed && state.application.mode === 'development'
-    ? blocked ? ` · 热更新等待 ${blocked.clients.length} 个页面保存` : ' · 热更新' : ''
+    ? ' · ' + progress.label : ''
   $('connection').textContent = (binding?.appId === appId ? '应用已连接 · 可操作当前页面' : '代码模式 · 当前会话未连接应用页面') + hot
+  $('development-progress').hidden = !progress.details
+  $('development-details').textContent = progress.details
+  if (progress.attention) $('development-progress').open = true
   const usage = thread?.contextUsage, threshold = config?.compaction?.threshold || 128000
   $('context-usage').textContent = `上下文 ${usage?.tokens == null ? '待下轮确认' : '约 ' + usage.tokens.toLocaleString()} / ${threshold.toLocaleString()} tokens${config?.compaction?.enabled === false ? ' · 自动压缩关闭' : ''}`
   $('context-usage').title = `模型窗口 ${(usage?.contextWindow || 1048576).toLocaleString()} tokens；用量含估算，以接口后续回报为准。`

@@ -12,7 +12,7 @@ export class ApplicationProcess {
     Object.assign(this, { root, dataDir, port, commands, mode, env })
     this.logs = []; this.child = null; this.busy = false
     this.events = []; this.sequence = 0; this.pending = false; this.reloads = 0
-    this.session = null; this.blocked = null
+    this.session = null; this.blocked = null; this.saving = null
   }
   log(text) { this.logs.push({ at: new Date().toISOString(), text: String(text).slice(-8000) }); if (this.logs.length > 100) this.logs.shift() }
   receive(message) {
@@ -21,7 +21,10 @@ export class ApplicationProcess {
     if (event.type === 'busy') { this.pending = true; return }
     if (event.type === 'idle') { this.pending = false; return }
     if (event.type === 'blocked') this.blocked = event
+    if (event.type === 'save-progress') this.saving = event
+    if (event.type === 'save-result') this.saving = event.status === 'failed' ? event : null
     if (event.type === 'unblocked' || event.type === 'ready') this.blocked = null
+    if (['unblocked', 'ready', 'noop'].includes(event.type)) this.saving = null
     // A reload replaces the bound page; the workbench rebinds the running task.
     if (event.type === 'reload') this.reloads++
     this.events.push({ ...event, seq: ++this.sequence, at: new Date().toISOString() })
@@ -35,7 +38,8 @@ export class ApplicationProcess {
     while (this.pending && this.child && Date.now() < end) await sleep(100)
   }
   async status() {
-    const development = this.mode === 'development' ? { pending: this.pending, blocked: this.blocked, events: this.events.slice(-20) } : undefined
+    const elapsed = round => round && { ...round, clients: round.clients?.map(client => ({ ...client, elapsedMs: round.startedAt ? Date.now() - round.startedAt : client.elapsedMs })) }
+    const development = this.mode === 'development' ? { pending: this.pending, blocked: elapsed(this.blocked), saving: elapsed(this.saving), events: this.events.slice(-20) } : undefined
     try {
       if (this.mode === 'development') {
         const response = await fetch(`http://127.0.0.1:${this.port}/__cordis/identity`, { signal: AbortSignal.timeout(1500) })
@@ -64,11 +68,11 @@ export class ApplicationProcess {
     const child = fork(join(this.root, entry), [], {
       cwd: this.root, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
-    this.child = child; this.pending = false; this.blocked = null
+    this.child = child; this.pending = false; this.blocked = null; this.saving = null
     child.stdout.on('data', chunk => this.log(chunk)); child.stderr.on('data', chunk => this.log(chunk))
     child.on('message', message => this.receive(message))
     child.on('error', error => this.log(error.message))
-    child.on('exit', (code, signal) => { if (this.child === child) { this.child = null; this.pending = false; this.blocked = null; this.session = null }; this.log(`应用进程退出：${code ?? signal}`) })
+    child.on('exit', (code, signal) => { if (this.child === child) { this.child = null; this.pending = false; this.blocked = null; this.saving = null; this.session = null }; this.log(`应用进程退出：${code ?? signal}`) })
     // The development service compiles every backend before it listens.
     for (let i = 0; i < 150; i++) {
       await new Promise(resolve => setTimeout(resolve, 200))
@@ -98,6 +102,17 @@ export class ApplicationProcess {
     try {
       return await this.commands.start(owner, { command: `node scripts/build.js ${appId}`, workdir: this.root, yield_time_ms: args.yield_time_ms },
         { file: process.execPath, args: [join(this.root, 'scripts/build.js'), appId], onStart: () => { started = true }, onExit: () => { this.busy = false } })
+    } catch (error) { if (!started) this.busy = false; throw error }
+  }
+  async test(appId, owner, { plugins, yield_time_ms } = {}) {
+    if (!Array.isArray(plugins) || !plugins.length || plugins.some(id => !/^[a-z][a-z0-9-]{1,49}$/.test(id))) throw Error('请提供有效插件 ID 数组')
+    if (this.busy) throw Error('应用正在构建或验证')
+    this.busy = true
+    let started = false
+    const args = [join(this.root, 'scripts/test-plugin.js'), '--app', appId, ...plugins.flatMap(id => ['--plugin', id])]
+    try {
+      return await this.commands.start(owner, { command: `pnpm test:plugin --app ${appId} ${plugins.map(id => '--plugin ' + id).join(' ')}`, workdir: this.root, yield_time_ms },
+        { file: process.execPath, args, onStart: () => { started = true }, onExit: () => { this.busy = false } })
     } catch (error) { if (!started) this.busy = false; throw error }
   }
 }

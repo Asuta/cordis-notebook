@@ -1,5 +1,6 @@
 import { Service } from 'cordis'
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { writeSnapshot } from '../../shared/persistence.js'
 import { join, resolve } from 'node:path'
 import { fail } from './http.js'
 import { randomUUID } from 'node:crypto'
@@ -48,7 +49,7 @@ export class Plugins extends Service {
     const pending = this.pendingSwitch
     const flags = { ...this.savedFlags, ...Object.fromEntries([...this.records].map(([id, record]) => [id,
       pending && !commitSwitch && record.manifest.exclusiveGroup === pending.group ? pending.previous.includes(id) : record.enabled])) }
-    await writeFile(path + '.tmp', JSON.stringify(flags, null, 2)); await rename(path + '.tmp', path)
+    await writeSnapshot(path, JSON.stringify(flags, null, 2))
     this.savedFlags = flags
   }
   async init() {

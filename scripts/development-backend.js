@@ -40,7 +40,7 @@ async function readPlan(changes = []) {
       const affected = new Set()
       const entries = candidates.map(entry => {
         const previous = old.get(key(entry))
-        const edited = changes.some(file => inside(entry.sourceRoot, resolve(file)))
+        const edited = changes.some(file => inside(entry.sourceRoot, resolve(file)) && resolve(file) !== resolve(entry.sourceRoot, 'package.json'))
         const failed = app?.applications.current?.app.id === application.id && app.manager.records.get(entry.manifest.id)?.state === 'failed'
         if (previous && signature(entry) === signature(previous) && !edited && !failed && !previous.sourceFailed) return previous
         affected.add(entry.manifest.id); fresh.push(entry)
@@ -82,13 +82,19 @@ async function prepare({ changes }) {
   const plan = await readPlan(changes)
   try {
     const current = app.applications.current
+    const noop = !Object.keys(plan.targets).length && !plan.fresh.length
+      && JSON.stringify(plan.catalog) === JSON.stringify(app.applications.applications)
+      && plans.size === plan.plans.size && [...plans].every(([directory, entries]) => {
+        const next = plan.plans.get(directory)
+        return next?.length === entries.length && entries.every((entry, index) => entry === next[index])
+      })
     // Evaluate candidate modules before disposing any running fiber. Plugins own effects in apply.
     for (const entry of plan.plans.get(current?.app.pluginsDir) || []) {
       const old = current.manager.records.get(entry.manifest.id)
       if (plan.fresh.includes(entry) && entry.loadSource && (old?.enabled ?? entry.defaultEnabled)) await entry.loadSource()
     }
     prepared = { ...plan, session: app.applications.session, revision: current?.manager.revision }
-    return { targets: plan.targets, pid: process.pid, sources: sources() }
+    return { targets: plan.targets, noop, pid: process.pid, sources: sources() }
   } catch (error) { await dispose(plan.fresh); refreshSources(plans); throw error }
 }
 async function commit() {

@@ -159,6 +159,8 @@ declare module '@cordis-notebook/host' {
 
 ## 6. 验收与排查
 
+日常插件开发优先使用通用入口 `pnpm test:plugin --app <应用ID> --plugin <插件ID>`：自动类型检查、构建目标应用、执行插件目录内的测试与明确声明的关联回归。覆盖声明、独立报告及工作台诊断见 [插件验证与更新诊断](插件验证与更新诊断.md)。界面效果仍需浏览器验收；没有业务测试时应标明覆盖缺口。下述 `pnpm test` 是完整仓库验证，宿主和公共机制变更再按影响范围使用。
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm test
