@@ -3,6 +3,7 @@ import { startDevelopment } from '../scripts/dev.js'
 import { join, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { rm } from 'node:fs/promises'
+import { usageError } from './browser-contract.js'
 
 let browser, context, page, app, origin, cacheDir, closing = false, active = false
 const cacheRoot = fileURLToPath(new URL('../node_modules/.vite/', import.meta.url))
@@ -24,10 +25,11 @@ const locator = target => {
   if (target.text) return page.getByText(target.text, { exact: true })
   return page.locator(target.css)
 }
-async function snapshot(withImage = false) {
+async function snapshot(withImage = false, withStructure = true) {
   if (closing || !page) throw Error('浏览器验收已停止')
-  return { url: page.url(), title: await page.title(), snapshot: (await page.locator('body').ariaSnapshot({ timeout: 5000 })).slice(0, 20000),
-    errors: [...errors], checks: [...checks], ...(withImage ? { image: { type: 'image', mimeType: 'image/jpeg', data: (await page.screenshot({ type: 'jpeg', quality: 75, timeout: 10000 })).toString('base64') } } : {}) }
+  return { url: page.url(), title: await page.title(),
+    ...(withStructure ? { snapshot: (await page.locator('body').ariaSnapshot({ timeout: 5000 })).slice(0, 20000) } : {}),
+    ...(withImage ? { image: { type: 'image', mimeType: 'image/jpeg', data: (await page.screenshot({ type: 'jpeg', quality: 75, timeout: 10000 })).toString('base64') } } : {}) }
 }
 async function open({ root, appId, directory, width = 1280, height = 900 }) {
   if (page) return snapshot(true)
@@ -65,32 +67,74 @@ async function open({ root, appId, directory, width = 1280, height = 900 }) {
   catch { await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('html[data-cordis-ready="true"]').waitFor({ timeout: 15000 }) }
   return snapshot(true)
 }
+async function inspect(target) {
+  const visible = await target.isVisible()
+  // Fixed, read-only DOM projection. No caller-provided JavaScript or properties.
+  return { ...await target.evaluate(element => {
+    const style = getComputedStyle(element), rect = element.getBoundingClientRect()
+    const styles = Object.fromEntries(['color', 'background-color', 'background-image', 'font-size', 'font-weight',
+      'line-height', 'opacity', 'display', 'visibility'].map(key => [key, style.getPropertyValue(key)]))
+    const backgrounds = []
+    for (let ancestor = element.parentElement; ancestor && backgrounds.length < 6; ancestor = ancestor.parentElement) {
+      const css = getComputedStyle(ancestor)
+      backgrounds.push({ tag: ancestor.tagName.toLowerCase(), id: ancestor.id,
+        color: css.backgroundColor, image: css.backgroundImage, opacity: css.opacity })
+    }
+    return { tag: element.tagName.toLowerCase(), text: (element.innerText || '').slice(0, 3000),
+      value: /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName) ? element.value.slice(0, 3000) : null,
+      placeholder: element.getAttribute('placeholder')?.slice(0, 3000) ?? null,
+      checked: element.tagName === 'INPUT' && /^(checkbox|radio)$/.test(element.type) ? element.checked : null,
+      disabled: 'disabled' in element ? element.disabled : null,
+      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, styles, backgrounds }
+  }), visible }
+}
+async function assertTarget(input, target, count) {
+  const assertion = input.assertion || 'text'
+  if (['value', 'placeholder'].includes(assertion) && count === 1) {
+    const supported = await target.evaluate((element, kind) => kind === 'value'
+      ? /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName) : /^(INPUT|TEXTAREA)$/.test(element.tagName), assertion)
+    if (!supported) throw usageError(`${assertion} 断言需要对应的输入控件；普通文字请用 text`)
+  }
+  const check = { assertion, target: input.target, label: input.label || `${assertion}: ${input.expected}`, expected: input.expected, passed: false }
+  try {
+    let actual
+    if (assertion === 'visible') actual = count === 1 && await target.isVisible()
+    else {
+      await target.waitFor({ state: 'visible' })
+      actual = assertion === 'value' ? await target.inputValue()
+        : assertion === 'placeholder' ? await target.getAttribute('placeholder') : await target.innerText()
+    }
+    check.actual = typeof actual === 'string' ? actual.slice(0, 3000) : actual
+    check.passed = assertion === 'text' ? actual.includes(input.expected) : actual === input.expected
+    if (!check.passed) throw Error(`页面断言失败：${check.label}；实际：${JSON.stringify(check.actual)}`)
+  } catch (error) {
+    check.error = error.message
+    throw Object.assign(error, { kind: 'assertion' })
+  } finally { checks.push(check) }
+}
 async function action(input) {
   if (!page || closing) throw Error('请先 browser_open')
   if (page.url().split('/').slice(0, 3).join('/') !== origin) throw Error('验收页面已离开测试实例')
-  if (input.action === 'snapshot' || input.action === 'screenshot') return snapshot(input.action === 'screenshot')
-  if (input.action === 'scroll') { await page.mouse.wheel(0, input.direction === 'up' ? -600 : 600); return snapshot() }
-  if (!input.target) throw Error('此操作需要 target')
-  const target = locator(input.target)
-  if (await target.count() !== 1) throw Error('定位必须唯一，请先读取页面结构再操作')
-  if (['fill', 'press', 'select'].includes(input.action) && typeof input.value !== 'string') throw Error('此操作需要 value')
+  if (input.action === 'snapshot' || input.action === 'screenshot') return snapshot(input.action === 'screenshot', input.action === 'snapshot')
+  const result = { action: input.action, ok: true }
+  if (input.action === 'scroll') { await page.mouse.wheel(0, input.direction === 'up' ? -600 : 600); return result }
+  const target = locator(input.target), count = await target.count()
+  // A missing element satisfies "not visible". Other missing/ambiguous targets
+  // remain failures, since they may indicate a real application regression.
+  if (count !== 1 && !(count === 0 && input.action === 'assert' && input.assertion === 'visible' && input.expected === false)) {
+    throw Error(`定位需要唯一元素，实际匹配 ${count} 个；请读取 snapshot 检查页面`)
+  }
   switch (input.action) {
     case 'click': await target.click(); break
     case 'fill': await target.fill(input.value); break
     case 'press': await target.press(input.value); break
     case 'select': await target.selectOption(input.value); break
-    case 'check': if (typeof input.checked !== 'boolean') throw Error('需要 checked'); await target.setChecked(input.checked); break
-    case 'assert': {
-      if (typeof input.expected !== 'string' || !input.expected.trim()) throw Error('断言需要非空 expected')
-      await target.waitFor({ state: 'visible' })
-      const actual = await target.innerText(), ok = actual.includes(input.expected)
-      checks.push({ label: input.label || input.expected, expected: input.expected, actual: actual.slice(0, 3000), passed: ok })
-      if (!ok) throw Error(`页面断言失败：${input.label || input.expected}；实际文本：${actual.slice(0, 500)}`)
-      break
-    }
+    case 'check': await target.setChecked(input.checked); break
+    case 'inspect': result.element = await inspect(target); break
+    case 'assert': await assertTarget(input, target, count); break
     default: throw Error('未知浏览器操作')
   }
-  return snapshot()
+  return result
 }
 async function finish() {
   if (!page || closing) throw Error('浏览器验收已停止')
@@ -108,8 +152,8 @@ process.on('message', message => {
     try {
       const result = message.method === 'open' ? await open(message.input)
         : message.method === 'finish' ? await finish() : await action(message.input)
-      send({ id: message.id, result })
-    } catch (error) { send({ id: message.id, error: error.message, errors: [...errors], checks: [...checks] }) }
+      send({ id: message.id, result: { ...result, errors: [...errors], checks: [...checks] } })
+    } catch (error) { send({ id: message.id, error: error.message, errorKind: error.kind || 'operation', errors: [...errors], checks: [...checks] }) }
     finally { active = false }
   })()
 })

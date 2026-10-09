@@ -18,6 +18,10 @@ test('浏览器验收区分用户关闭、未执行和失败，展示本地截�
     assert.equal(panel.open, true); assert.match(panel.textContent, /失败.*控件不可见/)
     assert.equal(panel.querySelectorAll('img').length, 1)
     assert.equal(panel.querySelectorAll('a').length, 2)
+    turn.browserVerification = { status: 'incomplete', gaps: ['尚无成功断言'], steps: [{ errorKind: 'usage', error: '缺少 target' }] }
+    updateTurn(element, turn)
+    assert.match(panel.textContent, /未完成.*尚无成功断言.*1 次调用参数错误/)
+    assert.match(panel.textContent, /未计为产品验收失败/)
   } finally { globalThis.document = previous; window.happyDOM.abort() }
 })
 

@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { writeSnapshot } from './persistence.js'
+import { usageError, validateBrowserInput } from './browser-contract.js'
 
 /** One lazily created, isolated verification instance per turn. */
 export class BrowserVerification {
@@ -14,6 +15,13 @@ export class BrowserVerification {
     signal?.addEventListener('abort', this.abort, { once: true })
   }
   summary() { return { ...this.report, reportUrl: this.directory ? `/api/browser-artifacts/${this.report.id}/report.json` : undefined } }
+  progress() {
+    return { id: this.report.id, status: this.report.status, stepCount: this.report.steps.length,
+      passedChecks: this.report.checks.filter(check => check.passed).length,
+      failedChecks: this.report.checks.filter(check => !check.passed).length,
+      usageErrors: this.report.steps.filter(step => step.errorKind === 'usage').length,
+      reportUrl: this.summary().reportUrl }
+  }
   async save() {
     this.onChange(this.summary())
     if (!this.directory) return
@@ -39,7 +47,7 @@ export class BrowserVerification {
       this.pending.delete(message.id); clearTimeout(task.timer)
       if (message.errors) this.report.errors = message.errors
       if (message.checks) this.report.checks = message.checks
-      message.error ? task.reject(Error(message.error)) : task.resolve(message.result)
+      message.error ? task.reject(Object.assign(Error(message.error), { kind: message.errorKind || 'infrastructure' })) : task.resolve(message.result)
     })
     const reject = message => { for (const task of this.pending.values()) { clearTimeout(task.timer); task.reject(Error(message)) }; this.pending.clear() }
     child.on('error', error => reject(error.message))
@@ -66,8 +74,12 @@ export class BrowserVerification {
   }
   async perform(name, args) {
     if (this.closed || this.signal?.aborted) throw Error('浏览器验收已停止')
+    try { validateBrowserInput(name, args) }
+    catch (error) {
+      this.report.steps.push({ name, input: args, startedAt: Date.now(), endedAt: Date.now(), error: error.message, errorKind: 'usage' })
+      await this.save(); throw error
+    }
     if (name === 'browser_finish') {
-      if (!['passed', 'failed'].includes(args.result) || typeof args.summary !== 'string' || !args.summary.trim()) throw Error('请提供验收结果与实际检查范围')
       this.report.summary = args.summary.slice(0, 2000)
       if (this.report.startedAt) {
         try {
@@ -79,16 +91,21 @@ export class BrowserVerification {
           this.report.errors.push(`无法收集最终验收状态：${error.message}`)
         }
       }
-      const failed = this.report.steps.some(step => step.error) || this.report.errors.length || this.report.checks.some(check => !check.passed)
-      const complete = this.report.checks.length > 0 && this.report.screenshots.length > 0
-      if (!complete) this.report.errors.push('验收缺少成功断言或截图，不能判定通过')
-      await this.close(args.result === 'passed' && !failed && complete ? 'passed' : 'failed')
+      const failed = this.report.steps.some(step => step.error && step.errorKind !== 'usage') || this.report.errors.length || this.report.checks.some(check => !check.passed)
+      this.report.gaps = []
+      if (!this.report.checks.some(check => check.passed)) this.report.gaps.push('尚无成功断言')
+      if (!this.report.screenshots.length) this.report.gaps.push('尚无验收截图')
+      await this.close(failed || args.result === 'failed' ? 'failed'
+        : this.report.gaps.length || args.result === 'incomplete' ? 'incomplete' : 'passed')
       return this.summary()
     }
-    if (!['browser_open', 'browser_action'].includes(name)) throw Error('未知浏览器工具')
-    if (name === 'browser_action' && !this.child) throw Error('请先 browser_open')
     const step = { name, input: args, startedAt: Date.now() }; this.report.steps.push(step)
+    const previousErrors = new Set(this.report.errors), checkCount = this.report.checks.length
     try {
+      if (name === 'browser_action' && !this.child) {
+        if (this.report.startedAt) throw Error('浏览器验收进程已退出')
+        throw usageError('请先 browser_open')
+      }
       await this.start()
       const result = await this.rpc(name === 'browser_open' ? 'open' : 'action', name === 'browser_open'
         ? { ...args, root: this.root, appId: this.appId, directory: this.directory } : args)
@@ -101,10 +118,11 @@ export class BrowserVerification {
         this.report.screenshots.push(screenshot); result.screenshot = screenshot
       }
       step.endedAt = Date.now(); await this.save()
-      return { ...result, report: this.summary() }
+      return { ...result, errors: this.report.errors.filter(error => !previousErrors.has(error)),
+        checks: this.report.checks.slice(checkCount), report: this.progress() }
     } catch (error) {
-      step.error = error.message; step.endedAt = Date.now()
-      if (!this.closed) this.report.status = 'failed'
+      step.error = error.message; step.errorKind = error.kind || 'infrastructure'; step.endedAt = Date.now()
+      if (!this.closed && step.errorKind !== 'usage') this.report.status = 'failed'
       await this.save()
       if (name === 'browser_open') await this.close('failed')
       throw error

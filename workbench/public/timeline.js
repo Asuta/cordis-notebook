@@ -201,6 +201,8 @@ function updateBrowserReport(element, report) {
   const summary = node('summary', '', '浏览器验收 · ' + (labels[report.status] || report.status))
   const text = node('p', '', report.summary || '')
   const errors = node('pre', '', (report.errors || []).join('\n'))
+  const usageErrors = (report.steps || []).filter(step => step.errorKind === 'usage').length
+  const notes = node('p', '', [...(report.gaps || []), ...(usageErrors ? [`记录了 ${usageErrors} 次调用参数错误，可修正；未计为产品验收失败。`] : [])].join('；'))
   const links = node('div', 'browser-artifacts')
   for (const screenshot of (report.screenshots || []).slice(-6)) {
     if (!/^\/api\/browser-artifacts\/[a-f0-9-]{36}\/[1-9][0-9]*\.jpg$/.test(screenshot.url)) continue
@@ -210,5 +212,5 @@ function updateBrowserReport(element, report) {
   if (/^\/api\/browser-artifacts\/[a-f0-9-]{36}\/report\.json$/.test(report.reportUrl || '')) {
     const link = node('a', '', '查看完整验收报告'); link.href = report.reportUrl; link.target = '_blank'; link.rel = 'noopener'; links.append(link)
   }
-  element.replaceChildren(summary, text, errors, links)
+  element.replaceChildren(summary, text, errors, notes, links)
 }

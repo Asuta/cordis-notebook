@@ -6,6 +6,46 @@ import { tmpdir } from 'node:os'
 import { BrowserVerification } from '../workbench/browser-verification.js'
 import { browserToolResult, browserGuidance } from '../workbench/browser-tools.js'
 import { createWorkbench } from '../workbench/server.js'
+import { browserSchemas, validateBrowserInput } from '../workbench/browser-contract.js'
+import { Value } from '@sinclair/typebox/value'
+
+test('浏览器参数按操作和断言类型校验，拒绝缺失目标、混合定位及调用者指定错误分类', () => {
+  for (const input of [
+    { action: 'press', value: 'Escape' },
+    { action: 'assert', target: { css: 'body' } },
+    { action: 'assert', assertion: 'visible', target: { css: 'body' }, expected: 'true' },
+    { action: 'assert', assertion: 'placeholder', target: { css: 'input' }, expected: false },
+    { action: 'click', target: { css: 'button', text: '保存' } },
+    { action: 'inspect', target: { css: 'body' }, script: 'document.body.remove()' },
+    { action: 'click', target: { css: 'button' }, errorKind: 'usage' },
+  ]) {
+    assert.equal(Value.Check(browserSchemas.browser_action, input), false, JSON.stringify(input))
+    assert.throws(() => validateBrowserInput('browser_action', input), error => error.kind === 'usage')
+  }
+  for (const input of [
+    { action: 'press', target: { label: '正文' }, value: 'Escape' },
+    { action: 'assert', target: { css: 'body' }, expected: '文字' },
+    { action: 'assert', assertion: 'value', target: { label: '正文' }, expected: '' },
+    { action: 'assert', assertion: 'placeholder', target: { label: '正文' }, expected: '请输入' },
+    { action: 'assert', assertion: 'visible', target: { css: '#hidden' }, expected: false },
+    { action: 'inspect', target: { role: 'button', name: '保存' } },
+  ]) {
+    assert.equal(Value.Check(browserSchemas.browser_action, input), true, JSON.stringify(input))
+    validateBrowserInput('browser_action', input)
+  }
+})
+
+test('参数错误不启动浏览器，缺少验收证据标记未完成并保留调用记录', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cordis-browser-usage-'))
+  const v = new BrowserVerification({ root: resolve('.'), appId: 'notebook', dataDir: dir })
+  t.after(async () => { await v.close(); await rm(dir, { recursive: true, force: true }) })
+  await assert.rejects(v.run('browser_action', { action: 'press', value: 'Escape' }), /调用参数错误/)
+  assert.equal(v.child, undefined); assert.equal(v.directory, undefined)
+  assert.equal(v.report.steps[0].errorKind, 'usage')
+  const report = await v.run('browser_finish', { result: 'passed', summary: '尚未完成实际检查' })
+  assert.equal(report.status, 'incomplete'); assert.equal(report.gaps.length, 2)
+  assert.equal(report.steps.length, 1); assert.deepEqual(report.errors, [])
+})
 
 test('截图作为图片内容传给模型，不在文字工具结果中塞入 base64', () => {
   const result = browserToolResult({ snapshot: '页面', image: { type: 'image', mimeType: 'image/jpeg', data: 'image-bytes' } })
@@ -55,8 +95,8 @@ test('验收失败不能改口通过，未调用不创建目录，停止会终�
   const dir = await mkdtemp(join(tmpdir(), 'cordis-browser-lifecycle-')), workerFile = join(dir, 'worker.cjs')
   await writeFile(workerFile, `process.on('message', m => {
     if(m.type==='close') process.exit(0);
-    if(m.input?.action==='hang') return;
-    if(m.input?.action==='bad') process.send({id:m.id,error:'断言失败'});
+    if(m.input?.target?.css==='#hang') return;
+    if(m.input?.target?.css==='#bad') process.send({id:m.id,error:'断言失败',errorKind:'assertion'});
     else process.send({id:m.id,result:{checks:[{passed:true}],errors:[],image:{type:'image',mimeType:'image/jpeg',data:'eA=='}}});
   })`)
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -65,14 +105,14 @@ test('验收失败不能改口通过，未调用不创建目录，停止会终�
   const v = new BrowserVerification({ root: resolve('.'), appId: 'notebook', dataDir: dir, workerFile })
   t.after(() => v.close())
   await v.run('browser_open')
-  await assert.rejects(v.run('browser_action', { action: 'bad' }), /断言失败/)
+  await assert.rejects(v.run('browser_action', { action: 'click', target: { css: '#bad' } }), /断言失败/)
   await v.run('browser_action', { action: 'snapshot' })
   const report = await v.run('browser_finish', { result: 'passed', summary: '后续成功仍保留首次失败' })
   assert.equal(report.status, 'failed'); assert.ok(report.steps.some(step => step.error))
   assert.equal(v.child, null)
   const controller = new AbortController(), stopped = new BrowserVerification({ root: resolve('.'), appId: 'notebook', dataDir: dir, workerFile, signal: controller.signal })
   await stopped.run('browser_open')
-  const hanging = stopped.run('browser_action', { action: 'hang' }); const rejected = assert.rejects(hanging, /退出|停止/)
+  const hanging = stopped.run('browser_action', { action: 'click', target: { css: '#hang' } }); const rejected = assert.rejects(hanging, /退出|停止/)
   controller.abort(); await stopped.close('stopped'); await rejected
   assert.equal(stopped.report.status, 'stopped'); assert.equal(stopped.child, null)
 })
@@ -125,18 +165,60 @@ test('真实浏览器使用独立应用数据，执行交互断言、截图并�
     schemaVersion: 1, id: 'counter', name: '计数器', client: 'client.js', requires: { server: [], client: [] }, provides: { server: [], client: [] },
     public: ['client.js'], build: [{ type: 'bundle', input: 'client.js', output: 'client.js', platform: 'browser' }],
   } }))
-  await writeFile(join(folder, 'client.js'), `export default ctx => { const button=document.createElement('button');let count=0;button.textContent='计数 0';button.onclick=()=>button.textContent='计数 '+ ++count;document.body.append(button);ctx.effect(()=>()=>button.remove()) }`)
+  await writeFile(join(folder, 'client.js'), `export default ctx => {
+    const box=document.createElement('section');box.style.backgroundColor='rgb(240, 245, 250)';
+    const button=document.createElement('button');let count=0;button.textContent='计数 0';button.onclick=()=>button.textContent='计数 '+ ++count;
+    const input=document.createElement('textarea');input.setAttribute('aria-label','笔记正文');input.placeholder='写下此刻的想法…';
+    input.style.cssText='color:rgb(11,22,33);background:transparent;font-size:16px';
+    box.append(button,input);document.body.append(box);ctx.effect(()=>()=>box.remove())
+  }`)
   const v = new BrowserVerification({ root, appId: 'sample', dataDir: join(root, 'reports') })
   t.after(async () => { await v.close(); assert.ok(root.startsWith(resolve('browser-test-'))); await rm(root, { recursive: true, force: true }) })
   const opened = await v.run('browser_open')
   assert.match(opened.snapshot, /计数 0/); assert.equal(opened.image.type, 'image')
+  assert.equal(opened.report.steps, undefined, '普通返回不包含累计完整报告')
+  await assert.rejects(v.run('browser_action', { action: 'press', value: 'Escape' }), /调用参数错误/)
+  const input = { label: '笔记正文' }
+  await v.run('browser_action', { action: 'assert', target: input, assertion: 'value', expected: '' })
+  await v.run('browser_action', { action: 'assert', target: input, assertion: 'placeholder', expected: '写下此刻的想法…' })
+  await v.run('browser_action', { action: 'fill', target: input, value: '实际输入内容' })
+  await v.run('browser_action', { action: 'press', target: input, value: 'End' })
+  const inspected = await v.run('browser_action', { action: 'inspect', target: input })
+  assert.equal(inspected.element.value, '实际输入内容'); assert.equal(inspected.element.text, '')
+  assert.equal(inspected.element.placeholder, '写下此刻的想法…')
+  assert.equal(inspected.element.visible, true); assert.ok(inspected.element.rect.width > 0)
+  assert.equal(inspected.element.styles.color, 'rgb(11, 22, 33)')
+  assert.equal(inspected.element.styles['background-color'], 'rgba(0, 0, 0, 0)')
+  assert.equal(inspected.element.backgrounds[0].color, 'rgb(240, 245, 250)')
+  assert.equal(inspected.snapshot, undefined); assert.deepEqual(inspected.checks, [])
+  assert.equal(inspected.report.usageErrors, 1)
+  const valueCheck = await v.run('browser_action', { action: 'assert', target: input, assertion: 'value', expected: '实际输入内容' })
+  assert.equal(valueCheck.checks.length, 1, '只返回本次新增断言')
+  await v.run('browser_action', { action: 'assert', target: input, assertion: 'visible', expected: true })
+  await v.run('browser_action', { action: 'assert', target: { css: '#absent' }, assertion: 'visible', expected: false })
   const result = await v.run('browser_action', { action: 'click', target: { role: 'button', name: '计数 0' } })
-  assert.match(result.snapshot, /计数 1/)
+  assert.equal(result.ok, true); assert.equal(result.snapshot, undefined)
+  const snapshot = await v.run('browser_action', { action: 'snapshot' })
+  assert.match(snapshot.snapshot, /计数 1/)
   await v.run('browser_action', { action: 'assert', target: { role: 'button', name: '计数 1' }, expected: '计数 1' })
   await v.run('browser_action', { action: 'screenshot' })
   const report = await v.run('browser_finish', { result: 'passed', summary: '按钮点击后计数增加' })
   assert.equal(report.status, 'passed', JSON.stringify(report.errors))
+  assert.equal(report.steps.filter(step => step.errorKind === 'usage').length, 1, '通过仍保留已修正的参数错误')
+  assert.equal(report.checks.length, 6)
   assert.equal(report.screenshots.length, 2)
   assert.equal((await readFile(join(root, 'reports/browser', report.id, '1.jpg')))[0], 0xff)
   await assert.rejects(fetch(opened.url, { signal: AbortSignal.timeout(1000) }))
+  const failed = new BrowserVerification({ root, appId: 'sample', dataDir: join(root, 'reports') })
+  try {
+    await failed.run('browser_open')
+    await assert.rejects(failed.run('browser_action', { action: 'assert', target: input, assertion: 'text', expected: '写下此刻的想法…' }), /页面断言失败/)
+    await failed.run('browser_action', { action: 'assert', target: input, assertion: 'placeholder', expected: '写下此刻的想法…' })
+    await assert.rejects(failed.run('browser_action', { action: 'click', target: { css: '#missing-button' } }), /实际匹配 0/)
+    const final = await failed.run('browser_finish', { result: 'passed', summary: '成功检查不能掩盖真实失败' })
+    assert.equal(final.status, 'failed')
+    assert.equal(final.checks[0].passed, false); assert.equal(final.checks[1].passed, true)
+    assert.ok(final.steps.some(step => step.errorKind === 'assertion'))
+    assert.ok(final.steps.some(step => step.errorKind === 'operation'))
+  } finally { await failed.close() }
 })

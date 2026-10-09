@@ -22,6 +22,7 @@ export const commandGuidance = [
   '示例：rg -n "createAgentSession" workbench -g "*.js"；rg --files applications/notebook -g "*.jsx"。先决定需要匹配行、文件名（-l）还是存在性（-q）。rg 退出码 1 表示没有匹配，不是工具损坏。',
   '避免 Get-ChildItem -Recurse 遍历全仓库后再过滤依赖目录。Windows 使用 PowerShell 语法；读取文件优先 read，修改文件优先 edit/write。',
   'PowerShell 不使用 head：限制输出用 Select-Object -First 100。不要传 docs/*.md 作为 rg 路径；用 rg -n PATTERN docs -g "*.md"。包含双引号的字面量使用单引号，不用 Bash 的反斜杠转义。读取 HTTP 响应体用 (Invoke-WebRequest URL).Content。',
+  '检查插件 dist：rg -n PATTERN applications/notebook/plugins --no-ignore -g "**/dist/**"；不要把 applications/notebook/plugins/*/dist 当路径传给 rg。',
   '判断已有工作必须分别读取 git status --short、git diff、git diff --cached、git show HEAD:路径；untracked 不代表中断，工作区文档内容不代表 HEAD 已提交。命令环境已关闭 Git 路径八进制转义，不要猜中文文件名。',
   'exec_command/workspace_build 返回 running 仅表示仍在运行，不表示成功。用 write_stdin 持续读取，不重复启动；只能并行进行不依赖命令结果的工作，构建测试必须获取退出码后再报告结论。',
   '普通命令默认 background=false。只有明确长期运行的服务才设为 true，回复时报告仍在运行的服务。停止不再需要的命令用 terminate_command。工作台重启后先 list_commands；旧 session_id 不能恢复。',
