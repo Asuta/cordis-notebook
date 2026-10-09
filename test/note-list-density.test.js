@@ -99,3 +99,40 @@ test('异常偏好值回退到详细模式', async () => {
     assert.ok(view.card().querySelector('.card-preview'))
   } finally { await view.dispose() }
 })
+
+test('切换密度时补间卡片收放和正文淡入，并尊重减少动态偏好', async () => {
+  const view = await mountList()
+  const window = globalThis.window, calls = []
+  const original = window.Element.prototype.animate
+  // 只记录动画请求，不真的播放，避免把断言绑到 happy-dom 的动画实现上。
+  window.Element.prototype.animate = function (keyframes, options) { calls.push({ node: this, keyframes, options }); return { finished: Promise.resolve(), cancel() {} } }
+  try {
+    view.click()
+    await until(() => view.list().classList.contains('compact'))
+    const collapse = calls.filter(call => call.node === view.card())
+    assert.equal(collapse.length, 1)
+    assert.deepEqual(collapse[0].keyframes.map(frame => frame.overflow), ['hidden', 'hidden'])
+    assert.equal(collapse[0].keyframes[0].height.endsWith('px'), true)
+    assert.equal(collapse[0].options.duration, 240)
+    assert.equal(calls.some(call => call.node.classList.contains('card-preview')), false)
+
+    calls.length = 0
+    view.click()
+    await until(() => !view.list().classList.contains('compact'))
+    assert.equal(calls.filter(call => call.node === view.card()).length, 1)
+    const fade = calls.filter(call => call.node.classList.contains('card-preview'))
+    assert.equal(fade.length, 1)
+    assert.equal(fade[0].keyframes[0].opacity, 0)
+    assert.equal(fade[0].options.fill, 'backwards')
+
+    calls.length = 0
+    Object.defineProperty(window, 'matchMedia', { value: () => ({ matches: true }), configurable: true })
+    view.click()
+    await until(() => view.list().classList.contains('compact'))
+    assert.equal(calls.length, 0)
+    assert.equal(view.store.get(densityKey), 'compact')
+  } finally {
+    window.Element.prototype.animate = original
+    await view.dispose()
+  }
+})

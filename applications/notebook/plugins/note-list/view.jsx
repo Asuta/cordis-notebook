@@ -69,12 +69,47 @@ export function mountNoteList(ctx, sdk, root, filters) {
     }, [filterSwitch])
     const [density, setDensity] = React.useState(readDensity)
     const compact = density === 'compact'
-    const toggleDensity = () =>
+    // 切换密度时先记录每张卡片在旧模式下的几何值，React 提交新结构后再从旧值补间到新值：
+    // 卡片高度、上下内边距和间距一起过渡，下面的卡片随实时布局平滑跟随。
+    const densityMotion = React.useRef(null)
+    const boxOf = (card) => {
+      const style = getComputedStyle(card), rect = card.getBoundingClientRect()
+      return { height: rect.height, paddingTop: style.paddingTop, paddingBottom: style.paddingBottom, marginBottom: style.marginBottom }
+    }
+    const toggleDensity = () => {
+      const cards = [...(list.current?.querySelectorAll('.note-card') || [])]
+      densityMotion.current = typeof cards[0]?.animate === 'function' ? cards.map((card) => ({ card, from: boxOf(card) })) : null
       setDensity((prev) => {
         const next = prev === 'compact' ? 'comfortable' : 'compact'
         saveDensity(next)
         return next
       })
+    }
+    React.useLayoutEffect(() => {
+      const started = densityMotion.current
+      densityMotion.current = null
+      if (!started?.length) return
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+      const easing = 'cubic-bezier(.22,.61,.36,1)'
+      for (const { card, from } of started) {
+        const to = boxOf(card)
+        // overflow 在动画期间保持 hidden，避免展开中的正文预览溢出到相邻卡片上。
+        card.animate(
+          [
+            { ...from, height: `${from.height}px`, overflow: 'hidden' },
+            { ...to, height: `${to.height}px`, overflow: 'hidden' }
+          ],
+          { duration: 240, easing }
+        )
+      }
+      // 展开时新的预览与元信息已经挂载，延迟淡入避免文字在收放中突然出现。
+      if (compact) return
+      for (const { card } of started) {
+        for (const node of card.querySelectorAll('.card-preview, .card-meta')) {
+          node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 60, easing: 'linear', fill: 'backwards' })
+        }
+      }
+    }, [compact])
     const canReorder = !model.busy && notes.length > 1 && notes.length === model.notes.length
     const startDrag = (note) => (event) => {
       event.dataTransfer.setData('text/plain', note.id)
@@ -136,7 +171,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
               }
               onClick={toggleDensity}
             >
-              <Icon name={compact ? 'List' : 'LayoutDashboard'} />
+              <Icon key={compact ? 'compact' : 'comfortable'} className="density-toggle-icon" name={compact ? 'List' : 'LayoutDashboard'} />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

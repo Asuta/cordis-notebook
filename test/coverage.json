@@ -4,6 +4,8 @@
     { "file": "test/theme-providers.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
     { "file": "test/themes.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
     { "file": "test/capability-plugins.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine", "noteFormats", "markdown", "richText", "noteAssets"], "client": ["theme", "themeEngine", "noteFormats", "markdown", "richText"] } },
+    { "file": "test/note-list-density.test.js", "application": "notebook", "plugins": ["note-list"] },
+    { "file": "test/note-list-order.test.js", "application": "notebook", "plugins": ["note-list"] },
     { "file": "test/free-page.test.js", "application": "notebook", "plugins": ["free-page-editor", "format-freeform"] },
     { "file": "test/free-page-viewport.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
     { "file": "test/free-page-interaction.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
