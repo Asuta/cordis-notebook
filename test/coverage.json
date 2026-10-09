@@ -1,6 +1,9 @@
 {
   "version": 1,
   "tests": [
+    { "file": "test/studio-runtime.test.js", "application": "studio", "plugins": ["canvas"] },
+    { "file": "test/studio-client.test.js", "application": "studio", "plugins": ["canvas"] },
+    { "file": "test/app-tool-result.test.js", "application": "studio", "plugins": ["canvas"] },
     { "file": "test/theme-palette.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
     { "file": "test/theme-providers.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
     { "file": "test/themes.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },

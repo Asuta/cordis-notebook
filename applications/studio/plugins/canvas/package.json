@@ -1,0 +1,16 @@
+{
+  "name": "@cordis-studio/canvas", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "cordis": "4.0.0-rc.10", "sharp": "^0.35.5", "undici": "8.11.2" },
+  "cordis": {
+    "schemaVersion": 1, "id": "canvas", "name": "灵感画板", "description": "无限画布、素材、连线与 AI Pixel 图片生成。",
+    "defaultEnabled": true, "order": 0,
+    "server": { "entry": "server.js", "export": "default" },
+    "requires": { "server": ["http"], "client": [] }, "provides": { "server": ["imageStudio"], "client": [] },
+    "client": "client.js", "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

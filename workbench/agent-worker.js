@@ -7,6 +7,7 @@ import { modelInfo, normalizeConfig, OUTPUT_TOKENS, piCompaction } from './confi
 import { AttachmentStore } from './attachments.js'
 import { commandTools, commandGuidance, execWaitParameter } from './command-tools.js'
 import { browserTools, browserGuidance, browserToolResult } from './browser-tools.js'
+import { appToolResult } from './app-tool-result.js'
 
 let session, busy = false, cancelled = false
 const pending = new Map()
@@ -69,7 +70,7 @@ async function run(input) {
       ['workspace_test', '验证绑定应用中的插件：自动类型检查、构建应用产物，执行插件内及明确关联的测试，输出覆盖缺口与独立报告。不会重启应用；running 时用 write_stdin 等待退出码。', Type.Object({ plugins: Type.Array(Type.String(), { minItems: 1 }), yield_time_ms: execWaitParameter })],
     ]
     const customTools = definitions.map(([name, description, parameters]) => ({ name, label: name, description, promptSnippet: description, parameters,
-      async execute(id, args, signal) { const result = await callParent(name, args, signal); return name.startsWith('browser_') ? browserToolResult(result) : { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} } },
+      async execute(id, args, signal) { const result = await callParent(name, args, signal); return name.startsWith('browser_') ? browserToolResult(result) : name === 'app_call' ? appToolResult(result) : { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} } },
     }))
     const manager = task.sessionFile ? SessionManager.open(task.sessionFile, join(agentDir, 'sessions'), root) : SessionManager.create(root, join(agentDir, 'sessions'))
     ;({ session } = await createAgentSession({ cwd: root, agentDir, modelRuntime: runtime, model: runtime.getModel('workbench-deepseek', config.model), thinkingLevel: config.thinking ? config.reasoningEffort : 'off',
