@@ -1,0 +1,63 @@
+{
+  "name": "@cordis-studio/canvas-basic-cards",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cordis": "4.0.0-rc.10"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "canvas-basic-cards",
+    "name": "文字与图片卡片",
+    "description": "文字与图片卡片",
+    "defaultEnabled": true,
+    "order": 10,
+    "requires": {
+      "server": [
+        "canvasDocuments"
+      ],
+      "client": [
+        "canvasUI",
+        "canvasSession"
+      ]
+    },
+    "provides": {
+      "server": [
+        "canvasBasicCards"
+      ],
+      "client": []
+    },
+    "build": [
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ]
+  }
+}

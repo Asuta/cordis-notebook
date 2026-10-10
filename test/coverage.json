@@ -1,19 +1,22 @@
 {
   "version": 1,
   "tests": [
-    { "file": "test/studio-runtime.test.js", "application": "studio", "plugins": ["canvas"] },
-    { "file": "test/studio-client.test.js", "application": "studio", "plugins": ["canvas"] },
-    { "file": "test/app-tool-result.test.js", "application": "studio", "plugins": ["canvas"] },
-    { "file": "test/theme-palette.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
-    { "file": "test/theme-providers.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
-    { "file": "test/themes.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"] } },
-    { "file": "test/capability-plugins.test.js", "application": "notebook", "services": { "server": ["theme", "themeEngine", "noteFormats", "markdown", "richText", "noteAssets"], "client": ["theme", "themeEngine", "noteFormats", "markdown", "richText"] } },
-    { "file": "test/note-list-density.test.js", "application": "notebook", "plugins": ["note-list"] },
-    { "file": "test/note-list-order.test.js", "application": "notebook", "plugins": ["note-list"] },
-    { "file": "test/free-page.test.js", "application": "notebook", "plugins": ["free-page-editor", "format-freeform"] },
-    { "file": "test/free-page-viewport.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
-    { "file": "test/free-page-interaction.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
-    { "file": "test/free-page-async.test.js", "application": "notebook", "plugins": ["free-page-editor"] },
-    { "file": "test/markdown.test.js", "application": "notebook", "plugins": ["markdown-editor", "format-markdown", "markdown"] }
+    { "file": "test/studio-development.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"] },
+    {"file": "test/studio-runtime.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
+    {"file": "test/studio-client.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
+    {"file": "test/app-tool-result.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
+    {"file": "test/theme-palette.test.js", "application": "notebook", "services": {"server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"]}},
+    {"file": "test/theme-providers.test.js", "application": "notebook", "services": {"server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"]}},
+    {"file": "test/themes.test.js", "application": "notebook", "services": {"server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"]}},
+    {"file": "test/capability-plugins.test.js", "application": "notebook", "services": {"server": ["theme", "themeEngine", "noteFormats", "markdown", "richText", "noteAssets"], "client": ["theme", "themeEngine", "noteFormats", "markdown", "richText"]}},
+    {"file": "test/note-list-density.test.js", "application": "notebook", "plugins": ["note-list"]},
+    {"file": "test/note-list-order.test.js", "application": "notebook", "plugins": ["note-list"]},
+    {"file": "test/free-page.test.js", "application": "notebook", "plugins": ["free-page-editor", "format-freeform"]},
+    {"file": "test/free-page-viewport.test.js", "application": "notebook", "plugins": ["free-page-editor"]},
+    {"file": "test/free-page-interaction.test.js", "application": "notebook", "plugins": ["free-page-editor"]},
+    {"file": "test/free-page-async.test.js", "application": "notebook", "plugins": ["free-page-editor"]},
+    {"file": "test/markdown.test.js", "application": "notebook", "plugins": ["markdown-editor", "format-markdown", "markdown"]},
+    {"file": "test/studio-model.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
+    {"file": "test/studio-plugins.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]}
   ]
 }

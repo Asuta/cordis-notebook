@@ -1,0 +1,64 @@
+{
+  "name": "@cordis-studio/image-provider-pixel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "undici": "8.11.2",
+    "sharp": "^0.35.5"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "image-provider-pixel",
+    "name": "Pixel 图片服务",
+    "description": "Pixel 图片服务",
+    "defaultEnabled": true,
+    "order": 10,
+    "requires": {
+      "server": [
+        "http",
+        "canvasDocuments",
+        "imageGeneration"
+      ],
+      "client": [
+        "canvasUI",
+        "canvasSession"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "build": [
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ]
+  }
+}

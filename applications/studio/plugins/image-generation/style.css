@@ -1,0 +1,8 @@
+.studio-generation-options{display:flex;gap:8px;margin:0 15px 12px}
+.studio-generation-options select{width:50%;border:1px solid var(--line);padding:7px;border-radius:7px;background:white;color:#66715d}
+.studio-inputs{margin:10px 15px;color:var(--muted);font-size:11px}
+.studio-inputs>div{display:flex;align-items:center;gap:4px;margin:5px 0;background:#f4f6ee;border-radius:5px;padding:4px 6px}
+.studio-inputs span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.studio-inputs button{padding:1px 5px;border:0;background:transparent}
+.studio-job-status{font-size:11px;line-height:1.5;color:var(--muted);padding:0 15px;max-height:90px;overflow:auto}
+.studio-generator>button:last-child{width:calc(100% - 30px);margin:12px 15px 15px}

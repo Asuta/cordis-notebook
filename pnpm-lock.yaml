@@ -499,9 +499,50 @@ importers:
 
   applications/studio/plugins/canvas:
     dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../../../packages/host
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
+      sharp:
+        specifier: ^0.35.5
+        version: 0.35.5(@types/node@22.20.4)
+
+  applications/studio/plugins/canvas-agent-tools: {}
+
+  applications/studio/plugins/canvas-basic-cards:
+    dependencies:
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  applications/studio/plugins/canvas-ui:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../../../packages/host
+      '@cordis-studio/canvas':
+        specifier: workspace:*
+        version: link:../canvas
+
+  applications/studio/plugins/image-generation:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../../../packages/host
+      '@cordis-studio/canvas':
+        specifier: workspace:*
+        version: link:../canvas
+      '@cordis-studio/canvas-ui':
+        specifier: workspace:*
+        version: link:../canvas-ui
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
+  applications/studio/plugins/image-provider-pixel:
+    dependencies:
       sharp:
         specifier: ^0.35.5
         version: 0.35.5(@types/node@22.20.4)

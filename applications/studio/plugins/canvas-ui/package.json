@@ -1,0 +1,56 @@
+{
+  "name": "@cordis-studio/canvas-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "@cordis-studio/canvas": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "canvas-ui",
+    "name": "画布界面",
+    "description": "画布界面",
+    "defaultEnabled": true,
+    "order": 10,
+    "requires": {
+      "server": [],
+      "client": [
+        "canvasSession"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": [
+        "canvasUI"
+      ]
+    },
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ]
+  },
+  "exports": {
+    "./client": {
+      "types": "./types/client.d.ts"
+    }
+  }
+}

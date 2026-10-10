@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import sharp from 'sharp'
+import { createNodeRegistry } from './registry.js'
 import { applyOperation, validateBoard, invalid, string } from './model.js'
 
 export async function atomic(file, value) {
@@ -15,25 +16,47 @@ export async function atomic(file, value) {
   } finally { await rm(temporary, { force: true }).catch(() => {}) }
 }
 export const newBoard = title => ({ id: randomUUID(), title, revision: 0, viewport: { x: 60, y: 60, zoom: 1 }, nodes: [], edges: [] })
-export async function createStore(directory) {
+export async function createStore(directory, types = createNodeRegistry()) {
   await mkdir(join(directory, 'images'), { recursive: true })
   const file = join(directory, 'studio.json')
   let state
   try { state = JSON.parse(await readFile(file, 'utf8')) }
   catch (error) { if (error.code !== 'ENOENT') throw error; state = { version: 1, boards: [newBoard('我的灵感画板')], assets: {}, jobs: [] } }
   if (state.version !== 1 || !Array.isArray(state.boards) || !state.assets || !Array.isArray(state.jobs)) throw Error('画布数据无效，原文件已保留')
-  for (const board of state.boards) validateBoard(board, state.assets)
-  for (const job of state.jobs) if (['queued', 'running'].includes(job.status)) { job.status = 'interrupted'; job.error = '应用已退出，生成被中断；请手动重试'; job.endedAt = Date.now() }
+  for (const board of state.boards) validateBoard(board, state.assets, types)
   await atomic(file, state)
   let queue = Promise.resolve()
   const store = {
-    directory,
+    directory, types,
     read: () => structuredClone(state),
     change(fn) {
-      const task = queue.then(async () => { const next = structuredClone(state), result = await fn(next); await atomic(file, next); state = next; return result })
+      const task = queue.then(async () => { const next = structuredClone(state), result = await fn(next); await atomic(file, next); state = structuredClone(next); return result })
       queue = task.catch(() => {}); return task
     },
     flush: () => queue,
+    records(namespace) {
+      if (!/^[a-z][a-z0-9-]*$/.test(namespace)) throw Error('记录空间无效')
+      const records = value => namespace === 'image-generation' ? value.jobs : ((value.extensions ||= {})[namespace] ||= [])
+      return {
+        read: () => structuredClone(namespace === 'image-generation' ? state.jobs : state.extensions?.[namespace] || []),
+        change: callback => store.change(next => {
+          const tx = {
+            records: records(next),
+            board: id => structuredClone(next.boards.find(b => b.id === id)),
+            edit(id, operations) {
+              const index = next.boards.findIndex(b => b.id === id)
+              if (index < 0) invalid('画板不存在')
+              let board = next.boards[index]
+              for (const op of operations) board = applyOperation(board, op, next.assets, types).board
+              next.boards[index] = board
+            },
+          }
+          const result = callback(tx)
+          if (result?.then) throw Error('文档事务不能执行异步操作')
+          return structuredClone(result)
+        }),
+      }
+    },
     async edit(boardId, revision, operations) {
       if (!Array.isArray(operations) || !operations.length || operations.length > 100) invalid('一次需要 1–100 个操作')
       return store.change(state => {
@@ -41,7 +64,7 @@ export async function createStore(directory) {
         if (index < 0) invalid('画板不存在')
         if (state.boards[index].revision !== revision) throw Object.assign(Error('画布已变化，请重新读取；本次操作未写入'), { status: 409 })
         let board = state.boards[index]; const inverse = []
-        for (const op of operations) { const result = applyOperation(board, op, state.assets); board = result.board; inverse.unshift(result.inverse) }
+        for (const op of operations) { const result = applyOperation(board, op, state.assets, types); board = result.board; inverse.unshift(result.inverse) }
         state.boards[index] = board; return { board: structuredClone(board), inverse }
       })
     },

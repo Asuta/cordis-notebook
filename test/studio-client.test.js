@@ -2,8 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
 import client from '../applications/studio/plugins/canvas/client.js'
+import ui from '../applications/studio/plugins/canvas-ui/client.js'
+import basic from '../applications/studio/plugins/canvas-basic-cards/client.js'
+import generation from '../applications/studio/plugins/image-generation/client.js'
+import agent from '../applications/studio/plugins/canvas-agent-tools/client.js'
 import { newBoard } from '../applications/studio/plugins/canvas/store.js'
-import { applyOperation } from '../applications/studio/plugins/canvas/model.js'
+import { applyOperation } from './helpers/studio-fixture.js'
 
 async function setup(t) {
   const window = new Window({ settings: { disableCSSFileLoading: true } }), previous = { window: globalThis.window, document: globalThis.document }
@@ -13,6 +17,7 @@ async function setup(t) {
   const generated = [], toasts = []
   const ctx = { effect: fn => cleanups.push(fn()), on: (name, fn) => hooks.set(name, fn) }
   const sdk = {
+    provide(name, service) { ctx[name] = service; return service },
     el(tag, props = {}, text) { const node = window.document.createElement(tag); for (const [key, value] of Object.entries(props)) { if (key === 'class') node.className = value; else if (key.startsWith('aria-')) node.setAttribute(key, value); else node[key] = value }; if (text !== undefined) node.textContent = text; return node },
     mount: (name, node) => window.document.body.append(node), toast: message => toasts.push(message),
     storage: { local: window.localStorage }, agent: { register: (definition, callback) => tools.set(definition.name, callback) },
@@ -31,8 +36,23 @@ async function setup(t) {
     },
   }
   t.after(async () => { for (const cleanup of cleanups.reverse()) await cleanup?.(); await window.happyDOM.close(); Object.assign(globalThis, previous) })
-  await client(ctx, sdk)
-  return { window, state, tools, hooks, generated, toasts }
+  state.providers = [{ id: 'fake', label: '测试服务', hasKey: true, model: 'test-model', ratios: ['1:1'], resolutions: ['1k'] }]
+  const modules = { canvas: client, ui, basic, generation, agent }, running = new Map()
+  async function start(id) {
+    const releases = [], child = Object.create(ctx)
+    child.effect = fn => { const release = fn(); let active = true; const dispose = () => { if (active) { active = false; return release?.() } }; releases.push(dispose); return dispose }
+    const childSdk = { ...sdk,
+      provide(name, service) { ctx[name] = service; child.effect(() => () => { if (ctx[name] === service) delete ctx[name] }); return service },
+      mount(name, node) { sdk.mount(name, node); child.effect(() => () => node.remove()) },
+      listen(target, name, fn) { target.addEventListener(name, fn); child.effect(() => () => target.removeEventListener(name, fn)) },
+      agent: { register(definition, callback) { tools.set(definition.name, callback); child.effect(() => () => tools.delete(definition.name)) } },
+    }
+    const stop = async () => { for (const release of releases.reverse()) await release(); running.delete(id) }
+    running.set(id, stop); cleanups.push(stop)
+    await modules[id](child, childSdk)
+  }
+  for (const id of Object.keys(modules)) await start(id)
+  return { window, state, tools, hooks, generated, toasts, ctx, start, stop: id => running.get(id)() }
 }
 
 async function waitUntil(predicate) {
@@ -42,6 +62,39 @@ async function waitUntil(predicate) {
   }
   assert.fail('等待自动保存超时')
 }
+
+test('卡片视图、生成操作与 Agent 可分别卸载和恢复，不删除内容或重复入口', async t => {
+  const { window, tools, state, stop, start } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'g', type: 'generator', prompt: '保留内容' } }] })
+  await stop('generation')
+  assert.match(window.document.querySelector('.studio-missing-card').textContent, /对应功能/)
+  assert.equal(state.boards[0].nodes[0].prompt, '保留内容')
+  await assert.rejects(tools.get('studio_generate')({ nodeId: 'g', revision: state.boards[0].revision }), /不可用/)
+  await start('generation')
+  assert.deepEqual([...window.document.querySelector('.studio-action-dock').children].slice(0, 3).map(node => node.textContent), ['＋ 文字', '↑ 图片', '✦ 生成卡片'])
+  assert.equal(window.document.querySelectorAll('.studio-generator textarea').length, 1)
+  assert.equal(window.document.querySelector('textarea').value, '保留内容')
+  await stop('agent')
+  assert.equal(tools.size, 0)
+  await [...window.document.querySelectorAll('button')].find(b => b.textContent === '＋ 文字').onclick()
+  assert.equal(state.boards[0].nodes.length, 2)
+  await start('agent')
+  assert.equal(tools.size, 10)
+})
+
+test('前端扩展注册菜单、卡片和操作，Agent 可发现并执行；卸载撤销注册', async t => {
+  const { window, tools, ctx } = await setup(t), releases = [], plugin = { effect(fn) { const release = fn(); releases.push(release); return release } }
+  let calls = 0
+  ctx.canvasUI.menu(plugin, { id: 'custom', label: '扩展入口', run: () => calls++ })
+  ctx.canvasSession.actions.register(plugin, { id: 'custom-action', label: '扩展操作', schema: { type: 'object' }, run: () => ++calls })
+  assert.ok(tools.get('studio_read')().actions.some(action => action.id === 'custom-action'))
+  await tools.get('studio_action')({ id: 'custom-action', revision: 0 })
+  await [...window.document.querySelectorAll('button')].find(b => b.textContent === '扩展入口').onclick()
+  assert.equal(calls, 2)
+  for (const release of releases.reverse()) release()
+  assert.equal(tools.get('studio_read')().actions.some(action => action.id === 'custom-action'), false)
+  assert.equal([...window.document.querySelectorAll('button')].some(b => b.textContent === '扩展入口'), false)
+})
 
 test('灵感卡片选择显示上下文工具，批量排列及带内部连线的副本一次撤销', async t => {
   const { window, tools, state } = await setup(t)

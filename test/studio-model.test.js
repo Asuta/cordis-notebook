@@ -5,11 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
 import sharp from 'sharp'
-import { createStore, newBoard } from '../store.js'
-import { applyOperation, generationInput } from '../model.js'
-import { createConfig, createPixel, imageSize } from '../pixel.js'
-import { createJobs } from '../jobs.js'
-import { prepareReferences, referenceUploadBudget } from '../references.js'
+import { newBoard } from '../applications/studio/plugins/canvas/store.js'
+import { createStore, applyOperation, generationInput, createJobs } from './helpers/studio-fixture.js'
+import { createConfig, createPixel, imageSize } from '../applications/studio/plugins/image-provider-pixel/pixel.js'
+import { prepareReferences, referenceUploadBudget } from '../applications/studio/plugins/image-provider-pixel/references.js'
 
 async function setup(t) { const directory = await mkdtemp(join(tmpdir(), 'cordis-studio-')); t.after(() => rm(directory, { recursive: true, force: true })); return { directory, store: await createStore(directory) } }
 const png = () => sharp({ create: { width: 8, height: 6, channels: 4, background: '#759253' } }).png().toBuffer()
@@ -85,6 +84,41 @@ test('撤销和重做在服务端检查相关字段，冲突时整批操作不�
   await assert.rejects(edit(added.inverse), error => error.status === 409)
 })
 
+test('首次设置图片服务经过 JSON 传输后可撤销、重做并继续撤销更早操作', async t => {
+  const { directory, store } = await setup(t), id = store.read().boards[0].id
+  const wire = value => JSON.parse(JSON.stringify(value))
+  const edit = async operations => wire(await store.edit(id, store.read().boards[0].revision, wire(operations)))
+  const added = await edit([{ type: 'add', node: { id: 'g', type: 'generator' } }])
+  assert.equal(Object.hasOwn(added.board.nodes[0], 'provider'), false)
+  const changed = await edit([{ type: 'update', id: 'g', patch: { provider: 'pixel', prompt: '更新提示词' } }])
+  const undone = await edit(changed.inverse)
+  assert.deepEqual(undone.board.nodes, added.board.nodes)
+  assert.equal(Object.hasOwn((await createStore(directory)).read().boards[0].nodes[0], 'provider'), false)
+  const redone = await edit(undone.inverse)
+  assert.deepEqual(redone.board.nodes, changed.board.nodes)
+  await edit(redone.inverse)
+  assert.equal((await edit(added.inverse)).board.nodes.length, 0)
+})
+
+test('可选字段撤销仍检查冲突，删除只允许已声明且非必填的字段', () => {
+  const wire = value => JSON.parse(JSON.stringify(value))
+  const board = applyOperation(newBoard('旧卡片'), { type: 'add', node: { id: 'g', type: 'generator' } }, {}).board
+  const changed = applyOperation(board, { type: 'update', id: 'g', patch: { provider: 'pixel' } }, {})
+  const undo = wire(changed.inverse)
+  const external = applyOperation(changed.board, { type: 'update', id: 'g', patch: { provider: 'another-provider' } }, {})
+  assert.throws(() => applyOperation(external.board, undo, {}), error => error.status === 409)
+  const moved = applyOperation(changed.board, { type: 'update', id: 'g', patch: { x: 555 } }, {})
+  const undone = applyOperation(moved.board, undo, {})
+  assert.equal(undone.board.nodes[0].x, 555)
+  assert.equal(Object.hasOwn(undone.board.nodes[0], 'provider'), false)
+  const reset = applyOperation(undone.board, { type: 'update', id: 'g', patch: { provider: '' } }, {})
+  assert.throws(() => applyOperation(reset.board, wire(undone.inverse), {}), error => error.status === 409)
+  for (const unset of [['id'], ['type'], ['unknown'], ['prompt'], ['x'], ['provider', 'provider'], 'provider']) {
+    assert.throws(() => applyOperation(changed.board, { type: 'update', id: 'g', patch: {}, unset }, {}), error => error.status === 400)
+  }
+  assert.throws(() => applyOperation(changed.board, { type: 'update', id: 'g', patch: { provider: 'pixel' }, unset: ['provider'] }, {}), error => error.status === 400)
+})
+
 test('配置首次导入，之后独立保存；公开信息和任务不含 Key', async t => {
   const { directory } = await setup(t), configPath = join(directory, 'config.toml')
   await writeFile(configPath, '[skills.other.env]\nIGNORED="x"\n[skills.ai-pixel-image2.env]\nAI_PIXEL_API_KEY = "private-test-key"\nAI_PIXEL_API_BASE_URL = "https://ai-pixel.online"\nAI_PIXEL_IMAGE_MODEL = "gpt-image-2"\n[next]\nother="ignored"')
@@ -115,7 +149,7 @@ test('生成冻结输入、重复请求不重复生图、结果新增卡片；�
     calls++; assert.equal(input.prompt, '原提示词'); assert.equal(config.apiKey, 'private')
     return new Promise((resolve, reject) => { release = () => png().then(resolve); signal.addEventListener('abort', () => reject(Error('已中断')), { once: true }) })
   } }
-  const jobs = createJobs(store, { private: () => ({ apiKey: 'private', model: 'gpt-image-2' }) }, pixel)
+  const jobs = await createJobs(store, { private: () => ({ apiKey: 'private', model: 'gpt-image-2' }) }, pixel)
   t.after(() => jobs.close())
   const added = await store.edit(first.id, 0, [{ type: 'add', node: { id: 'g', type: 'generator', prompt: '原提示词' } }])
   const args = { requestId: randomUUID(), boardId: first.id, nodeId: 'g', revision: added.board.revision }
@@ -206,5 +240,7 @@ test('重启将排队和运行中的任务都标记中断，不自动重新扣�
   const { directory, store } = await setup(t)
   await store.change(state => { state.jobs.push({ id: 'one', status: 'queued' }, { id: 'two', status: 'running' }) })
   const restored = await createStore(directory)
+  const jobs = await createJobs(restored, { private: () => ({}) }, {})
+  await jobs.close()
   assert.deepEqual(restored.read().jobs.map(j => j.status), ['interrupted', 'interrupted'])
 })

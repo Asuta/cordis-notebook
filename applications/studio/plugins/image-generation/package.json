@@ -1,0 +1,73 @@
+{
+  "name": "@cordis-studio/image-generation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cordis": "4.0.0-rc.10",
+    "@cordis-notebook/host": "workspace:*",
+    "@cordis-studio/canvas": "workspace:*",
+    "@cordis-studio/canvas-ui": "workspace:*"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "image-generation",
+    "name": "图片生成",
+    "description": "图片生成",
+    "defaultEnabled": true,
+    "order": 10,
+    "requires": {
+      "server": [
+        "http",
+        "canvasDocuments",
+        "canvasBasicCards"
+      ],
+      "client": [
+        "canvasUI",
+        "canvasSession"
+      ]
+    },
+    "provides": {
+      "server": [
+        "imageGeneration"
+      ],
+      "client": []
+    },
+    "build": [
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ]
+  },
+  "exports": {
+    "./server": {
+      "types": "./types/server.d.ts"
+    }
+  }
+}

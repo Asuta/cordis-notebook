@@ -1,9 +1,9 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fetch, FormData, EnvHttpProxyAgent } from 'undici'
-import { atomic } from './store.js'
-import { invalid } from './model.js'
+import { atomic } from './config-file.js'
+const invalid = message => { throw Object.assign(Error(message), { status: 400 }) }
 import { prepareReferences } from './references.js'
 
 export function normalizeConfig(input) {
@@ -15,16 +15,18 @@ export function normalizeConfig(input) {
   if (typeof input.apiKey !== 'string' || input.apiKey.length > 4096) invalid('API Key 无效')
   return { baseUrl, model, apiKey: input.apiKey.trim() }
 }
-export async function createConfig(directory, { env = process.env, configPath = join(homedir(), '.codex', 'config.toml') } = {}) {
+export async function createConfig(directory, { env = process.env, configPath = join(homedir(), '.codex', 'config.toml'), legacy } = {}) {
+  await mkdir(directory, { recursive: true })
   const file = join(directory, 'pixel-private.json')
   let value
   try { value = normalizeConfig(JSON.parse(await readFile(file, 'utf8'))) }
   catch (error) {
     if (error.code !== 'ENOENT') throw Error('图片服务私有配置无法读取，请检查 pixel-private.json；原文件已保留')
-    const config = await readFile(configPath, 'utf8').catch(error => { if (error.code !== 'ENOENT') throw error; return '' })
+    const inherited = await legacy?.()
+    const config = inherited ? '' : await readFile(configPath, 'utf8').catch(error => { if (error.code !== 'ENOENT') throw error; return '' })
     const section = config.match(/^\[skills\.ai-pixel-image2\.env\]\s*$([\s\S]*?)(?=^\[|$(?![\s\S]))/m)?.[1] || ''
     const get = name => env[name] || section.match(new RegExp('^' + name + '\\s*=\\s*"([^"\\r\\n]*)"', 'm'))?.[1] || ''
-    value = normalizeConfig({ baseUrl: get('AI_PIXEL_API_BASE_URL'), model: get('AI_PIXEL_IMAGE_MODEL'), apiKey: get('AI_PIXEL_API_KEY') })
+    value = normalizeConfig(inherited || { baseUrl: get('AI_PIXEL_API_BASE_URL'), model: get('AI_PIXEL_IMAGE_MODEL'), apiKey: get('AI_PIXEL_API_KEY') })
     // Imported once, then independent of Codex or skill installation.
     await atomic(file, value)
   }

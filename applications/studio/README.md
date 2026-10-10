@@ -2,6 +2,12 @@
 
 第三个独立应用：在无限画布上摆放文字、参考图与生成卡片，通过连线组织输入，点击生成或让现有工作台 Agent 帮忙操作。
 
+## 插件结构
+
+应用已拆成画布基础、画布界面、文字与图片卡片、图片生成、Pixel 图片服务、Agent 操作六个插件。卡片类型、视图、图片服务和扩展操作通过注册接口接入。停用 Pixel 后仍可编辑画板；关闭 Agent 插件不影响手动操作；缺少卡片插件时保留内容并显示占位提示。
+
+接口、依赖、数据兼容及扩展示例见 [灵感画布插件设计](../../docs/灵感画布插件设计.md)。
+
 ## 运行
 
 在项目根目录运行 `pnpm install`，再 `pnpm workbench`，通过「切换应用」选择「灵感画布」。已有工作台需要重启以加载新的图片工具返回协议。正式模式先 `pnpm build` 再 `pnpm workbench:runtime`。
@@ -29,18 +35,18 @@
 
 ## AI Pixel
 
-首次启动从进程环境或本机 `.codex/config.toml` 的 `[skills.ai-pixel-image2.env]` 导入现有接口、Key 和模型，随后独立保存到应用数据目录的 `pixel-private.json`。默认 `https://ai-pixel.online`、`gpt-image-2`。不运行技能脚本，不在前端或仓库保存 Key；设置界面只显示是否已配置，留空保存保留原 Key。
+首次启动从进程环境或本机 `.codex/config.toml` 的 `[skills.ai-pixel-image2.env]` 导入现有接口、Key 和模型，随后独立保存到 `data/apps/studio/plugin-data/image-provider-pixel/pixel-private.json`；升级时优先一次性导入旧 `canvas/pixel-private.json`，保留旧文件并以新配置为准。默认 `https://ai-pixel.online`、`gpt-image-2`。不运行技能脚本，不在前端或仓库保存 Key；设置界面只显示是否已配置，留空保存保留原 Key。
 
 纯文本请求为 `/v1/images/generations` JSON；有参考图时为 `/v1/images/edits` multipart `image[]`。Node 请求使用环境代理。生成超时 10 分钟，最多同时执行 2 项用户/Agent 明确启动的任务，最多保留 20 项待完成任务。比例与目标分辨率转换为按 64 像素对齐的 size；最终实际尺寸以返回图片为准。
 
 较大的参考图仅在上传时生成优化副本，使参考图总量不超过约 1.875 MiB，预留 multipart 和提示词空间。优先保持细节，不透明图片使用 JPEG，透明图片保留 PNG 透明通道；必要时缩小参考副本。画布素材原图、下载原图和目标生成分辨率不变。这是当前上传链路的兼容措施，不代表图片服务公布的大小限制。
 
-生成时冻结提示词、参数、参考图和模型。关闭/切换应用、停用插件会中断待完成任务，重新打开不自动重试。仅刷新页面不会自动重发请求；已接收的服务端任务可继续完成。断开本地请求不保证撤销服务端生成或退费。
+生成时冻结提示词、参数、参考图和模型。关闭/切换应用、停用生成服务或对应图片提供者会中断待完成任务，重新打开不自动重试。仅刷新页面不会自动重发请求；已接收的服务端任务可继续完成。断开本地请求不保证撤销服务端生成或退费。
 
 数据保存在 `data/apps/studio/plugin-data/canvas/`（独立验收实例使用自己的目录）：`studio.json` 存画板、任务与素材索引，`images/` 存原图及缩略图。删除卡片不删除素材，可从素材库重新加入。画板最多 50 个，每板最多 500 张卡片、1500 条连线；首版不提供永久清理素材操作。
 
 ## 验证
 
-`pnpm test:plugin --app studio --plugin canvas`：类型、构建与插件业务测试，默认不请求真实 Pixel。
+`pnpm test:plugin --app studio --plugin image-generation`：类型、构建与插件业务测试，默认不请求真实 Pixel。
 
 `pnpm exec node --test test/studio-client.test.js test/app-tool-result.test.js`：用户/Agent 共用交互与图片工具结果协议。图生图协议用模拟请求校验；实际 UI 使用 Codex 内置浏览器验收。

@@ -1,0 +1,37 @@
+{
+  "name": "@cordis-studio/canvas-agent-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "canvas-agent-tools",
+    "name": "画布 Agent 操作",
+    "description": "画布 Agent 操作",
+    "defaultEnabled": true,
+    "order": 10,
+    "requires": {
+      "server": [],
+      "client": [
+        "canvasSession"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      }
+    ],
+    "client": "client.js",
+    "public": [
+      "client.js"
+    ]
+  }
+}
