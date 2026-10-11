@@ -12,6 +12,7 @@ import { discoverApplications } from '../server/application-discovery.js'
 import { writeSnapshot } from './persistence.js'
 import { BrowserVerification } from './browser-verification.js'
 import { developmentInfo, developmentRuntimeInfo, scaffoldPlugin } from './development-tools.js'
+import { enablePlugin } from './plugin-activation.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -114,6 +115,25 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     })
   }
   const selectionTool = { name: 'replace_selection', description: '仅替换用户添加的选区并保留撤销。默认传 text；若附件 formats 包含 richtext，可传 format:"richtext" 和 content，结构见附件 richText/replacementHint。不要同时传 text 和 content。选区变化或跨页面时拒绝。', inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, format: { type: 'string', enum: ['text', 'richtext'] }, text: { type: 'string' }, content: { type: 'object', description: '由选区所属插件定义的结构化替换片段；仅对声明支持的选区使用。' } }, required: ['id'], oneOf: [{ required: ['text'], properties: { format: { const: 'text' } }, not: { required: ['content'] } }, { required: ['format', 'content'], properties: { format: { const: 'richtext' } }, not: { required: ['text'] } }] } }
+  async function rebindPage(task) {
+    // Vite reloads the page after backend, manifest or host edits; follow the new page.
+    if (application.mode === 'development') {
+      await application.settle({ delay: 0 })
+      if ((task.reloads ?? application.reloads) !== application.reloads) task.awaitingRebind = true
+      task.reloads = application.reloads
+    }
+    if (task.awaitingRebind && task.clientId) {
+      // A Vite page load transforms source modules, so allow it longer than a built page.
+      for (let i = 0; i < (application.mode === 'development' ? 150 : 30) && !task.cancelled; i++) {
+        const page = clients.get(task.clientId)
+        if (page && (page.appId !== task.appId || page.pageId !== task.pageId)) break
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+    const live = clients.get(task.clientId)
+    if (task.awaitingRebind && live?.appId === task.appId && live.pageId !== task.pageId) { task.session = live.session; task.pageId = live.pageId; task.awaitingRebind = false }
+    return live && Date.now() - live.seen <= 10000 ? live : null
+  }
   async function execute(task, name, args) {
     if (task.cancelled) throw Error('任务已停止')
     if (name.startsWith('browser_')) {
@@ -132,6 +152,16 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         dataDir: resolve(root, application.env.DATA_DIR || application.dataDir) }) }
     }
     if (name === 'workspace_scaffold_plugin') return scaffoldPlugin(root, task.appId, args, { signal: task.controller?.signal })
+    if (name === 'workspace_enable_plugin') {
+      await application.settle()
+      const live = await rebindPage(task)
+      if (live && (live.appId !== task.appId || live.pageId !== task.pageId || live.session !== task.session)) throw Error('应用或页面已经切换；请在当前应用重新发送任务')
+      return enablePlugin(task.appId, args, { status: () => application.status(), url: 'http://127.0.0.1:' + application.port, signal: task.controller?.signal,
+        page: live ? input => {
+          if (task.session !== input.session) throw Error('绑定页面不是最新应用会话；请等待页面重新连接')
+          return pageCall(task, 'workspace_enable_plugin', input)
+        } : null })
+    }
     if (name === 'exec_command') return commands.start(ownerFor(task), args)
     if (name === 'write_stdin') return commands.read(ownerFor(task), args)
     if (name === 'terminate_command') return commands.terminate(ownerFor(task), args.session_id)
@@ -158,22 +188,8 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       notify({ type: 'reload-app' })
       return { restarted: true, mode: application.mode, message: '页面正在重新连接。请先 workspace_status 或 app_list_tools 确认后再操作数据。' }
     }
-    // Vite reloads the page after backend, manifest or host edits; follow the new page.
-    if (application.mode === 'development') {
-      await application.settle({ delay: 0 })
-      if ((task.reloads ?? application.reloads) !== application.reloads) task.awaitingRebind = true
-      task.reloads = application.reloads
-    }
-    if (task.awaitingRebind) {
-      // A Vite page load transforms source modules, so allow it longer than a built page.
-      for (let i = 0; i < (application.mode === 'development' ? 150 : 30) && !task.cancelled; i++) {
-        const page = clients.get(task.clientId)
-        if (page && (page.appId !== task.appId || page.pageId !== task.pageId)) break
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
-    }
+    await rebindPage(task)
     const live = bindingFor(task.clientId)
-    if (task.awaitingRebind && live.appId === task.appId && live.pageId !== task.pageId) { task.session = live.session; task.pageId = live.pageId; task.awaitingRebind = false }
     const state = await application.status()
     if (!state.online || state.state.current?.id !== task.appId || state.state.session !== task.session || live.pageId !== task.pageId || live.appId !== task.appId) throw Error('绑定的应用页面已断开或切换；代码和日志工具仍可用')
     if (name === 'app_list_tools') return { appId: task.appId, pageId: task.pageId, tools: [...live.tools, selectionTool] }

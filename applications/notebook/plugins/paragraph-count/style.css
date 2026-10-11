@@ -1,28 +1,30 @@
-.paragraph-count {
+.plugin-paragraph-count {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
   min-width: 0;
+  padding: 4px 8px;
+  font: inherit;
   font-size: 11px;
   color: var(--theme-muted);
   white-space: nowrap;
 }
-.paragraph-count-caption {
+.plugin-paragraph-count-caption {
   letter-spacing: 0.08em;
 }
-.paragraph-count-value {
+.plugin-paragraph-count-value {
   font-size: 12px;
   color: var(--theme-text);
   font-variant-numeric: tabular-nums;
 }
-.paragraph-count[data-state='empty'] .paragraph-count-value,
-.paragraph-count[data-state='no-note'] .paragraph-count-value,
-.paragraph-count[data-state='unsupported'] .paragraph-count-value {
+.plugin-paragraph-count[data-state='empty'] .plugin-paragraph-count-value,
+.plugin-paragraph-count[data-state='no-note'] .plugin-paragraph-count-value,
+.plugin-paragraph-count[data-state='unsupported'] .plugin-paragraph-count-value {
   color: var(--theme-muted);
   font-variant-numeric: normal;
 }
 @media (max-width: 620px) {
-  .paragraph-count-caption {
+  .plugin-paragraph-count-caption {
     display: none;
   }
 }

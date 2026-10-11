@@ -1,5 +1,10 @@
 {
-  "templates": [{ "id": "notebook-footer", "focus": "ui", "description": "笔记页脚挂载与当前笔记订阅；requires.client 为 notebook、shell" }],
+  "templates": [{ "id": "notebook-footer", "focus": "ui", "description": "笔记页脚挂载与当前笔记订阅；requires.client 为 notebook、shell", "presentation": {
+    "styles": { "note": "footer 已提供 11px 字号和弱化文字色，span 继承即可；需要强调时使用主题变量，class 使用插件 id 前缀。", "tokens": ["--theme-text", "--theme-muted", "--theme-accent", "--theme-border"], "example": ".plugin-<plugin-id> { font: inherit; color: var(--theme-muted); white-space: nowrap; }" },
+    "icons": { "note": "纯统计 span 无需图标或 React。若确需 React 图标，额外声明 requires.client:[ui]，用 ctx.ui.h(ctx.ui.Icon, {name:'Plus', size:14})，并用 ctx.ui.mount(ctx, node, content) 管理释放。", "names": ["Plus", "Search", "Pin"] },
+    "ordering": { "note": "sdk.mount('footer', node) 没有 order 参数；footer 为 flex，gap 14px，按挂载顺序追加。不要把 cordis.order 当成 footer 插槽排序 API。" },
+    "references": [{ "file": "plugins/layout/style.css", "start": 77, "end": 91 }, { "file": "plugins/ui/types/client.d.ts", "start": 1, "end": 13 }]
+  } }],
   "tasks": [{
     "id": "note-content", "focus": "ui", "description": "读取当前笔记、正文统计与格式源码语义",
     "recipe": {
@@ -11,6 +16,12 @@
   }],
   "recipes": {
     "ui": {
+      "presentation": {
+        "styles": { "note": "原生 DOM 插件使用主题变量和插件自己的 class；不要硬编码配色或改共享主题。", "tokens": ["--theme-text", "--theme-muted", "--theme-surface", "--theme-panel", "--theme-border", "--theme-accent", "--theme-on-accent"] },
+        "icons": { "note": "React 图标需要 ui 服务：ctx.ui.h(ctx.ui.Icon, {name:'Plus', size:14})；使用 ctx.ui.mount(ctx, node, content) 管理释放，并声明 requires.client:[ui]。纯 DOM 小功能无需新增 React 依赖。", "names": ["Plus", "Search", "Pin"] },
+        "ordering": { "note": "sdk.mount 按挂载顺序追加，没有 order 参数；不要依赖其他插件的内部 DOM 调整位置。" },
+        "references": [{ "file": "plugins/ui/theme.css", "start": 1, "end": 17 }, { "file": "plugins/ui/types/client.d.ts", "start": 1, "end": 13 }]
+      },
       "services": { "client": ["notebook", "shell", "noteFormats"], "server": [] },
       "contracts": ["plugins/notebook/types/client.d.ts", "plugins/layout/types/client.d.ts", "plugins/notes/types/data.d.ts", "plugins/note-formats/types/data.d.ts", "note-content.md"],
       "examples": ["plugins/stats/client.js", "plugins/stats/package.json"],

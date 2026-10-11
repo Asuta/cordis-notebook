@@ -1,38 +1,38 @@
-/** 「段落计数」的纯计算逻辑：不触碰 DOM，便于独立验证。 */
-
-/** Markdown 源码字段与普通笔记的 content 不是同一份数据，按格式选择原文。 */
-const SOURCE_FIELDS = { plain: 'content', markdown: 'markdown' }
-
 /**
- * 按空行分段统计非空段落数。
- * 空行指只包含空格或制表符的行；CRLF 与 LF 均按换行处理；空白正文是 0 段。
+ * 段落统计按「源码空行分段」这一规则理解：
+ * 一段由连续的非空白行组成，空行（可含空格或制表符）分隔段落。
+ * 不用 note.content 的统一派生文本，因为它不保留空行或块结构。
  */
-export function countParagraphs(source) {
-  if (typeof source !== 'string' || !source) return 0
-  let paragraphs = 0
-  let inParagraph = false
-  for (const line of source.replace(/\r\n?/g, '\n').split('\n')) {
-    if (/^[ \t]*$/.test(line)) {
-      inParagraph = false
-      continue
-    }
-    if (!inParagraph) {
-      paragraphs += 1
-      inParagraph = true
+
+/** 统计非空段落数：空白正文为 0 段，LF 与 CRLF 都适用。 */
+export function paragraphCount(source) {
+  if (typeof source !== 'string') return 0
+  let count = 0
+  let inside = false
+  for (const line of source.split(/\r?\n/)) {
+    if (line.trim() === '') inside = false
+    else if (!inside) {
+      inside = true
+      count += 1
     }
   }
-  return paragraphs
+  return count
 }
 
-/**
- * 把当前笔记收敛成界面需要的状态。
- * 普通笔记读 content，Markdown 读 markdown 源码（不回退派生 content），其他格式明确标记为不支持。
- */
+/** 本插件支持的源码字段：plain 为 content，markdown 为 markdown；null 表示格式未支持。 */
+export function paragraphSource(note) {
+  if (!note) return null
+  const type = note.type || 'plain'
+  if (type === 'plain') return typeof note.content === 'string' ? note.content : ''
+  if (type === 'markdown') return typeof note.markdown === 'string' ? note.markdown : ''
+  return null
+}
+
+/** 供底栏渲染的状态摘要。 */
 export function paragraphSummary(note) {
-  if (!note) return { state: 'no-note', value: '未选择笔记', paragraphs: 0 }
-  const field = SOURCE_FIELDS[note.type || 'plain']
-  if (!field) return { state: 'unsupported', value: '当前格式不支持段落计数', paragraphs: 0 }
-  const paragraphs = countParagraphs(note[field])
-  if (!paragraphs) return { state: 'empty', value: '正文为空', paragraphs: 0 }
-  return { state: 'ready', value: `${paragraphs} 段`, paragraphs }
+  if (!note) return { state: 'no-note', count: 0 }
+  const source = paragraphSource(note)
+  if (source === null) return { state: 'unsupported', count: 0 }
+  const count = paragraphCount(source)
+  return count > 0 ? { state: 'ready', count } : { state: 'empty', count: 0 }
 }

@@ -5,6 +5,19 @@ import { createAgentBridge } from '../client/host/agent-bridge.js'
 import { StopCoordinator } from '../client/host/stop-coordinator.js'
 import agentTools, { revision } from '../applications/notebook/plugins/agent-tools/client.js'
 
+test('宿主启用桥接核对最新 session，不向业务插件工具列表暴露内部操作', async t => {
+  const window = new Window(), calls = []
+  const bridge = createAgentBridge({ application: { id: 'sample' }, session: 'fresh', window, document: window.document,
+    enablePlugin: async args => { calls.push(args); return { enabled: true } } })
+  t.after(async () => { bridge.dispose(); await window.happyDOM.close() })
+  await assert.rejects(bridge.call('workspace_enable_plugin', { id: 'demo', session: 'old' }), /会话已过期/)
+  await assert.rejects(bridge.call('workspace_enable_plugin', { id: '../demo', session: 'fresh' }), /参数/)
+  assert.equal(calls.length, 0)
+  assert.deepEqual(await bridge.call('workspace_enable_plugin', { id: 'demo', session: 'fresh' }), { enabled: true })
+  assert.equal(calls.length, 1); assert.deepEqual(bridge.describe(), [])
+  assert.throws(() => bridge.forOwner({ effect() {} }).register({ name: 'workspace_enable_plugin' }, () => {}), /名称无效/)
+})
+
 test('选区桥接传递富文本能力并拒绝不支持的格式，失败可重试且成功后失效', async t => {
   const window = new Window(), sent = [], disposals = [], peer = { postMessage: message => sent.push(message) }
   Object.defineProperty(window, 'parent', { value: peer })

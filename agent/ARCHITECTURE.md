@@ -15,6 +15,10 @@
 
 工作台插件任务先调用 `workspace_development_info({focus:"ui"})`（后端或工具选 backend/agent）；一次返回当前应用服务、契约正文、相关示例与验证入口。只追加读取仍有疑问的内容。新增插件优先 `workspace_scaffold_plugin`，写齐并校验清单和输入后整体发布，避免热更新看到半成品；骨架仍需实现用户功能和验证。小功能不附带额外设置，不重复已通过且源码未变的检查。
 
+UI 入口的 `presentation` 按模板提供样式、图标、排序说明及有限真实选段；优先使用这些资料，只有具体问题尚未解决时才追加读取。应用资料由 `applications/<app>/development.json` 维护，通用 client 模板不携带应用专属主题或服务。
+
+需要在当前受管理实例启用插件时优先 `workspace_enable_plugin({id:"插件ID"})`。工具核对应用和最新 session，有连接页面时执行保存保护与前端确认；一次返回启用选择、双端运行状态、依赖和失败原因。`running=null` 表示前端尚未核对，不能说已运行；缺依赖先处理 waitingFor/dependencies，不自动启用候选插件。单选组切换需要页面，写入超时先读状态，不盲目重放。运行状态确认不替代功能测试或浏览器验收。
+
 所有应用共用的最短入口是 [docs/插件开发导航.md](../docs/插件开发导航.md)。普通前端插件先读当前应用中最接近的清单和入口，再按任务读取 Workspace 插件指南；界面消费使用 `requires.client`、`sdk.mount`，提供扩展位使用 `sdk.slot`。笔记、画图和灵感画布的服务与示例只在各自的 `applications/<app>/agent.md` 中补充，不要把一个应用的业务服务带到另一个应用。
 
 开发模式下，运行源码、清单和依赖变化通过 `workspace_status` 确认热更新；测试、类型测试和 Markdown/README 等非运行文件不会触发插件卸载或重挂载。普通插件用 `workspace_test` 或 `pnpm test:plugin` 验证，并分别报告类型契约、构建、实际测试、浏览器验收和缺口。

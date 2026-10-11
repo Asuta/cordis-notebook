@@ -1,16 +1,21 @@
 /** Application-neutral, lifecycle-owned tools. The workbench owns the Agent process. */
-export function createAgentBridge({ application, session, stopping, window, document }) {
+export function createAgentBridge({ application, session, stopping, enablePlugin, window, document }) {
   const tools = new Map(), attachments = new Map(), pageId = crypto.randomUUID()
   let peer, origin, menu, releaseReload
   const send = message => { if (peer) peer.postMessage({ channel: 'cordis-agent', pageId, appId: application?.id, session, ...message }, origin) }
   const describe = () => [...tools.values()].map(({ definition }) => definition)
   const register = (owner, definition, execute) => {
-    if (!/^[a-z][a-z0-9_]{1,63}$/.test(definition.name) || tools.has(definition.name)) throw Error('Agent 工具名称无效或重复')
+    if (!/^[a-z][a-z0-9_]{1,63}$/.test(definition.name) || tools.has(definition.name) || definition.name === 'workspace_enable_plugin') throw Error('Agent 工具名称无效或重复')
     const entry = { definition, execute }
     tools.set(definition.name, entry); send({ type: 'ready', tools: describe() })
     owner.effect(() => () => { if (tools.get(definition.name) === entry) tools.delete(definition.name); send({ type: 'ready', tools: describe() }) })
   }
   async function call(name, args) {
+    if (name === 'workspace_enable_plugin') {
+      if (!enablePlugin) throw Error('页面不支持插件启用；请刷新工作台应用')
+      if (args?.session !== session || !/^[a-z][a-z0-9-]{1,49}$/.test(args?.id || '')) throw Error('插件启用参数或应用会话已过期')
+      return enablePlugin(args)
+    }
     if (name === 'workspace_prepare_reload') {
       if (releaseReload) throw Error('页面已经在准备重启')
       // Keep the editors held across the process restart, not only across the save request.

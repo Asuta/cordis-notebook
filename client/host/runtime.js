@@ -1,6 +1,7 @@
 import { Context, Service } from 'cordis'
 import { ClientPlugins } from './plugin-host.js'
 import { serviceRelations } from '../../shared/plugin-relations.js'
+import { pluginActivationResult } from '../../shared/plugin-activation.js'
 import { createDependencyView } from './dependency-view.js'
 import { StopCoordinator } from './stop-coordinator.js'
 import { createSettingsView } from './settings-view.js'
@@ -21,7 +22,7 @@ const updatePlaceholder = () => { $('#app-placeholder').hidden = $('#app').child
 new MutationObserver(updatePlaceholder).observe($('#app'), { childList: true })
 updatePlaceholder()
 const stopping = new StopCoordinator(root, error => toast(error.message))
-const agentBridge = createAgentBridge({ application: application.current, session: pageSession, stopping, window, document })
+const agentBridge = createAgentBridge({ application: application.current, session: pageSession, stopping, enablePlugin: enablePluginFromAgent, window, document })
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false
 async function request(path, method = 'GET', data, signal) {
   const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json', 'X-Application-Session': pageSession }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
@@ -156,6 +157,27 @@ async function changePlugin(plugin, enabled) {
   if (!targets.length) return action()
   return stopping.run({ reason: plugin.exclusiveGroup ? 'switch' : 'disable', targets: [...new Set(targets)] }, action)
 }
+async function enablePluginFromAgent({ id, session }) {
+  const check = () => {
+    if (session !== pageSession || leaving || application.phase !== 'idle') throw Error('应用已经切换或正在切换')
+    if (snapshot.pendingSwitch || snapshot.pendingConfig) throw Error('正在确认插件切换或配置')
+  }
+  check()
+  if (working) throw Error('插件管理正在执行其他操作，请完成后再启用')
+  let operationError = null
+  await operate(async () => {
+    await scheduleSync(true)
+    check()
+    const plugin = snapshot.plugins.find(plugin => plugin.id === id)
+    if (!plugin) throw Error('插件尚未发现：' + id)
+    if (!plugin.enabled || plugin.state === 'failed') {
+      try { await changePlugin(plugin, true) } catch (error) { operationError = error.message }
+    }
+  }, true)
+  check()
+  const observed = { ...snapshot, plugins: snapshot.plugins.map(plugin => host.describe(plugin)) }
+  return { session: pageSession, revision: snapshot.revision, result: pluginActivationResult(observed, id, { clientVerified: true, operationError }) }
+}
 async function retryPlugin(plugin) {
   return stopping.run({ reason: 'reload', targets: [plugin.id] }, () => {
     const task = syncQueue.then(() => host.retry(plugin.id))
@@ -196,7 +218,7 @@ async function saveConfig(plugin, config) {
 }
 async function operate(fn, propagate = false) {
   if (working) return; working = true; renderManager()
-  try { await fn() } catch (error) { toast(error.message); if (propagate) throw error } finally { working = false; await scheduleSync() }
+  try { await fn() } catch (error) { toast(error.message); if (propagate) throw error } finally { working = false; await scheduleSync(propagate) }
 }
 async function synchronize() {
   if (leaving) return
@@ -231,7 +253,7 @@ async function switchApplication(id) {
     await followApplication()
   })
 }
-function scheduleSync() { const task = syncQueue.then(synchronize); syncQueue = task.catch(error => { $('#connection').textContent = '连接中断'; toast(error.message) }); return syncQueue }
+function scheduleSync(propagate = false) { const task = syncQueue.then(synchronize); syncQueue = task.catch(error => { $('#connection').textContent = '连接中断'; toast(error.message) }); return propagate ? task : syncQueue }
 $('#manage-plugins').onclick = () => { $('#plugin-manager').showModal(); scheduleSync() }
 $('#close-manager').onclick = () => $('#plugin-manager').close()
 $('#plugin-manager').addEventListener('cancel', event => { if (working) event.preventDefault() })

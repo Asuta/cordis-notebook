@@ -90,6 +90,33 @@ test('开发资料按模板和专项任务收窄，完整服务可展开且不�
   await assert.rejects(developmentInfo(resolve('.'), 'notebook', { template: 'server', focus: 'ui' }), /不一致/)
 })
 
+test('界面资料按模板提供有限的真实样式、图标与排序选段，后端不附带界面材料', async () => {
+  const footer = await developmentInfo(resolve('.'), 'notebook', { template: 'notebook-footer' })
+  assert.match(footer.presentation.styles.example, /--theme-muted/)
+  assert.match(footer.presentation.ordering.note, /没有 order 参数/)
+  assert.match(footer.presentation.icons.note, /requires.client/)
+  const action = await developmentInfo(resolve('.'), 'studio', { template: 'studio-action' })
+  assert.match(action.presentation.ordering.example, /order:30/)
+  assert.match(action.presentation.icons.note, /menu 没有 icon 参数/)
+  assert.match(action.presentation.styles.note, /只在 .studio-app 内/)
+  for (const info of [footer, action]) {
+    assert.ok(JSON.stringify(info.presentation).length < 6000)
+    for (const excerpt of info.presentation.sources) {
+      const expected = (await readFile(excerpt.path, 'utf8')).split(/\r?\n/).slice(excerpt.start - 1, excerpt.end).join('\n')
+      assert.equal(excerpt.content, expected); assert.equal(excerpt.truncated, false)
+      assert.ok(excerpt.end - excerpt.start < 40)
+    }
+  }
+  assert.ok(action.presentation.sources.some(source => source.content.includes('a.id.localeCompare')))
+  assert.ok(footer.presentation.sources.some(source => source.content.includes('gap: 14px')))
+  for (const appId of ['notebook', 'studio', 'drawing']) {
+    const generic = await developmentInfo(resolve('.'), appId, { template: 'client' })
+    assert.deepEqual(generic.providers, [])
+    assert.doesNotMatch(JSON.stringify(generic.presentation), /--theme|--ink|canvasUI|notebook/)
+    for (const focus of ['backend', 'agent']) assert.equal((await developmentInfo(resolve('.'), appId, { focus })).presentation, undefined)
+  }
+})
+
 test('脚手架拒绝重复目录、非法 ID、越界应用、不支持模板和取消；不覆盖原文件', async t => {
   const { root, plugins } = await fixture(t)
   const args = { id: 'small-plugin', name: '插件', template: 'client' }
