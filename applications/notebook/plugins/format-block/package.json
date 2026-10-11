@@ -1,0 +1,19 @@
+{
+  "name": "@cordis-notebook/format-block",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "cordis": "4.0.0-rc.10", "@cordis-notebook/host": "workspace:*", "@cordis-notebook/rich-text": "workspace:*" },
+  "exports": { "./data": { "types": "./types/data.d.ts" }, "./client": { "types": "./types/client.d.ts" }, "./server": { "types": "./types/server.d.ts" } },
+  "cordis": {
+    "schemaVersion": 1, "id": "format-block", "name": "块页面格式", "description": "独立的块树文档，支持嵌套、富文本和稳定块 ID。",
+    "requires": { "server": ["noteFormats", "richText"], "client": ["noteFormats", "richText"] },
+    "provides": { "server": ["blockDocument"], "client": ["blockDocument"] },
+    "order": 10, "defaultEnabled": true, "client": "client.js", "server": { "entry": "server.js", "export": "default" },
+    "public": ["client.js"], "styles": [], "category": { "id": "features", "label": "功能" }, "icon": "Blocks",
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser", "minify": true },
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" }
+    ]
+  }
+}

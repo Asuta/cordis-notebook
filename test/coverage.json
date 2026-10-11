@@ -1,6 +1,8 @@
 {
   "version": 1,
   "tests": [
+    {"file": "test/block-page.test.js", "application": "notebook", "plugins": ["block-editor", "format-block"]},
+    {"file": "test/block-page-interaction.test.js", "application": "notebook", "plugins": ["block-editor", "format-block"]},
     { "file": "test/studio-development.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"] },
     {"file": "test/studio-runtime.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
     {"file": "test/studio-client.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},

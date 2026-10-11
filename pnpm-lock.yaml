@@ -104,6 +104,39 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
+  applications/notebook/plugins/block-editor:
+    dependencies:
+      '@tiptap/core':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/pm@3.31.3)
+      '@tiptap/extension-highlight':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))
+      '@tiptap/extension-image':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))
+      '@tiptap/extension-subscript':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
+      '@tiptap/extension-superscript':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
+      '@tiptap/extension-table':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
+      '@tiptap/extension-text-align':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))
+      '@tiptap/extension-text-style':
+        specifier: ^3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))
+      '@tiptap/pm':
+        specifier: ^3.31.3
+        version: 3.31.3
+      '@tiptap/starter-kit':
+        specifier: ^3.31.3
+        version: 3.31.3
+
   applications/notebook/plugins/editor:
     dependencies:
       '@cordis-notebook/ui':
@@ -131,6 +164,18 @@ importers:
   applications/notebook/plugins/export: {}
 
   applications/notebook/plugins/focus-timer: {}
+
+  applications/notebook/plugins/format-block:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../../../packages/host
+      '@cordis-notebook/rich-text':
+        specifier: workspace:*
+        version: link:../rich-text
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
 
   applications/notebook/plugins/format-freeform:
     dependencies:

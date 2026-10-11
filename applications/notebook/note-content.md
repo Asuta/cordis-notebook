@@ -7,6 +7,7 @@
 | plain（type 缺失也按 plain） | plugins/format-plain | content | 正文原文 |
 | markdown | plugins/format-markdown | markdown | markdown 服务 toText 生成的纯文本 |
 | freeform | plugins/format-freeform | blocks、page、version | 按块位置排序合并的纯文本 |
+| block | plugins/format-block | document（version、blocks） | 按块及子块顺序提取的纯文本 |
 
 `plugins/markdown` 是渲染/转换服务，格式定义在 `plugins/format-markdown/format.js`。`note-formats` 按 fields 规范化格式数据，再通过 toText 派生 content。普通笔记更新 `{ content: "…" }`；Markdown 更新 `{ markdown: "…" }`；自由页面按块和版本契约更新。读取当前草稿用 notebook.current()/observe，不从磁盘读取或改其他编辑器的内部 DOM。
 
@@ -22,3 +23,5 @@ const source = type === 'plain' ? note.content
 ```
 
 不要在 Markdown 源码为空时用 content 回退，否则可能把过期派生文本当成正文。新增格式应查它的 fields、normalize 和 toText 契约，再确定是否适用同一统计规则。
+
+块页面更新 `{ document: { version: 1, blocks: [...] } }`，块类型、富文本正文和嵌套关系由 `blockDocument` 服务校验；契约见 `plugins/format-block/types/data.d.ts`。不能用派生 `content` 还原结构，也不要套用自由页面的坐标块字段。

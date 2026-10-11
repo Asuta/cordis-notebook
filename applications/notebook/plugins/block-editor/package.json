@@ -1,0 +1,18 @@
+{
+  "name": "@cordis-notebook/block-editor", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": {
+    "@tiptap/core": "^3.31.3", "@tiptap/starter-kit": "^3.31.3", "@tiptap/pm": "^3.31.3",
+    "@tiptap/extension-text-style": "^3.31.3", "@tiptap/extension-highlight": "^3.31.3", "@tiptap/extension-table": "^3.31.3",
+    "@tiptap/extension-image": "^3.31.3", "@tiptap/extension-subscript": "^3.31.3", "@tiptap/extension-superscript": "^3.31.3", "@tiptap/extension-text-align": "^3.31.3"
+  },
+  "cordis": {
+    "schemaVersion": 1, "id": "block-editor", "name": "块页面编辑器", "description": "Notion 风格的流式块页面，支持菜单、拖拽、嵌套与富文本。",
+    "requires": { "server": [], "client": ["notebook", "editorHost", "noteFormats", "richText", "blockDocument", "noteAssets"] },
+    "provides": { "server": [], "client": [] }, "order": 20, "defaultEnabled": true, "client": "client.js",
+    "public": ["client.js", "style.css"], "styles": ["style.css"], "category": { "id": "features", "label": "功能" }, "icon": "Blocks",
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser", "minify": true },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

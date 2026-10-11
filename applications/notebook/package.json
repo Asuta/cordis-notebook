@@ -6,7 +6,7 @@
   "cordisApp": {
     "id": "notebook",
     "name": "笔记",
-    "description": "普通笔记、自由页面与 Markdown。",
+    "description": "普通笔记、自由页面、Markdown 与 Notion 风格块页面。",
     "icon": "assets/icon.svg",
     "default": true,
     "legacyData": [

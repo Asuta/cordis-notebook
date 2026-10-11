@@ -19,7 +19,7 @@ export default function (ctx, sdk) {
     if (!model.notes.some(n => n.id === id)) throw Error('笔记不存在')
     await model.choose(id); return { selected: model.selected }
   })
-  register('notebook_create', '创建并打开笔记，type 可为 plain、markdown 或 freeform。', object({ type: string, title: string }), async ({ type = 'plain', title }) => {
+  register('notebook_create', '创建并打开笔记，type 可为 plain、markdown、freeform 或 block（块页面）。', object({ type: string, title: string }), async ({ type = 'plain', title }) => {
     if (model.busy) throw Error('编辑器正在处理其他操作')
     await model.create(type)
     if (typeof title === 'string') model.edit({ title })
