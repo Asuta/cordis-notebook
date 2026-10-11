@@ -1,3 +1,4 @@
+import { openConversationStore } from '../workbench/conversation-store.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
@@ -105,7 +106,8 @@ test('批量操作预校验全部参数，顺序执行失败即停并保留现�
   await assert.rejects(v.run('browser_retest', { reason: '已通过不重复' }), /失败或未完成/)
   const wb = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: dir })
   await wb.close()
-  await writeFile(join(dir, 'conversations.json'), JSON.stringify([{ id: 'history', appId: 'notebook', messages: [], turns: [{ id: 'turn', events: [], browserVerification: final }] }]))
+  const historyStore = await openConversationStore(dir)
+  historyStore.mark({ id: 'history', appId: 'notebook', messages: [], turns: [{ id: 'turn', events: [], browserVerification: final }] }); await historyStore.flush()
   const restored = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: dir })
   try {
     const base = 'http://127.0.0.1:' + restored.server.address().port
@@ -164,7 +166,7 @@ test('每轮开关固定，偏好随会话保存，新会话默认关闭，关�
   assert.equal(finished.browserVerificationEnabled, false)
   const fresh = await request('run', { appId: 'notebook', prompt: '新会话' }); await untilDone()
   assert.equal(fresh.browserVerificationEnabled, false)
-  const saved = JSON.parse(await readFile(join(dir, 'conversations.json'), 'utf8'))
+  const saved = (await openConversationStore(dir)).conversations
   assert.equal(saved.find(item => item.id === first.id).browserVerificationEnabled, false)
 })
 

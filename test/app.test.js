@@ -12,7 +12,11 @@ test('Cordis 笔记服务：增改查删、并发写入、持久化与生命周�
     const file = join(dir, 'notes.json')
     app = await createApp({ port: 0, file })
     let base = `http://127.0.0.1:${app.server.address().port}`
-    const request = (path = '', method = 'GET', body) => fetch(base + '/api/notes' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+    const request = async (path = '', method = 'GET', body) => {
+      const id = path.slice(1), revision = app.ctx.notes.list().find(n => n.id === id)?.revision ?? 0
+      body = ['PATCH', 'DELETE'].includes(method) ? { ...body, revision } : body
+      return fetch(base + '/api/notes' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+    }
     const first = await (await request('', 'POST')).json()
     await request('/' + first.id, 'PATCH', { title: '测试笔记', content: '刷新后依然存在', pinned: true })
     await Promise.all(Array.from({ length: 6 }, () => request('', 'POST')))

@@ -109,12 +109,12 @@ function Slot({ node, className = '' }) {
   }, [node])
   return <div ref={ref} className={className} />
 }
-function useObserve(owner, service) {
+function useObserve(owner, service, options) {
   const [, update] = React.useReducer((n) => n + 1, 0)
   // Cordis returns contextual service proxies. Their object identity need not be
   // stable between renders; injection changes restart the consuming plugin.
   const source = React.useRef({ owner, service }).current
-  React.useLayoutEffect(() => source.service.observe(source.owner, update), [source])
+  React.useLayoutEffect(() => source.service.observe(source.owner, update, options), [source])
   return service
 }
 export function createUI() {

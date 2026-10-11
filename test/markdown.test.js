@@ -39,7 +39,11 @@ test('Markdown 插件通过通用 API 保存原始源码，格式停用保留数
   try {
     app = await createApp({ port: 0, file })
     const base = () => `http://127.0.0.1:${app.server.address().port}`
-    const request = (path, method, data) => fetch(base() + '/api/notes' + path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    const request = async (path, method, data) => {
+      const id = path.slice(1), revision = app.ctx.notes.list().find(n => n.id === id)?.revision ?? 0
+      data = ['PATCH', 'DELETE'].includes(method) ? { ...data, revision } : data
+      return fetch(base() + '/api/notes' + path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    }
     const note = await (await request('', 'POST', { type: 'markdown' })).json()
     assert.equal(note.markdown, '')
     const response = await request('/' + note.id, 'PATCH', { title: 'Markdown 验收', markdown: source })

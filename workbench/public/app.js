@@ -1,3 +1,4 @@
+import { mergeThread } from './thread-cache.js'
 import { createMessage, createTurn, updateTurn, developmentStatus } from './timeline.js'
 const $ = id => document.getElementById(id)
 const frame = $('application'), standalone = location.pathname === '/chat', clientId = crypto.randomUUID()
@@ -37,9 +38,9 @@ async function api(path, data) {
 const safe = action => async event => { try { await action(event) } catch (error) { toast(error.message) } }
 const removeDraftImage = id => pendingImages.has(id) ? Promise.resolve() : api('images/remove', { id })
 function current() { return state?.threads.find(t => t.id === threadId) }
-function upsert(thread) {
+function upsert(thread, options) {
   const index = state.threads.findIndex(t => t.id === thread.id), previous = state.threads[index]
-  if (previous && (previous.revision || 0) > (thread.revision || 0)) return
+  thread = mergeThread(previous, thread, options)
   if (index < 0) state.threads.push(thread); else state.threads[index] = thread
   if (thread.running) state.activeThreadId = thread.id; else if (state.activeThreadId === thread.id) state.activeThreadId = null
 }
@@ -67,6 +68,8 @@ function render() {
     if (next < 0) wanted.push({ key: 't-' + turn.id, turn }); else wanted.splice(Math.max(0, next - 1), 0, { key: 't-' + turn.id, turn })
   }
   messages.querySelector('.empty')?.remove()
+  const keys = new Set(wanted.map(entry => entry.key))
+  for (const [key, row] of rows) if (!keys.has(key)) { row.remove(); rows.delete(key) }
   let previous = null
   for (const entry of wanted) {
     let row = rows.get(entry.key)
@@ -83,6 +86,7 @@ function render() {
   if (!wanted.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = '一起改造你的应用。\n\n创建插件、修改代码，或整理当前笔记。\n添加选区或图片，让想法更具体。'; messages.append(empty) }
   messages.scrollTop = nearBottom ? messages.scrollHeight : scrollTop
   followButton()
+  $('older').hidden = !thread?.history?.before
   $('stop').hidden = !state.activeThreadId
   $('send').hidden = !!state.activeThreadId
   $('activity').textContent = state.activeThreadId && state.activeThreadId !== threadId ? '另一个对话正在执行任务' : ''
@@ -165,9 +169,9 @@ function connectFrame() { if (!standalone && appOrigin) frame.contentWindow.post
 async function refresh() {
   if (polling) return; polling = true
   try {
-    const fresh = await api('state')
+    const fresh = await api('state?summary=1')
     if (state) {
-      for (const thread of fresh.threads) { const newer = state.threads.find(t => t.id === thread.id); if (newer && newer.revision > thread.revision) Object.assign(thread, newer) }
+      fresh.threads = fresh.threads.map(thread => mergeThread(state.threads.find(t => t.id === thread.id), thread))
       for (const thread of state.threads) if (!fresh.threads.some(t => t.id === thread.id)) fresh.threads.push(thread)
       fresh.activeThreadId = fresh.threads.find(t => t.running)?.id || null
     }
@@ -183,9 +187,28 @@ async function refresh() {
     if (!appOrigin) { appOrigin = new URL(state.appUrl).origin; if (!standalone) frame.src = state.appUrl }
     $('offline').hidden = state.application.online; $('logs').textContent = [state.application.error, ...state.application.logs.map(log => log.text)].filter(Boolean).join('\n')
     if (!state.application.online) binding = null
-    render(); connectFrame()
+    render(); connectFrame(); await loadThread()
   } finally { polling = false }
 }
+const detailRequests = new Map()
+async function loadThread(older = false) {
+  const thread = current(); if (!thread || older && !thread.history?.before) return
+  if (!older && thread.detailRevision === thread.revision) return
+  const key = thread.id + ':' + (older ? thread.history.before : 'latest')
+  if (detailRequests.has(key)) return detailRequests.get(key)
+  const query = older ? 'before=' + thread.history.before : 'since=' + (thread.detailRevision ?? -1)
+  const task = api('threads/' + encodeURIComponent(thread.id) + '?' + query).then(value => {
+    if (!value.unchanged) upsert(value, { older, detail: true })
+    if (threadId === thread.id) render()
+  }).finally(() => detailRequests.delete(key))
+  detailRequests.set(key, task); return task
+}
+$('older').onclick = safe(async () => {
+  const box = $('messages'), height = box.scrollHeight, top = box.scrollTop, id = threadId
+  $('older').disabled = true
+  try { await loadThread(true); if (threadId === id) box.scrollTop = top + box.scrollHeight - height }
+  finally { $('older').disabled = false }
+})
 window.addEventListener('message', safe(async event => {
   const message = event.data
   if (standalone || event.source !== frame.contentWindow || event.origin !== appOrigin || message?.channel !== 'cordis-agent') return
@@ -212,7 +235,7 @@ $('messages').addEventListener('process-toggle', () => requestAnimationFrame(fol
 $('latest').onclick = () => { const box = $('messages'); box.scrollTo({ top: box.scrollHeight, behavior: motion() ? 'smooth' : 'auto' }) }
 $('new-thread').onclick = newThread
 $('app-select').onchange = () => { appId = $('app-select').value; newThread() }
-$('threads').onchange = () => { threadId = $('threads').value; clearDraftAttachments(); render(); $('messages').scrollTop = $('messages').scrollHeight }
+$('threads').onchange = safe(async () => { threadId = $('threads').value; clearDraftAttachments(); render(); await loadThread(); $('messages').scrollTop = $('messages').scrollHeight })
 $('browser-verification').onchange = () => {
   const key = browserChoiceKey(), enabled = $('browser-verification').checked, id = threadId
   const draft = { enabled }
@@ -303,18 +326,31 @@ events.onmessage = event => {
   if (!state) return
   if (message.type === 'thread') {
     upsert(message.thread)
+    if (message.thread.id === threadId) void loadThread().catch(error => toast(error.message))
     if (!message.thread.running && $('chat').hidden) $('badge').hidden = false
+  } else if (message.type === 'command') {
+    const thread = state.threads.find(thread => thread.id === message.threadId)
+    if (!thread || message.revision < thread.revision) return
+    thread.commands ||= []
+    const index = thread.commands.findIndex(command => command.session_id === message.command.session_id)
+    if (index < 0) thread.commands.push(message.command); else thread.commands[index] = message.command
   } else if (message.type === 'turn') {
     const thread = state.threads.find(thread => thread.id === message.threadId)
     if (!thread) { void refresh(); return }
     if (message.revision <= thread.revision) return
+    thread.turns ||= []
     const index = thread.turns.findIndex(turn => turn.id === message.turn.id)
     if (index < 0) thread.turns.push(message.turn); else thread.turns[index] = message.turn
     thread.revision = message.revision; thread.contextUsage = message.contextUsage
   }
   scheduleRender()
 }
-events.onopen = () => void refresh().catch(error => toast(error.message))
+events.onopen = () => {
+  // A reconnected stream may have missed changes to older turns or commands.
+  // Reload the visible page; older history remains available through its cursor.
+  for (const thread of state?.threads || []) for (const field of ['messages', 'turns', 'commands', 'history', 'detailRevision']) delete thread[field]
+  void refresh().catch(error => toast(error.message))
+}
 events.onerror = () => { $('connection').textContent = '工作台连接中断，正在重连…' }
 config = await api('config'); setModelOptions()
 await refresh().catch(error => toast(error.message))

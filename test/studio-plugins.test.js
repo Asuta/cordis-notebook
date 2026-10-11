@@ -1,3 +1,4 @@
+import { writeSnapshot } from '../shared/persistence.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
@@ -16,7 +17,7 @@ import { owner } from './helpers/studio-fixture.js'
 async function setup(t) {
   const directory = await mkdtemp(join(tmpdir(), 'studio-plugins-')), types = createNodeRegistry(), base = owner()
   for (const item of [...definitions, definition]) types.register(base, item)
-  const store = await createStore(directory, types)
+  const store = await createStore(directory, writeSnapshot, types)
   const cleanup = []
   t.after(async () => { for (const fn of cleanup.reverse()) await fn(); await base.dispose(); await rm(directory, { recursive: true, force: true }) })
   const boardId = store.read().boards[0].id
@@ -38,7 +39,7 @@ test('新增卡片通过注册输出文字；卸载后保留内容、连线、�
   assert.throws(() => generationInput(store.read().boards[0], 'g', types), /不可用/)
   const removed = await edit([{ type: 'remove', ids: ['custom'] }])
   await edit(removed.inverse)
-  const reopened = await createStore(directory)
+  const reopened = await createStore(directory, writeSnapshot)
   assert.equal(reopened.read().boards[0].nodes[0].template, '模板内容')
   assert.equal(reopened.read().boards[0].edges.length, 1)
   types.register(owner(), template)
@@ -60,7 +61,7 @@ test('任意插件的可选字段可跨 JSON 撤销删除，保留 null 值并�
   const removed = await send([{ type: 'update', id: 'custom', patch: {}, unset: ['option'] }])
   assert.equal(Object.hasOwn(removed.board.nodes[0], 'option'), false)
   await send(removed.inverse)
-  assert.equal((await createStore(directory, types)).read().boards[0].nodes[0].option, null)
+  assert.equal((await createStore(directory, writeSnapshot, types)).read().boards[0].nodes[0].option, null)
   await plugin.dispose()
   const before = store.read()
   await assert.rejects(send(changed.inverse), /不能修改/)
@@ -126,9 +127,9 @@ test('Pixel 私有配置只迁移一次，旧备份保留且新配置优先', as
   const { directory } = await setup(t), legacy = { apiKey: 'legacy-secret', model: 'old-model', baseUrl: 'https://example.com' }
   const legacyPath = join(directory, 'old-private.json'), target = join(directory, 'provider')
   await writeFile(legacyPath, JSON.stringify(legacy))
-  const config = await createConfig(target, { env: {}, configPath: 'missing', legacy: async () => JSON.parse(await readFile(legacyPath, 'utf8')) })
+  const config = await createConfig(target, { writeSnapshot, env: {}, configPath: 'missing', legacy: async () => JSON.parse(await readFile(legacyPath, 'utf8')) })
   await config.save({ model: 'new-model' })
-  const reopened = await createConfig(target, { legacy: () => { throw Error('不能再次迁移') } })
+  const reopened = await createConfig(target, { writeSnapshot, legacy: () => { throw Error('不能再次迁移') } })
   assert.equal(reopened.public().model, 'new-model')
   assert.equal(reopened.private().apiKey, legacy.apiKey)
   assert.doesNotMatch(JSON.stringify(reopened.public()), /legacy-secret/)

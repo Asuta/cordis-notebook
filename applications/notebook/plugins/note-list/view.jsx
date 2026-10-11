@@ -35,7 +35,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
       .then(() => ctx.shell.showEditor?.())
       .catch((e) => sdk.toast(e.message))
   function NoteList() {
-    const model = useObserve(ctx, ctx.notebook)
+    const model = useObserve(ctx, ctx.notebook, { reasons: ['edit', 'selection', 'filters', 'busy'] })
     useObserve(ctx, ctx.noteFormats)
     const formats = ctx.noteFormats.list(),
       notes = model.visible()

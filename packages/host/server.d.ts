@@ -4,6 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type {} from './index'
 export type { ServerContext } from './index'
 export interface ServerRuntime {
+  /** Atomic replacement, serialized per path with transient Windows lock retries. */
+  writeSnapshot(file: string, snapshot: string): Promise<void>
   readonly id: string
   readonly dataDir: string
   readonly appDataDir: string

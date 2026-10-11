@@ -1,3 +1,4 @@
+import { writeSnapshot } from '../shared/persistence.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
@@ -122,11 +123,11 @@ test('可选字段撤销仍检查冲突，删除只允许已声明且非必填�
 test('配置首次导入，之后独立保存；公开信息和任务不含 Key', async t => {
   const { directory } = await setup(t), configPath = join(directory, 'config.toml')
   await writeFile(configPath, '[skills.other.env]\nIGNORED="x"\n[skills.ai-pixel-image2.env]\nAI_PIXEL_API_KEY = "private-test-key"\nAI_PIXEL_API_BASE_URL = "https://ai-pixel.online"\nAI_PIXEL_IMAGE_MODEL = "gpt-image-2"\n[next]\nother="ignored"')
-  const config = await createConfig(directory, { env: {}, configPath })
+  const config = await createConfig(directory, { writeSnapshot, env: {}, configPath })
   assert.equal(config.private().apiKey, 'private-test-key')
   assert.equal(config.public().hasKey, true); assert.doesNotMatch(JSON.stringify(config.public()), /private-test-key/)
   await config.save({ apiKey: '', model: 'gpt-image-2' })
-  assert.equal((await createConfig(directory, { env: {}, configPath: 'missing' })).private().apiKey, 'private-test-key')
+  assert.equal((await createConfig(directory, { writeSnapshot, env: {}, configPath: 'missing' })).private().apiKey, 'private-test-key')
 })
 
 test('Pixel 文生图走 JSON，参考图走 edits 的 image[]，比例与分辨率进入请求', async () => {

@@ -27,7 +27,7 @@
       "examples": ["plugins/stats/client.js", "plugins/stats/package.json"],
       "patterns": ["shell 由 layout 提供；sdk.mount('footer', node) 挂到页脚，布局还有 sidebar/toolbar/status/editor/panels。", "ctx.notebook.observe(ctx, render) 立即调用并随 owner 释放；sdk.mount 和 sdk.listen 也由上下文释放。", "note.content 不是所有格式的统一正文，先按 note.type 和格式契约选择；无需修改 notebook 或布局宿主。"]
     },
-    "backend": { "services": { "server": ["notes", "http"], "client": [] }, "contracts": ["plugins/notes/types/server.d.ts", "note-content.md"], "examples": ["plugins/notes-api/server.js", "plugins/notes-api/package.json"], "patterns": ["后端接口使用 ctx.http.route(ctx, method, pattern, handler)；声明 requires.server。持久化通过 notes 服务，保留 revision 校验。"] },
+    "backend": { "services": { "server": ["notes", "http"], "client": [] }, "contracts": ["plugins/notes/types/server.d.ts", "note-content.md"], "examples": ["plugins/notes-api/server.js", "plugins/notes-api/package.json"], "patterns": ["后端接口使用 ctx.http.route(ctx, method, pattern, handler)；声明 requires.server。持久化通过 notes 服务；外部 PATCH/DELETE 的 revision 必填，传给 notes.update/remove 的第三/第二参数，在写入队列内校验，过期返回 409。文件持久化使用 runtime.writeSnapshot，不跨插件导入宿主实现。"] },
     "agent": { "services": { "client": ["notebook"], "server": [] }, "contracts": ["plugins/notebook/types/client.d.ts", "note-content.md"], "examples": ["plugins/agent-tools/client.js", "plugins/agent-tools/package.json"], "patterns": ["sdk.agent.register 注册工具，停用插件时自动释放；操作本页草稿并校验 revision，不能直接写 notes.json。"] }
   }
 }

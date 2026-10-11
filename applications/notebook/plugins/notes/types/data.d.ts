@@ -1,6 +1,8 @@
 export interface Note {
   readonly type?: string
   readonly [field: string]: unknown
+  /** Server revision; legacy imported notes start at zero. */
+  readonly revision?: number
   readonly id: string
   readonly title: string
   /** plain 的正文；其他格式由 toText 派生的纯文本，不保证保留空行或块结构。Markdown 源码在 markdown 字段。 */

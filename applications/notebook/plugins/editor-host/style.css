@@ -18,6 +18,17 @@
 .editor-writing {
   overflow: hidden;
 }
+.note-conflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-panel);
+  color: var(--theme-text);
+  font-size: 13px;
+}
 .editor-writing[data-editor-layout='wide'] > .note-heading {
   max-width: none;
   padding: 24px 30px 16px;

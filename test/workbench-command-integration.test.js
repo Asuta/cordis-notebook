@@ -1,3 +1,4 @@
+import { openConversationStore } from '../workbench/conversation-store.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises'
@@ -46,9 +47,9 @@ test('HTTP 停止保留后台服务；回复结束及刷新不改命令状态；
   await until(async () => !(await f.request('state')).body.activeThreadId)
   await assert.rejects(f.wb.execute({ ...task, thread: another }, 'write_stdin', { session_id: service.session_id }), /不属于/)
   await f.wb.close()
-  const saved = JSON.parse(await readFile(join(f.dataDir, 'conversations.json'), 'utf8'))
+  const saved = (await openConversationStore(f.dataDir)).conversations
   saved[0].commands[1].status = 'running' // Simulate a crash snapshot, with no orphan process.
-  await writeFile(join(f.dataDir, 'conversations.json'), JSON.stringify(saved))
+  const storage = await openConversationStore(f.dataDir); storage.mark(saved[0]); await storage.flush()
   await f.open()
   const restored = (await f.request('state')).body.threads[0]
   assert.equal(restored.commands[1].status, 'interrupted')

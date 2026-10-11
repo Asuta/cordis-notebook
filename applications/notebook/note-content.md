@@ -25,3 +25,5 @@ const source = type === 'plain' ? note.content
 不要在 Markdown 源码为空时用 content 回退，否则可能把过期派生文本当成正文。新增格式应查它的 fields、normalize 和 toText 契约，再确定是否适用同一统计规则。
 
 块页面更新 `{ document: { version: 1, blocks: [...] } }`，块类型、富文本正文和嵌套关系由 `blockDocument` 服务校验；契约见 `plugins/format-block/types/data.d.ts`。不能用派生 `content` 还原结构，也不要套用自由页面的坐标块字段。
+
+`note.revision` 是服务端保存版本；HTTP 更新/删除必须传读取时的版本，收到 409 且错误 `code` 为 `NOTE_REVISION_CONFLICT` 时保留本页草稿并另存副本。格式插件暂时不可用等其他 409 保留重试能力。`notebook.current()` 和 `visible()` 返回缓存的只读快照，不能直接修改。只关心内容/选择的订阅可用 `observe(ctx, render, { reasons: ["edit", "selection", "filters", "busy"] })`，跳过仅保存状态变化的通知；默认订阅仍接收全部事件。

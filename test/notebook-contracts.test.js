@@ -30,7 +30,8 @@ async function fixture(t, initialNotes, extraFormats = []) {
     new Service(ctx, 'notesApi').request = async (path, method, data) => {
       if (!method || method === 'GET') return structuredClone(notes)
       if (method === 'PATCH') {
-        const saved = await patch(root.noteFormats.update(notes.find(n => path === '/' + n.id), data))
+        const { revision, ...fields } = data
+        const saved = await patch(root.noteFormats.update(notes.find(n => path === '/' + n.id), fields))
         writes.push(saved); return saved
       }
       throw new Error('unexpected request')

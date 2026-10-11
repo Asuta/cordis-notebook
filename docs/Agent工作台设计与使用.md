@@ -21,7 +21,7 @@ pnpm workbench
 
 第一次在聊天设置中填写 API 密钥。默认基础地址 `https://api.deepseek.com/v1`，模型 `deepseek-v4-pro`，推理强度 High。也接受粘贴完整 `/chat/completions` 地址，保存时规范化为基础地址。密钥只在工作台后端传给模型请求，不返回前端。环境变量 `DEEPSEEK_API_KEY` 可作为初始值，本地配置优先；不自动读取 .env。
 
-默认目录 `.workbench/` 被 Git 忽略，含 `config.json`（明文密钥）、`conversations.json`（界面历史与执行时间线）、`attachments/`（原始图片与元数据）和 `pi/sessions/`（Pi 对话与工具结果，含发给模型的图片）。备份时按私有资料处理；不要提交或分享这些文件。完全信任模式下，文件工具和命令具有当前账户权限，提示词中的约定不是密钥隔离沙箱。
+默认目录 `.workbench/` 被 Git 忽略，含 `config.json`（明文密钥）、`conversations/`（每个会话独立的历史与时间线；旧 `conversations.json` 自动迁移并保留备份）、`attachments/`（原始图片与元数据）和 `pi/sessions/`（Pi 对话与工具结果，含发给模型的图片）。备份时按私有资料处理；不要提交或分享这些文件。完全信任模式下，文件工具和命令具有当前账户权限，提示词中的约定不是密钥隔离沙箱。
 
 `pnpm workbench:runtime` 以正式模式启动且跳过构建。环境变量：`WORKBENCH_PORT` 默认 3211，`WORKBENCH_APP_PORT` 默认 3210，`WORKBENCH_APP_MODE` 可设为 development 或 runtime，`WORKBENCH_DATA_DIR` 指定工作台私有目录，`DATA_DIR` 指定业务数据目录。工作台使用本仓库的 applications；单目录 PLUGINS_DIR 开发入口不属于此启动方式。
 
@@ -161,3 +161,5 @@ Pi 提供文件读取、编辑、写入和模型循环。工作台提供：
 ## 修改和验证
 
 开发模式下修改业务插件只需保存并运行相关测试；正式模式下构建对应应用，后端或清单修改后重启。新增依赖先运行 `pnpm install`，安装结束后自动重试插件加载；`scripts/` 或宿主共享运行库升级需要用 `workspace_restart` 重启开发服务。工作台代码变更需要重启工作台自身。`pnpm build` 同时生成工作台 Markdown 浏览器模块；仅修改工作台时可执行 `node workbench/build.js`。`pnpm test` 包含工作台协议、选区桥接和现有应用回归；新增测试使用真实 Pi SDK + 模拟模型端点验证三档强度、多图和压缩请求，并测试 Markdown 与稳定 DOM 更新。真实 API 验证会产生模型费用，不把密钥放入测试夹具。
+
+历史分页、存储合并和性能限制见 [保存可靠性与性能边界](保存可靠性与性能边界.md)。

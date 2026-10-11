@@ -11,7 +11,7 @@ async function uploadBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString()) } catch { invalid('图片上传格式无效') }
 }
 export default async function (ctx, settings, runtime) {
-  const store = await createStore(runtime.dataDir), snapshots = createRegistry(), changes = new Set()
+  const store = await createStore(runtime.dataDir, runtime.writeSnapshot), snapshots = createRegistry(), changes = new Set()
   const service = Object.assign(new Service(ctx, 'canvasDocuments'), {
     types: store.types, snapshots,
     read: store.read, addBoard: store.addBoard, addImage: store.addImage, image: store.image,

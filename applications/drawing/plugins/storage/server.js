@@ -1,5 +1,5 @@
 import { Service } from 'cordis'
-import { readFile, writeFile, rename } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const invalid = message => { throw Object.assign(Error(message), { status: 400 }) }
@@ -29,7 +29,7 @@ export default async function (ctx, config, runtime) {
       const task = queue.then(async () => {
         if (input?.revision !== value.revision) throw Object.assign(Error('作品已在其他页面更新；本页草稿已保留，请先导出或重新载入'), { status: 409 })
         const next = { ...validate(input), revision: value.revision + 1 }
-        await writeFile(file + '.tmp', JSON.stringify(next)); await rename(file + '.tmp', file)
+        await runtime.writeSnapshot(file, JSON.stringify(next))
         value = next; return structuredClone(value)
       })
       queue = task.catch(() => {}); return task

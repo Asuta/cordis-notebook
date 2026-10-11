@@ -1,22 +1,12 @@
-import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import sharp from 'sharp'
 import { createNodeRegistry } from './registry.js'
 import { applyOperation, validateBoard, invalid, string } from './model.js'
 
-export async function atomic(file, value) {
-  const temporary = file + '.' + randomUUID() + '.tmp'
-  try {
-    await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 })
-    for (let attempt = 0; ; attempt++) {
-      try { await rename(temporary, file); break }
-      catch (error) { if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 6) throw error; await new Promise(resolve => setTimeout(resolve, 25 * 2 ** attempt)) }
-    }
-  } finally { await rm(temporary, { force: true }).catch(() => {}) }
-}
 export const newBoard = title => ({ id: randomUUID(), title, revision: 0, viewport: { x: 60, y: 60, zoom: 1 }, nodes: [], edges: [] })
-export async function createStore(directory, types = createNodeRegistry()) {
+export async function createStore(directory, writeSnapshot, types = createNodeRegistry()) {
   await mkdir(join(directory, 'images'), { recursive: true })
   const file = join(directory, 'studio.json')
   let state
@@ -24,13 +14,13 @@ export async function createStore(directory, types = createNodeRegistry()) {
   catch (error) { if (error.code !== 'ENOENT') throw error; state = { version: 1, boards: [newBoard('我的灵感画板')], assets: {}, jobs: [] } }
   if (state.version !== 1 || !Array.isArray(state.boards) || !state.assets || !Array.isArray(state.jobs)) throw Error('画布数据无效，原文件已保留')
   for (const board of state.boards) validateBoard(board, state.assets, types)
-  await atomic(file, state)
+  await writeSnapshot(file, JSON.stringify(state, null, 2))
   let queue = Promise.resolve()
   const store = {
     directory, types,
     read: () => structuredClone(state),
     change(fn) {
-      const task = queue.then(async () => { const next = structuredClone(state), result = await fn(next); await atomic(file, next); state = structuredClone(next); return result })
+      const task = queue.then(async () => { const next = structuredClone(state), result = await fn(next); await writeSnapshot(file, JSON.stringify(next, null, 2)); state = structuredClone(next); return result })
       queue = task.catch(() => {}); return task
     },
     flush: () => queue,

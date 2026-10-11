@@ -1,3 +1,4 @@
+import { writeSnapshot } from '../../shared/persistence.js'
 import { createRegistry } from '../../applications/studio/plugins/canvas/registry.js'
 import { createStore as openStore } from '../../applications/studio/plugins/canvas/store.js'
 import { applyOperation as apply } from '../../applications/studio/plugins/canvas/model.js'
@@ -16,7 +17,7 @@ export function createTypes() {
 }
 export const applyOperation = (board, operation, assets) => apply(board, operation, assets, createTypes())
 export const generationInput = (board, id) => input(board, id, createTypes())
-export const createStore = directory => openStore(directory, createTypes())
+export const createStore = directory => openStore(directory, writeSnapshot, createTypes())
 export async function createJobs(store, config, pixel) {
   const jobs = await openJobs(store)
   jobs.register(owner(), { id: 'fake', label: '测试服务', public: () => ({}), prepare(input) {

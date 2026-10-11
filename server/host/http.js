@@ -23,7 +23,7 @@ export class Http extends Service {
         const request = { req, res, pathname, match: route ? pathname.match(route.pattern) : null }
         const result = await (route ? route.handler(request) : this.fallback(request))
         if (!res.headersSent) send(200, result ?? { ok: true })
-      } catch (error) { if (!error.status) console.error(error); if (!res.headersSent) send(error.status || 500, { error: error.message }); else res.end() }
+      } catch (error) { if (!error.status) console.error(error); if (!res.headersSent) send(error.status || 500, { error: error.message, ...(typeof error.code === 'string' ? { code: error.code } : {}) }); else res.end() }
     })
     this.ready = new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(port, '127.0.0.1', resolve) })
     ctx.effect(() => async () => {

@@ -26,7 +26,7 @@ const agentBridge = createAgentBridge({ application: application.current, sessio
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false
 async function request(path, method = 'GET', data, signal) {
   const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json', 'X-Application-Session': pageSession }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
-  const result = await response.json(); if (!response.ok) throw new Error(result.error || '请求失败'); return result
+  const result = await response.json(); if (!response.ok) throw Object.assign(new Error(result.error || '请求失败'), { status: response.status, ...(typeof result.code === 'string' ? { code: result.code } : {}) }); return result
 }
 function toast(message) { const node = $('#toast'); const dialog = [...document.querySelectorAll('dialog[open]')].at(-1); (dialog || document.body).append(node); node.textContent = message; node.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => node.hidden = true, 6000) }
 function el(tag, props = {}, text) {

@@ -82,7 +82,7 @@ export class Plugins extends Service {
       await mkdir(dataDir, { recursive: true })
       const fiber = this.ctx.plugin(plugin, {
         settings: record.configOverride ?? this.settings.describe(record).config ?? {},
-        runtime: { id, dataDir, appDataDir: this.dataDir, legacyFile: this.file },
+        runtime: { id, dataDir, appDataDir: this.dataDir, legacyFile: this.file, writeSnapshot },
         bind: binding => { record.configBinding = binding },
       }); record.fiber = fiber
       this.refreshState(record); await fiber; this.refreshState(record)

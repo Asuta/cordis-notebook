@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { fork } from 'node:child_process'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, mkdir } from 'node:fs/promises'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -10,9 +10,12 @@ import { MODELS, modelInfo, normalizeConfig, validateSettings } from './config.j
 import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
 import { discoverApplications } from '../server/application-discovery.js'
 import { writeSnapshot } from './persistence.js'
+import { openConversationStore } from './conversation-store.js'
+import { threadSummary, threadPage } from './conversation-view.js'
 import { BrowserVerification } from './browser-verification.js'
-import { developmentInfo, developmentRuntimeInfo, scaffoldPlugin } from './development-tools.js'
-import { enablePlugin } from './plugin-activation.js'
+import { recoverConversations, createTraceReporter } from './task-state.js'
+import { createPageBridge } from './page-bridge.js'
+import { createToolExecutor } from './tool-router.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -25,44 +28,21 @@ async function body(req) {
 export async function createWorkbench({ root = project, port = 3211, appPort = 3210, dataDir = join(root, '.workbench'), appDataDir = join(root, 'data'), autoStart = true, workerFile = join(here, 'agent-worker.js'), appMode = 'runtime', browserFactory = options => new BrowserVerification(options) } = {}) {
   await mkdir(dataDir, { recursive: true })
   let config = normalizeConfig({ apiKey: process.env.DEEPSEEK_API_KEY || '', ...await readJSON(join(dataDir, 'config.json'), {}) })
+  const streams = new Set()
+  const redact = text => config.apiKey ? String(text).split(config.apiKey).join('[密钥已隐藏]') : String(text)
+  const notify = message => { const value = JSON.stringify(message); for (const res of streams) res.write(`data: ${value}\n\n`) }
   const imageStore = new AttachmentStore(dataDir)
-  const conversations = await readJSON(join(dataDir, 'conversations.json'), [])
-  for (const item of conversations) {
-    item.turns ||= []; item.revision ||= 0
-    item.commands ||= []
-    for (const command of item.commands) if (command.status === 'running') {
-      command.status = 'interrupted'; command.endedAt = Date.now(); command.error = '工作台已重启，旧命令会话不可恢复。'
-    }
-    if (item.running) {
-      item.running = false; item.messages.push({ role: 'system', text: '工作台曾中断；可以继续此会话。' })
-      for (const turn of item.turns.filter(turn => turn.status === 'running')) {
-        turn.status = 'stopped'; turn.endedAt = Date.now()
-        if (turn.browserVerification && !turn.browserVerification.endedAt && !['disabled', 'not-run'].includes(turn.browserVerification.status)) {
-          const report = turn.browserVerification
-          report.status = 'stopped'; report.endedAt = turn.endedAt
-          report.errors ||= []; report.errors.push('工作台中断，浏览器验收未完成。')
-          if (/^[a-f0-9-]{36}$/.test(report.id || '')) await writeSnapshot(join(dataDir, 'browser', report.id, 'report.json'), JSON.stringify(report, null, 2)).catch(error => { if (error.code !== 'ENOENT') throw error })
-        }
-        for (const event of turn.events.filter(event => event.status === 'running')) { event.status = 'stopped'; event.endedAt = turn.endedAt }
-      }
-    }
-  }
-  const clients = new Map(), streams = new Set(), pending = new Map()
+  const store = await openConversationStore(dataDir, { onError: error => notify({ type: 'error', error: '会话保存失败：' + redact(error.message) }) })
+  const conversations = store.conversations
+  await recoverConversations(conversations, { dataDir, mark: item => store.mark(item) })
+  await store.flush()
   // Keep broken applications selectable for code repair; discovery never loads their plugins.
   const apps = (await discoverApplications(join(root, 'applications')))
     .filter(app => /^[a-z][a-z0-9-]{1,49}$/.test(app.id))
     .map(({ id, name, error }) => ({ id, name, ...(error ? { error } : {}) }))
-  let active, worker, closing = false, persistence = Promise.resolve(), traceTimer
-  const redact = text => config.apiKey ? String(text).split(config.apiKey).join('[密钥已隐藏]') : String(text)
+  let active, worker, closing = false
   const publicThread = item => ({ id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, browserVerificationEnabled: item.browserVerificationEnabled === true, commands: item.commands || [], revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, partial: active?.thread === item ? active.partial : '' })
-  const notify = message => { const value = JSON.stringify(message); for (const res of streams) res.write(`data: ${value}\n\n`) }
-  const persist = () => {
-    const snapshot = JSON.stringify(conversations, null, 2)
-    const task = persistence.then(() => writeSnapshot(join(dataDir, 'conversations.json'), snapshot))
-    persistence = task.catch(error => notify({ type: 'error', error: '会话保存失败：' + redact(error.message) }))
-    return task
-  }
-  const changed = item => { item.revision++; notify({ type: 'thread', thread: publicThread(item) }); void persist().catch(() => {}) }
+  const changed = item => { item.revision++; notify({ type: 'thread', thread: threadPage(item, { limit: 1 }) }); store.mark(item) }
   const commands = new CommandSessions({ root, onChange(command) {
     const item = conversations.find(item => item.id === command.threadId)
     if (!item) return
@@ -74,131 +54,14 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     const removed = new Set(finished.slice(0, Math.max(0, finished.length - 40)).map(entry => entry.session_id))
     item.commands = item.commands.filter(entry => !removed.has(entry.session_id))
     changed(item)
+    notify({ type: 'command', threadId: item.id, revision: item.revision, command: safe })
   } })
   const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir, commands, mode: appMode })
   const ownerFor = task => ({ threadId: task.thread.id, turnId: task.turn.id, signal: task.controller?.signal, cancelled: () => !!task.cancelled || closing })
-  const updateTrace = (task, event) => {
-    const turn = task.turn
-    let record = turn.events.find(record => record.id === event.id)
-    if (!record) { record = { id: event.id || randomUUID(), kind: event.kind || 'notice', startedAt: Date.now(), status: 'running' }; turn.events.push(record) }
-    for (const key of ['kind', 'name', 'input', 'output', 'text', 'status', 'messageId']) if (event[key] !== undefined) record[key] = redact(event[key]).slice(0, key === 'output' || key === 'input' ? 64000 : 256000)
-    for (const key of ['startedAt', 'endedAt']) if (Number.isFinite(event[key]) && event[key] >= 0) record[key] = event[key]
-    if (record.kind === 'model' && event.timing) {
-      record.timing ||= {}
-      for (const key of ['invokedAt', 'requestStartedAt', 'responseAt', 'firstOutputAt', 'endedAt', 'preparationMs', 'responseWaitMs', 'waitMs', 'streamingMs', 'totalMs']) {
-        if (Number.isFinite(event.timing[key]) && event.timing[key] >= 0) record.timing[key] = event.timing[key]
-      }
-    }
-    if (event.delta) { const full = (record.text || '') + redact(event.delta); record.text = full.slice(0, 256000); record.truncated = full.length > 256000 || record.truncated }
-    if (['done', 'error', 'stopped'].includes(record.status)) record.endedAt ||= Date.now()
-    // Coalesce token events; one bounded write/broadcast per 200 ms, with a final
-    // full snapshot at task completion. Revisions protect against poll/SSE races.
-    if (!traceTimer) traceTimer = setTimeout(() => {
-      traceTimer = null; task.thread.revision++
-      notify({ type: 'turn', threadId: task.thread.id, revision: task.thread.revision, turn, contextUsage: task.thread.contextUsage })
-      void persist().catch(() => {})
-    }, 200)
-  }
-  const bindingFor = clientId => {
-    const client = clients.get(clientId)
-    if (!client || Date.now() - client.seen > 10000) throw Error('业务页面未连接；请打开工作台中的应用，代码修复工具仍可使用')
-    return client
-  }
-  async function pageCall(task, name, args = {}) {
-    if (task.cancelled) throw Error('任务已停止')
-    const current = bindingFor(task.clientId)
-    if (task.appId !== current.appId || task.pageId !== current.pageId || task.session !== current.session) throw Error('应用或页面已经切换；请在当前应用新建会话或重新发送任务')
-    return new Promise((resolve, reject) => {
-      const id = randomUUID(), timer = setTimeout(() => { pending.delete(id); reject(Error('页面工具响应超时；结果可能已执行，请先读取状态再决定是否重试')) }, 20000)
-      pending.set(id, { clientId: task.clientId, pageId: task.pageId, resolve, reject, timer })
-      notify({ type: 'page-call', clientId: task.clientId, pageId: task.pageId, session: task.session, id, name, args })
-    })
-  }
-  const selectionTool = { name: 'replace_selection', description: '仅替换用户添加的选区并保留撤销。默认传 text；若附件 formats 包含 richtext，可传 format:"richtext" 和 content，结构见附件 richText/replacementHint。不要同时传 text 和 content。选区变化或跨页面时拒绝。', inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, format: { type: 'string', enum: ['text', 'richtext'] }, text: { type: 'string' }, content: { type: 'object', description: '由选区所属插件定义的结构化替换片段；仅对声明支持的选区使用。' } }, required: ['id'], oneOf: [{ required: ['text'], properties: { format: { const: 'text' } }, not: { required: ['content'] } }, { required: ['format', 'content'], properties: { format: { const: 'richtext' } }, not: { required: ['text'] } }] } }
-  async function rebindPage(task) {
-    // Vite reloads the page after backend, manifest or host edits; follow the new page.
-    if (application.mode === 'development') {
-      await application.settle({ delay: 0 })
-      if ((task.reloads ?? application.reloads) !== application.reloads) task.awaitingRebind = true
-      task.reloads = application.reloads
-    }
-    if (task.awaitingRebind && task.clientId) {
-      // A Vite page load transforms source modules, so allow it longer than a built page.
-      for (let i = 0; i < (application.mode === 'development' ? 150 : 30) && !task.cancelled; i++) {
-        const page = clients.get(task.clientId)
-        if (page && (page.appId !== task.appId || page.pageId !== task.pageId)) break
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
-    }
-    const live = clients.get(task.clientId)
-    if (task.awaitingRebind && live?.appId === task.appId && live.pageId !== task.pageId) { task.session = live.session; task.pageId = live.pageId; task.awaitingRebind = false }
-    return live && Date.now() - live.seen <= 10000 ? live : null
-  }
-  async function execute(task, name, args) {
-    if (task.cancelled) throw Error('任务已停止')
-    if (name.startsWith('browser_')) {
-      if (!task.turn?.browserVerificationEnabled) throw Error('用户关闭了本轮浏览器验收，不能调用或绕过开关')
-      if (!['browser_open', 'browser_action', 'browser_batch', 'browser_retest', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
-      if (!task.browser && name !== 'browser_open' && name !== 'browser_report') throw Error('请先 browser_open')
-      task.browser ||= browserFactory({ root, appId: task.appId, dataDir, signal: task.controller?.signal,
-        onChange(report) { task.turn.browserVerification = report; changed(task.thread) },
-      })
-      return task.browser.run(name, args)
-    }
-    if (name === 'workspace_development_info') {
-      const info = await developmentInfo(root, task.appId, args)
-      const status = await application.status()
-      return { ...info, runtime: developmentRuntimeInfo({ appId: task.appId, status, url: 'http://127.0.0.1:' + application.port,
-        dataDir: resolve(root, application.env.DATA_DIR || application.dataDir) }) }
-    }
-    if (name === 'workspace_scaffold_plugin') return scaffoldPlugin(root, task.appId, args, { signal: task.controller?.signal })
-    if (name === 'workspace_enable_plugin') {
-      await application.settle()
-      const live = await rebindPage(task)
-      if (live && (live.appId !== task.appId || live.pageId !== task.pageId || live.session !== task.session)) throw Error('应用或页面已经切换；请在当前应用重新发送任务')
-      return enablePlugin(task.appId, args, { status: () => application.status(), url: 'http://127.0.0.1:' + application.port, signal: task.controller?.signal,
-        page: live ? input => {
-          if (task.session !== input.session) throw Error('绑定页面不是最新应用会话；请等待页面重新连接')
-          return pageCall(task, 'workspace_enable_plugin', input)
-        } : null })
-    }
-    if (name === 'exec_command') return commands.start(ownerFor(task), args)
-    if (name === 'write_stdin') return commands.read(ownerFor(task), args)
-    if (name === 'terminate_command') return commands.terminate(ownerFor(task), args.session_id)
-    if (name === 'list_commands') return { commands: commands.list(ownerFor(task)) }
-    if (name === 'workspace_status') {
-      // Give Vite time to notice the last file edit before reporting its result.
-      await application.settle()
-      const status = await application.status()
-      if (status.development) status.development.events = status.development.events.filter(event => event.seq > (task.devSequence ?? 0))
-      return { ...status, appId: task.appId, root }
-    }
-    if (name === 'workspace_build') return application.build(task.appId, ownerFor(task), args)
-    if (name === 'workspace_test') return application.test(task.appId, ownerFor(task), args)
-    if (name === 'workspace_restart') {
-      const status = await application.status()
-      if (status.online) {
-        if (status.state.current?.id !== task.appId) throw Error('当前正在运行另一应用，不能替它重启')
-        await pageCall(task, 'workspace_prepare_reload')
-      }
-      try { await application.restart() }
-      catch (error) { await pageCall(task, 'workspace_release_reload').catch(() => {}); throw error }
-      task.awaitingRebind = true
-      task.reloads = application.reloads
-      notify({ type: 'reload-app' })
-      return { restarted: true, mode: application.mode, message: '页面正在重新连接。请先 workspace_status 或 app_list_tools 确认后再操作数据。' }
-    }
-    await rebindPage(task)
-    const live = bindingFor(task.clientId)
-    const state = await application.status()
-    if (!state.online || state.state.current?.id !== task.appId || state.state.session !== task.session || live.pageId !== task.pageId || live.appId !== task.appId) throw Error('绑定的应用页面已断开或切换；代码和日志工具仍可用')
-    if (name === 'app_list_tools') return { appId: task.appId, pageId: task.pageId, tools: [...live.tools, selectionTool] }
-    if (name === 'app_call') {
-      if (args.name !== 'replace_selection' && !live.tools.some(tool => tool.name === args.name)) throw Error('工具不存在或已停用')
-      return pageCall(task, args.name, args.arguments)
-    }
-    throw Error('未知工具')
-  }
+  const { updateTrace, clearTrace } = createTraceReporter({ redact, notify, persist: item => store.mark(item) })
+  const bridge = createPageBridge({ application, notify, apps })
+  const { clients, bindingFor, pageCall } = bridge
+  const execute = createToolExecutor({ root, dataDir, application, commands, ownerFor, browserFactory, changed, notify, bridge })
   function finish(error) {
     if (!active) return
     if (active.browser && !active.browser.closed && !active.stopping) {
@@ -217,7 +80,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (error) updateTrace(active, { id: randomUUID(), kind: 'notice', text: error, status: active.cancelled ? 'stopped' : 'error' })
     active.turn.status = active.cancelled ? 'stopped' : error || active.failed || active.modelError ? 'error' : 'done'; active.turn.endedAt = Date.now()
     for (const event of active.turn.events.filter(event => event.status === 'running')) { event.status = active.turn.status === 'done' ? 'done' : 'stopped'; event.endedAt = Date.now() }
-    clearTimeout(traceTimer); traceTimer = null
+    clearTrace()
     item.running = false; active = null; changed(item)
   }
   function startWorker() {
@@ -240,7 +103,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       const task = active, item = task.thread
       if (message.type === 'tool') {
         execute(task, message.name, message.args).then(result => { if (child.connected) child.send({ type: 'result', id: message.id, result }) }, error => { if (child.connected) child.send({ type: 'result', id: message.id, error: redact(error.message) }) })
-      } else if (message.type === 'session') { item.sessionFile = message.file; void persist().catch(() => {}) }
+      } else if (message.type === 'session') { item.sessionFile = message.file; store.mark(item) }
       else if (message.type === 'assistant-start') { task.turn.currentMessageId = message.messageId; delete task.turn.finalAnswer; changed(item) }
       else if (message.type === 'trace') updateTrace(task, message.event)
       else if (message.type === 'usage') { item.contextUsage = message.usage; changed(item) }
@@ -304,14 +167,14 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       if (active !== task || task.cancelled || closing) return
       child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'), config: taskConfig, task: { mode, browserVerificationEnabled, appMode: status.mode, appOnline: status.online, appManaged: status.managed, appError: status.error, appId: item.appId, prompt: input.prompt || '请分析这些图片。', attachments, images, sessionFile: item.sessionFile } })
     })().catch(error => { if (active === task) finish(error.message) })
-    return publicThread(item)
+    return threadPage(item)
   }
   const server = createServer(async (req, res) => {
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)) }
     try {
       const host = req.headers.host || ''
       if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host) || req.headers.origin && req.headers.origin !== `http://${host}`) throw fail(403, '只允许本机工作台访问')
-      const path = new URL(req.url, `http://${host}`).pathname
+      const url = new URL(req.url, `http://${host}`), path = url.pathname
       const artifact = path.match(/^\/api\/browser-artifacts\/([a-f0-9-]{36})\/(report\.json|[1-9][0-9]*\.jpg)$/)
       if (req.method === 'GET' && artifact) {
         const report = conversations.flatMap(thread => thread.turns).flatMap(turn => turn.browserVerification
@@ -321,7 +184,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         res.writeHead(200, { 'Content-Type': artifact[2].endsWith('.jpg') ? 'image/jpeg' : 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(data); return
       }
       if (!['GET', 'HEAD'].includes(req.method) && path !== '/api/images' && req.headers['content-type'] !== 'application/json') throw fail(415, '需要 JSON 请求')
-      if (req.method === 'GET' && ['/', '/chat', '/app.js', '/style.css', '/markdown.js', '/timeline.js'].includes(path)) {
+      if (req.method === 'GET' && ['/', '/chat', '/app.js', '/style.css', '/markdown.js', '/timeline.js', '/thread-cache.js'].includes(path)) {
         const file = path === '/' || path === '/chat' ? 'index.html' : path.slice(1)
         res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(await readFile(join(here, 'public', file))); return
       }
@@ -335,7 +198,12 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         const id = path.slice('/api/images/'.length), image = await imageStore.get(id)
         res.writeHead(200, { 'Content-Type': image.mimeType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=86400' }); res.end(await imageStore.bytes(id)); return
       }
-      if (req.method === 'GET' && path === '/api/state') result = { applications: apps, application: await application.status(), appUrl: `http://127.0.0.1:${appPort}`, threads: conversations.map(publicThread), activeThreadId: active?.thread.id || null }
+      if (req.method === 'GET' && path === '/api/state') result = { applications: apps, application: await application.status(), appUrl: `http://127.0.0.1:${appPort}`, threads: conversations.map(url.searchParams.get('summary') === '1' ? threadSummary : publicThread), activeThreadId: active?.thread.id || null }
+      else if (req.method === 'GET' && path.startsWith('/api/threads/')) {
+        const item = conversations.find(thread => thread.id === path.slice('/api/threads/'.length))
+        if (!item) throw fail(404, '聊天不存在')
+        result = threadPage(item, Object.fromEntries(url.searchParams))
+      }
       else if (req.method === 'GET' && path === '/api/config') result = { baseUrl: config.baseUrl, model: config.model, thinking: config.thinking, reasoningEffort: config.reasoningEffort, compaction: config.compaction, models: MODELS, imageLimits: IMAGE_LIMITS, hasKey: !!config.apiKey }
       else if (req.method === 'POST' && path === '/api/config') {
         if (active) throw fail(409, '请等待当前任务结束后修改设置')
@@ -346,7 +214,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         try { next = validateSettings({ ...input, baseUrl: url.href.replace(/\/chat\/completions\/?$/, '').replace(/\/$/, '') }, config) } catch (error) { throw fail(400, error.message) }
         next.apiKey = config.apiKey
         if (typeof input.apiKey === 'string' && input.apiKey.trim()) next.apiKey = input.apiKey.trim()
-        await writeFile(join(dataDir, 'config.json'), JSON.stringify(next, null, 2), { mode: 0o600 }); config = next; result = { saved: true }
+        await writeSnapshot(join(dataDir, 'config.json'), JSON.stringify(next, null, 2)); config = next; result = { saved: true }
       } else if (req.method === 'POST' && path === '/api/images') result = await imageStore.upload(req)
       else if (req.method === 'POST' && path === '/api/images/remove') {
         const { id } = await body(req)
@@ -356,7 +224,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         const input = await body(req), item = conversations.find(item => item.id === input.threadId)
         if (!item) throw fail(404, '聊天不存在')
         if (typeof input.browserVerificationEnabled !== 'boolean') throw fail(400, '浏览器验收开关必须为布尔值')
-        item.browserVerificationEnabled = input.browserVerificationEnabled; changed(item); result = publicThread(item)
+        item.browserVerificationEnabled = input.browserVerificationEnabled; changed(item); result = threadPage(item)
       } else if (req.method === 'POST' && path === '/api/run') result = await run(await body(req))
       else if (req.method === 'POST' && path === '/api/compact') result = await run(await body(req), 'compact')
       else if (req.method === 'POST' && path === '/api/interrupt') {
@@ -375,13 +243,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         await commands.terminate({ threadId }, session_id); result = { stopped: true }
       }
       else if (req.method === 'POST' && path === '/api/bridge') {
-        const input = await body(req)
-        if (typeof input.clientId !== 'string') throw fail(400, '页面标识无效')
-        if (input.type === 'result') {
-          const entry = pending.get(input.id)
-          if (entry && entry.clientId === input.clientId && entry.pageId === input.pageId) { pending.delete(input.id); clearTimeout(entry.timer); input.error ? entry.reject(Error(input.error)) : entry.resolve(input.result) }
-        } else if (input.type === 'disconnect') clients.delete(input.clientId)
-        else if (input.type === 'ready' && apps.some(app => app.id === input.appId) && typeof input.pageId === 'string' && typeof input.session === 'string' && Array.isArray(input.tools)) clients.set(input.clientId, { appId: input.appId, pageId: input.pageId, session: input.session, tools: input.tools.slice(0, 100), seen: Date.now() })
+        bridge.receive(await body(req))
         result = { ok: true }
       } else if (req.method === 'POST' && path === '/api/application/start') result = await application.start()
       else if (req.method === 'POST' && path === '/api/application/restart') {
@@ -406,11 +268,11 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     child?.kill()
     await workerClosed
     await commands.close()
-    for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(Error('工作台已关闭')) }; pending.clear()
+    bridge.close()
     for (const res of streams) res.end()
     if (application.child) await application.stop()
-    finish('工作台已关闭'); await persistence
-    server.closeAllConnections(); await new Promise(resolve => server.close(resolve))
+    finish('工作台已关闭')
+    try { await store.flush() } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
   } }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

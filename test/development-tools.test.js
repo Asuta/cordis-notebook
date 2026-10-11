@@ -169,13 +169,14 @@ test('工作台开发工具不依赖在线页面，报告读取不开浏览器�
   const { root } = await fixture(t)
   // Use actual repository for information, isolated storage and no running app.
   const wb = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: join(root, 'workbench') })
-  t.after(() => wb.close())
-  assert.equal((await wb.execute({ appId: 'notebook' }, 'workspace_development_info', {})).appId, 'notebook')
-  await assert.rejects(wb.execute({ appId: 'notebook', turn: { browserVerificationEnabled: false } }, 'browser_report', {}), /用户关闭/)
-  const task = { appId: 'notebook', thread: { id: 'offline', revision: 0 }, turn: { browserVerificationEnabled: true } }
-  const report = await wb.execute(task, 'browser_report', {})
-  assert.equal(report.status, 'not-run'); assert.equal(task.browser.child, undefined); assert.equal(task.browser.directory, undefined)
-  await task.browser.close()
+  try {
+    assert.equal((await wb.execute({ appId: 'notebook' }, 'workspace_development_info', {})).appId, 'notebook')
+    await assert.rejects(wb.execute({ appId: 'notebook', turn: { browserVerificationEnabled: false } }, 'browser_report', {}), /用户关闭/)
+    const task = { appId: 'notebook', thread: { id: 'offline', appId: 'notebook', revision: 0, messages: [], turns: [] }, turn: { browserVerificationEnabled: true } }
+    const report = await wb.execute(task, 'browser_report', {})
+    assert.equal(report.status, 'not-run'); assert.equal(task.browser.child, undefined); assert.equal(task.browser.directory, undefined)
+    await task.browser.close()
+  } finally { await wb.close() }
 })
 
 test('开发入口使用受管理实例的隔离数据目录，离线、外部或切换应用时不误报可启用', async t => {

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "docs:inventory": "node scripts/plugin-inventory.js",
     "workbench": "node workbench/build.js && node workbench/server.js",
     "workbench:production": "pnpm build && node workbench/server.js --production",
     "workbench:runtime": "node workbench/server.js --production",
@@ -12,7 +13,7 @@
     "start:runtime": "node server/server.js",
     "dev": "node scripts/dev.js",
     "start": "pnpm build && node server/server.js",
-    "typecheck": "tsc -p tsconfig.contracts.json",
+    "typecheck": "tsc -p tsconfig.contracts.json && tsc -p tsconfig.runtime.json",
     "test:plugin": "node scripts/test-plugin.js",
     "browser:install": "playwright install chromium",
     "test:browser": "node scripts/test-browser.js",

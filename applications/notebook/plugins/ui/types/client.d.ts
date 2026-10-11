@@ -5,7 +5,7 @@ export interface UIService {
   readonly h: typeof React.createElement
   createPortal(children: React.ReactNode, container: Element | DocumentFragment): React.ReactPortal
   mount(owner: Context, container: HTMLElement, content: React.ReactNode): { render(content: React.ReactNode): void }
-  useObserve<T extends { observe(owner: Context, handler: () => void): () => unknown }>(owner: Context, service: T): T
+  useObserve<T extends { observe(owner: Context, handler: () => void): () => unknown }>(owner: Context, service: T, options?: { reasons?: readonly string[] }): T
   readonly Button: React.ComponentType<any>
   readonly Input: React.ComponentType<any>
   readonly Icon: React.ComponentType<{ name: string; size?: number }>

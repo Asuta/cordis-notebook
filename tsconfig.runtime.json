@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.contracts.json",
+  "compilerOptions": { "allowJs": true, "checkJs": true, "types": ["node"] },
+  "include": [
+    "shared/persistence.js",
+    "workbench/conversation-store.js",
+    "workbench/conversation-view.js",
+    "workbench/public/thread-cache.js",
+    "workbench/page-bridge.js",
+    "applications/notebook/plugins/free-page-editor/history.js"
+  ]
+}

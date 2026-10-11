@@ -8,6 +8,7 @@
   <aside id="chat" hidden aria-label="Agent 对话">
     <header class="chat-header"><div class="agent-identity"><span class="agent-mark" aria-hidden="true">✦</span><div><strong>Agent</strong><span id="connection">连接中</span></div></div><nav><a href="/chat" target="_blank" aria-label="打开独立聊天页" title="独立聊天页">↗</a><button id="settings-open" title="模型设置">设置</button><button id="chat-close" aria-label="关闭聊天">×</button></nav></header>
     <div class="scope"><select id="app-select" aria-label="会话所属应用" title="选择对话上下文；运行中的应用通过页面顶部切换"></select><select id="threads" aria-label="会话历史"><option value="">新对话</option></select><button id="new-thread" title="开始新对话" aria-label="新对话">＋</button></div>
+    <button id="older" type="button" hidden>加载更早的对话</button>
     <div class="message-area"><div id="messages" role="log" aria-live="polite"></div><button id="latest" type="button" hidden>↓ 回到最新</button></div>
     <div class="compose-dock">
       <div id="activity" aria-live="polite"></div>

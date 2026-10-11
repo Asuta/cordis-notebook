@@ -2,7 +2,6 @@ import { readFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fetch, FormData, EnvHttpProxyAgent } from 'undici'
-import { atomic } from './config-file.js'
 const invalid = message => { throw Object.assign(Error(message), { status: 400 }) }
 import { prepareReferences } from './references.js'
 
@@ -15,7 +14,7 @@ export function normalizeConfig(input) {
   if (typeof input.apiKey !== 'string' || input.apiKey.length > 4096) invalid('API Key 无效')
   return { baseUrl, model, apiKey: input.apiKey.trim() }
 }
-export async function createConfig(directory, { env = process.env, configPath = join(homedir(), '.codex', 'config.toml'), legacy } = {}) {
+export async function createConfig(directory, { env = process.env, configPath = join(homedir(), '.codex', 'config.toml'), legacy, writeSnapshot } = {}) {
   await mkdir(directory, { recursive: true })
   const file = join(directory, 'pixel-private.json')
   let value
@@ -28,7 +27,7 @@ export async function createConfig(directory, { env = process.env, configPath = 
     const get = name => env[name] || section.match(new RegExp('^' + name + '\\s*=\\s*"([^"\\r\\n]*)"', 'm'))?.[1] || ''
     value = normalizeConfig(inherited || { baseUrl: get('AI_PIXEL_API_BASE_URL'), model: get('AI_PIXEL_IMAGE_MODEL'), apiKey: get('AI_PIXEL_API_KEY') })
     // Imported once, then independent of Codex or skill installation.
-    await atomic(file, value)
+    await writeSnapshot(file, JSON.stringify(value, null, 2))
   }
   let queue = Promise.resolve()
   return {
@@ -37,7 +36,7 @@ export async function createConfig(directory, { env = process.env, configPath = 
     save(input) {
       const task = queue.then(async () => {
         const next = normalizeConfig({ ...value, ...input, apiKey: input.apiKey?.trim() || value.apiKey })
-        await atomic(file, next); value = next
+        await writeSnapshot(file, JSON.stringify(next, null, 2)); value = next
         return { baseUrl: value.baseUrl, model: value.model, hasKey: !!value.apiKey }
       }); queue = task.catch(() => {}); return task
     },

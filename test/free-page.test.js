@@ -15,7 +15,10 @@ test('自由页面 API 保存位置、提取正文并兼容无格式旧笔记，
   try {
     await writeFile(file, JSON.stringify([{ id: 'old', title: '旧笔记', content: '旧正文', pinned: false, createdAt: '2026-01-01', updatedAt: '2026-01-01' }]))
     app = await createApp({ port: 0, file })
-    const request = async (path, method, data) => fetch(`http://127.0.0.1:${app.server.address().port}/api/notes${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    const request = async (path, method, data) => {
+      if (method === 'PATCH') data = { ...data, revision: app.ctx.notes.list().find(n => '/' + n.id === path)?.revision ?? 0 }
+      return fetch(`http://127.0.0.1:${app.server.address().port}/api/notes${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    }
     const created = await (await request('', 'POST', { type: 'freeform' })).json()
     assert.equal(created.type, 'freeform'); assert.deepEqual(created.blocks, [])
     const blocks = [block('below', 900, 1200, '后面'), block('above', 40, 50, '前面')]

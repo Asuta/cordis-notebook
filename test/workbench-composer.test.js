@@ -20,7 +20,8 @@ async function fixture(t) {
     const data = options.headers?.['Content-Type'] === 'application/json' ? JSON.parse(options.body) : undefined
     calls.push({ path, data })
     if (path === '/api/config') return response({ model: 'deepseek-flash', thinking: true, reasoningEffort: 'high', models: [{ id: 'deepseek-flash', name: 'Flash', images: true }], compaction: { threshold: 128000 } })
-    if (path === '/api/state') return response({ applications: [{ id: 'notebook', name: '笔记' }, { id: 'drawing', name: '画图', error: '清单解析失败' }], application: { online: false, logs: [] }, appUrl: 'http://127.0.0.1:9998', threads: [{ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [] }] })
+    if (path === '/api/state?summary=1') return response({ applications: [{ id: 'notebook', name: '笔记' }, { id: 'drawing', name: '画图', error: '清单解析失败' }], application: { online: false, logs: [] }, appUrl: 'http://127.0.0.1:9998', threads: [{ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [] }] })
+    if (path.startsWith('/api/threads/')) return response({ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [], revision: 0, history: { before: 0, end: 0, total: 0 } })
     if (path === '/api/run' || path === '/api/compact') return new Promise(resolve => pending.push({ resolve, data }))
     if (path === '/api/thread-preferences') return new Promise(resolve => preferences.push({ resolve, data }))
     if (path === '/api/images') return response({ id: 'image-' + ++imageId, bytes: 10, width: 1, height: 1, mimeType: 'image/png' })

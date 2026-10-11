@@ -2,7 +2,7 @@ import type { Context } from 'cordis'
 import type { Note, NotePatch } from '@cordis-notebook/notes/data'
 import type { Validation } from '@cordis-notebook/host'
 export interface NotebookChange {
-  readonly reason: 'edit' | 'selection' | 'filters' | 'status'
+  readonly reason: 'edit' | 'selection' | 'filters' | 'status' | 'busy'
   readonly selectedId: string | null
   readonly dirty: boolean
   readonly busy: boolean
@@ -16,13 +16,14 @@ export interface NotebookService {
   readonly notes: readonly Note[]
   readonly selected: string | null
   readonly dirty: boolean
+  readonly conflict: boolean
   readonly busy: boolean
   readonly editable: boolean
   readonly status: string
   current(): Note | undefined
   visible(): Note[]
   /** Immediate first call; later calls carry a change event. Owned by owner. */
-  observe(owner: Context, handler: (event?: NotebookChange) => void): () => boolean
+  observe(owner: Context, handler: (event?: NotebookChange) => void, options?: { reasons?: readonly NotebookChange['reason'][] }): () => boolean
   registerFilter(owner: Context, key: string, predicate: NoteFilter): FilterRegistration
   choose(id: string): Promise<void>
   reorder(ids: string[]): Promise<void>
@@ -30,6 +31,7 @@ export interface NotebookService {
   remove(): Promise<void>
   edit(patch: NotePatch): void
   flush(): Promise<void>
+  saveCopy(): Promise<void>
 }
 
 import type {} from '@cordis-notebook/host'

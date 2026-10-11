@@ -1,3 +1,4 @@
+import { openConversationStore } from '../workbench/conversation-store.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
@@ -36,8 +37,8 @@ test('工作台隐藏密钥、拒绝跨站请求，保存独立会话并在应�
   const state = await until(async () => { const s = (await request('state')).body; return !s.activeThreadId && s.threads.length && s })
   assert.equal(state.application.online, false); assert.equal(state.threads[0].messages.at(-1).text, '完成：离线修复')
   assert.equal((await request('run', { appId: 'drawing', threadId: run.body.id, prompt: '越界' })).status, 400)
-  await until(async () => JSON.parse(await readFile(join(dir, 'conversations.json'), 'utf8'))[0]?.running === false)
-  const saved = JSON.parse(await readFile(join(dir, 'conversations.json'), 'utf8')); assert.equal(saved[0].appId, 'notebook')
+  await until(async () => (await openConversationStore(dir)).conversations[0]?.running === false)
+  const saved = (await openConversationStore(dir)).conversations; assert.equal(saved[0].appId, 'notebook')
   assert.equal(saved[0].turns[0].presentationVersion, 1)
   assert.equal(saved[0].turns[0].finalAnswer.text, '完成：离线修复')
   assert.deepEqual(saved[0].turns[0].finalAnswer.eventIds, [saved[0].turns[0].events[0].id])
@@ -150,7 +151,7 @@ test('执行过程持久化、相同工具调用分别记录、日志密钥脱�
   assert.equal(thread.turns[0].events[1].status, 'error')
   assert.equal(thread.turns[0].events[0].output, '[密钥已隐藏]')
   assert.equal(thread.contextUsage.tokens, 5000)
-  await until(async () => JSON.parse(await readFile(join(dir, 'conversations.json'), 'utf8'))[0]?.running === false)
-  const saved = JSON.parse(await readFile(join(dir, 'conversations.json'), 'utf8'))[0]
+  await until(async () => (await openConversationStore(dir)).conversations[0]?.running === false)
+  const saved = (await openConversationStore(dir)).conversations[0]
   assert.deepEqual(saved.turns, thread.turns)
 })
