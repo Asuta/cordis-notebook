@@ -41,10 +41,14 @@ test('参数错误不启动浏览器，缺少验收证据标记未完成并保�
   t.after(async () => { await v.close(); await rm(dir, { recursive: true, force: true }) })
   await assert.rejects(v.run('browser_action', { action: 'press', value: 'Escape' }), /调用参数错误/)
   assert.equal(v.child, undefined); assert.equal(v.directory, undefined)
+  const unopened = await v.run('browser_report', {})
+  assert.equal(unopened.steps.length, 1); assert.equal(unopened.reportTool, 'browser_report')
+  assert.equal(v.child, undefined); assert.equal(v.directory, undefined)
   assert.equal(v.report.steps[0].errorKind, 'usage')
   const report = await v.run('browser_finish', { result: 'passed', summary: '尚未完成实际检查' })
   assert.equal(report.status, 'incomplete'); assert.equal(report.gaps.length, 2)
   assert.equal(report.steps.length, 1); assert.deepEqual(report.errors, [])
+  assert.deepEqual(await v.run('browser_report', {}), report)
 })
 
 test('截图作为图片内容传给模型，不在文字工具结果中塞入 base64', () => {
@@ -166,7 +170,7 @@ test('真实浏览器使用独立应用数据，执行交互断言、截图并�
     public: ['client.js'], build: [{ type: 'bundle', input: 'client.js', output: 'client.js', platform: 'browser' }],
   } }))
   await writeFile(join(folder, 'client.js'), `export default ctx => {
-    const box=document.createElement('section');box.style.backgroundColor='rgb(240, 245, 250)';
+    const box=document.createElement('section');box.id='test-counter';box.style.backgroundColor='rgb(240, 245, 250)';
     const button=document.createElement('button');let count=0;button.textContent='计数 0';button.onclick=()=>button.textContent='计数 '+ ++count;
     const input=document.createElement('textarea');input.setAttribute('aria-label','笔记正文');input.placeholder='写下此刻的想法…';
     input.style.cssText='color:rgb(11,22,33);background:transparent;font-size:16px';
@@ -214,7 +218,18 @@ test('真实浏览器使用独立应用数据，执行交互断言、截图并�
     await failed.run('browser_open')
     await assert.rejects(failed.run('browser_action', { action: 'assert', target: input, assertion: 'text', expected: '写下此刻的想法…' }), /页面断言失败/)
     await failed.run('browser_action', { action: 'assert', target: input, assertion: 'placeholder', expected: '写下此刻的想法…' })
-    await assert.rejects(failed.run('browser_action', { action: 'click', target: { css: '#missing-button' } }), /实际匹配 0/)
+    await assert.rejects(failed.run('browser_action', { action: 'click', target: { role: 'button', name: '不存在' } }), error => {
+      assert.match(error.message, /实际匹配 0/); assert.match(error.message, /browser_report/)
+      assert.equal(error.diagnostics.matchCount, 0)
+      assert.ok(error.diagnostics.candidates.some(candidate => candidate.text === '计数 0'))
+      return true
+    })
+    await assert.rejects(failed.run('browser_action', { action: 'click', target: { css: '#test-counter > button,#test-counter > textarea' } }), error => {
+      assert.equal(error.diagnostics.matchCount, 2); assert.equal(error.diagnostics.candidates.length, 2); return true
+    })
+    const current = await failed.run('browser_report', {})
+    assert.equal(current.steps.at(-1).diagnostics.matchCount, 2)
+    assert.equal(failed.progress().operationErrors, 2); assert.equal(failed.progress().failedChecks, 1)
     const final = await failed.run('browser_finish', { result: 'passed', summary: '成功检查不能掩盖真实失败' })
     assert.equal(final.status, 'failed')
     assert.equal(final.checks[0].passed, false); assert.equal(final.checks[1].passed, true)

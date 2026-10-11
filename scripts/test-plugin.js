@@ -23,6 +23,22 @@ export async function testFiles(directory, boundary) {
   return found
 }
 
+async function pluginTypeFiles(directory, boundary) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(error => { if (error.code === 'ENOENT') return []; throw error })
+  const found = []
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.name.startsWith('.') || ['node_modules', 'dist'].includes(entry.name)) continue
+    const file = resolve(directory, entry.name)
+    if (!inside(boundary, await realpath(file))) throw Error('类型文件路径超出目录：' + file)
+    if (entry.isDirectory()) found.push(...await pluginTypeFiles(file, boundary))
+    else if (entry.isFile()) {
+      const local = relative(boundary, file).split(sep).join('/')
+      if (/^types\/[^/]+\.d\.ts$/.test(local) || /^test\/[^/]+\.types\.ts$/.test(local)) found.push(file)
+    }
+  }
+  return found
+}
+
 /** Metadata selection only: never import tests or execute plugin implementations. */
 export async function planPluginTests({ root = projectRoot, appId, pluginIds }) {
   root = await realpath(root)
@@ -36,11 +52,14 @@ export async function planPluginTests({ root = projectRoot, appId, pluginIds }) 
     return entry
   })
   const own = new Map(), related = new Map(), warnings = []
+  const typeFilesByPlugin = new Map()
   for (const entry of selected) {
     const files = await testFiles(resolve(entry.sourceRoot, 'test'), entry.sourceRoot)
+    typeFilesByPlugin.set(entry.manifest.id, await pluginTypeFiles(entry.sourceRoot, entry.sourceRoot))
     own.set(entry.manifest.id, files)
     if (!files.length) warnings.push(`${entry.manifest.id} 没有插件内业务测试；关联回归不能证明其全部业务行为。`)
     if (entry.manifest.client) warnings.push(`${entry.manifest.id} 的实际页面效果需要浏览器验收，本命令不宣称视觉验证通过。`)
+    warnings.push(`${entry.manifest.id} 的运行时实现不在 tsconfig.contracts.json 的自动检查范围内；类型检查只覆盖项目声明文件和类型测试。`)
   }
   const metadata = await readFile(resolve(root, 'test/coverage.json'), 'utf8').then(JSON.parse).catch(error => {
     if (error.code === 'ENOENT') return { version: 1, tests: [] }
@@ -68,9 +87,32 @@ export async function planPluginTests({ root = projectRoot, appId, pluginIds }) 
   if (!related.size) warnings.push('未找到明确声明的关联回归；涉及宿主、公共协议或全局依赖时应扩大验证范围。')
   const tests = new Map([...own].flatMap(([id, files]) => files.map(file => [file, [`插件 ${id} 自带测试`]])))
   for (const [file, reasons] of related) tests.set(file, [...(tests.get(file) || []), ...reasons])
+  const typecheckIncludes = [
+    'packages/*/*.d.ts',
+    'client/contracts/*.d.ts',
+    'applications/*/plugins/*/types/*.d.ts',
+    'applications/*/plugins/*/test/*.types.ts',
+    'test/*.types.ts',
+  ]
+  const coverage = {
+    typecheck: {
+      config: 'tsconfig.contracts.json',
+      includes: typecheckIncludes,
+      pluginTypeFiles: Object.fromEntries([...typeFilesByPlugin].map(([id, files]) => [id, files.map(file => slash(relative(root, file)))])),
+      runtimeImplementation: '未纳入自动检查；需要单独的类型测试、构建或运行时测试验证。',
+    },
+    build: { command: `scripts/build.js ${appId}`, scope: `应用 ${appId} 及通用浏览器宿主` },
+    tests: {
+      files: [...tests.keys()].map(file => slash(relative(root, file))),
+      count: tests.size,
+      selectionReasons: Object.fromEntries([...tests].map(([file, reasons]) => [slash(relative(root, file)), reasons])),
+    },
+    browser: { status: 'not-run', reason: 'test:plugin 不执行浏览器验收；由工作台本轮浏览器验收开关单独控制。' },
+    gaps: [...warnings],
+  }
   return { appId, pluginIds: selected.map(entry => entry.manifest.id),
     buildScope: `应用 ${appId} 及通用宿主（运行时回归需要完整应用产物）`,
-    tests: [...tests].map(([file, reasons]) => ({ file: slash(relative(root, file)), reasons })), warnings }
+    tests: [...tests].map(([file, reasons]) => ({ file: slash(relative(root, file)), reasons })), warnings, coverage }
 }
 
 export function parsePluginTestArgs(args) {

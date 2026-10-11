@@ -1,0 +1,12 @@
+{
+  "templates": [{ "id": "notebook-footer", "description": "笔记页脚挂载与当前笔记订阅；requires.client 为 notebook、shell" }],
+  "recipes": {
+    "ui": {
+      "contracts": ["plugins/notebook/types/client.d.ts", "plugins/layout/types/client.d.ts", "plugins/notes/types/data.d.ts", "plugins/note-formats/types/data.d.ts"],
+      "examples": ["plugins/stats/client.js", "plugins/stats/package.json"],
+      "patterns": ["shell 由 layout 提供；sdk.mount('footer', node) 挂到页脚，布局还有 sidebar/toolbar/status/editor/panels。", "ctx.notebook.observe(ctx, render) 立即调用并随 owner 释放；sdk.mount 和 sdk.listen 也由上下文释放。", "note.content 不是所有格式的统一正文，先按 note.type 和格式契约选择；无需修改 notebook 或布局宿主。"]
+    },
+    "backend": { "contracts": ["plugins/notes/types/server.d.ts"], "examples": ["plugins/notes-api/server.js", "plugins/notes-api/package.json"], "patterns": ["后端接口使用 ctx.http.route(ctx, method, pattern, handler)；声明 requires.server。持久化通过 notes 服务，保留 revision 校验。"] },
+    "agent": { "contracts": ["plugins/notebook/types/client.d.ts"], "examples": ["plugins/agent-tools/client.js", "plugins/agent-tools/package.json"], "patterns": ["sdk.agent.register 注册工具，停用插件时自动释放；操作本页草稿并校验 revision，不能直接写 notes.json。"] }
+  }
+}

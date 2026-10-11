@@ -2,6 +2,16 @@ import { renderMarkdown } from './markdown.js'
 const node = (tag, className, text) => { const element = document.createElement(tag); element.className = className || ''; if (text !== undefined) element.textContent = text; return element }
 const statusNames = { running: '进行中', done: '完成', error: '失败', stopped: '已停止' }
 export const duration = (start, end = Date.now()) => { const seconds = Math.max(0, Math.floor(((end || Date.now()) - start) / 1000)); return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)}分${seconds % 60}秒` }
+function modelTiming(event) {
+  const timing = event.timing || {}, parts = [], seconds = ms => (ms / 1000).toFixed(1) + ' 秒'
+  if (Number.isFinite(timing.preparationMs)) parts.push('请求准备 ' + seconds(timing.preparationMs))
+  if (Number.isFinite(timing.responseWaitMs)) parts.push('响应头等待 ' + seconds(timing.responseWaitMs))
+  if (Number.isFinite(timing.waitMs)) parts.push('首段等待 ' + seconds(timing.waitMs))
+  else if (event.status === 'running' && Number.isFinite(timing.requestStartedAt)) parts.push('等待首段 ' + seconds(Math.max(0, Date.now() - timing.requestStartedAt)))
+  if (Number.isFinite(timing.streamingMs)) parts.push('持续输出 ' + seconds(timing.streamingMs))
+  else if (event.status === 'running' && Number.isFinite(timing.firstOutputAt)) parts.push('持续输出 ' + seconds(Math.max(0, Date.now() - timing.firstOutputAt)))
+  return parts.length ? parts.join(' · ') + '\n首段指首次收到思考、正文或工具参数。等待包含网络、服务排队等时间，无法据此认定为模型思考；响应头等待包含在首段等待中。' : ''
+}
 export function markdownInto(element, text) {
   if (element._text === text) return
   element._text = text
@@ -124,7 +134,8 @@ export function updateTurn(element, turn, { messages = [], commands = [], onTerm
       p.state.textContent = `${statusNames[event.status] || ''} · ${duration(event.startedAt, event.endedAt)}`
       p.input.hidden = !event.input; if (p.input.textContent !== (event.input || '')) p.input.textContent = event.input || ''
       p.output.hidden = !event.output; if (p.output.textContent !== (event.output || '')) p.output.textContent = event.output || ''
-      p.prose.hidden = !event.text; markdownInto(p.prose, (event.text || '') + (event.truncated ? '\n\n*界面记录已截断，完整记录保存在 Pi 会话中。*' : ''))
+      const prose = event.kind === 'model' ? modelTiming(event) : event.text || ''
+      p.prose.hidden = !prose; markdownInto(p.prose, prose + (event.truncated ? '\n\n*界面记录已截断，完整记录保存在 Pi 会话中。*' : ''))
     }
   }
   for (const [id, row] of events) if (!visibleEvents.has(id)) { row.remove(); events.delete(id) }

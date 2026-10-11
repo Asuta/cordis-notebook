@@ -122,7 +122,18 @@ async function action(input) {
   // A missing element satisfies "not visible". Other missing/ambiguous targets
   // remain failures, since they may indicate a real application regression.
   if (count !== 1 && !(count === 0 && input.action === 'assert' && input.assertion === 'visible' && input.expected === false)) {
-    throw Error(`定位需要唯一元素，实际匹配 ${count} 个；请读取 snapshot 检查页面`)
+    const candidates = await (count ? target : input.target.role ? page.getByRole(input.target.role)
+      : page.locator('button,input,textarea,select,[role],[aria-label]')).evaluateAll(elements => elements.slice(0, 6).map(element => ({
+        tag: element.tagName.toLowerCase(), id: element.id, role: element.getAttribute('role'),
+        label: element.getAttribute('aria-label'), text: (element.innerText || '').slice(0, 160),
+        placeholder: element.getAttribute('placeholder'), title: element.getAttribute('title'),
+        visible: !!(element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden'),
+      }))).catch(() => [])
+    const diagnostics = { target: input.target, matchCount: count, candidates,
+      snapshot: await page.locator('body').ariaSnapshot({ timeout: 3000 }).then(text => text.slice(0, 4000)).catch(() => ''),
+      hint: count ? '从候选与页面结构选择唯一 role/name、label 或精确 css；不要直接选第一个。'
+        : '核对页面结构中的实际名称；若界面尚未就绪先 snapshot，必要时检查前置操作。' }
+    throw Object.assign(Error(`定位需要唯一元素，实际匹配 ${count} 个；目标：${JSON.stringify(input.target)}；${diagnostics.hint}`), { diagnostics })
   }
   switch (input.action) {
     case 'click': await target.click(); break
@@ -153,7 +164,7 @@ process.on('message', message => {
       const result = message.method === 'open' ? await open(message.input)
         : message.method === 'finish' ? await finish() : await action(message.input)
       send({ id: message.id, result: { ...result, errors: [...errors], checks: [...checks] } })
-    } catch (error) { send({ id: message.id, error: error.message, errorKind: error.kind || 'operation', errors: [...errors], checks: [...checks] }) }
+    } catch (error) { send({ id: message.id, error: error.message, errorKind: error.kind || 'operation', diagnostics: error.diagnostics, errors: [...errors], checks: [...checks] }) }
     finally { active = false }
   })()
 })

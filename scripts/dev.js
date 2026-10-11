@@ -18,6 +18,19 @@ const viteEnvironment = fileURLToPath(new URL('../client/env.mjs', import.meta.r
 const urlFor = file => '/@fs/' + normalizePath(file)
 const fileKey = file => normalizePath(resolve(file)).toLowerCase()
 
+/** Files used only by verification or documentation must not replace a live plugin. */
+export function isNonRuntimePluginFile(file) {
+  const normalized = normalizePath(file), name = normalized.slice(normalized.lastIndexOf('/') + 1)
+  return normalized.split('/').includes('test')
+    || normalized.split('/').includes('__tests__')
+    || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(name)
+    || /\.types?\.ts$/.test(name)
+    || /\.d\.ts$/.test(name)
+    || /\.(?:md|mdx)$/i.test(name)
+    || /^(?:README|CHANGELOG)(?:\.|$)/i.test(name)
+    || /^agent\.md$/i.test(name)
+}
+
 // Validate the native host import graph without executing it or writing build output.
 export async function preflightHost(entry = resolve(root, 'scripts/development-backend.js')) {
   await build({ entryPoints: [entry], bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false, logLevel: 'silent' })
@@ -33,6 +46,29 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
   let catalog, plugins, backend, backendPort, backendProxy, backendRPC, version = Date.now(), closing = false, timer, queue = Promise.resolve(), working = 0
   const pendingPlugins = new Set()
   const dependencyKeys = new Set(dependencyFiles.map(fileKey)), dependencyListeners = []
+  const applicationRoot = resolve(applicationsDir)
+  const hostRoots = ['client', 'public', 'server', 'shared', 'scripts'].map(directory => resolve(root, directory))
+  const relevantRootKeys = [applicationRoot, ...hostRoots].map(fileKey)
+  const rootKey = fileKey(root), dataRootKey = fileKey(dataDir), cacheRootKey = fileKey(cacheDir)
+  const isRelevantDevelopmentFile = file => {
+    const key = fileKey(file)
+    return dependencyKeys.has(key) || relevantRootKeys.some(directory => key.startsWith(directory + '/'))
+  }
+  const isRelevantWatchPath = file => {
+    const key = fileKey(file)
+    return key === rootKey || dependencyKeys.has(key) || relevantRootKeys.some(directory =>
+      key === directory || key.startsWith(directory + '/') || directory.startsWith(key + '/'))
+  }
+  const isIgnoredWatchPath = file => {
+    const key = fileKey(file), local = normalizePath(relative(root, file))
+    return key === dataRootKey
+      || key.startsWith(dataRootKey + '/')
+      || key === cacheRootKey
+      || key.startsWith(cacheRootKey + '/')
+      || /(?:^|\/)(?:dist|data|work|\.workbench)(?:\/|$)/.test(local)
+      || /(?:^|\/)\.scaffold-[^/]+(?:\/|$)/.test(local)
+      || !isRelevantWatchPath(file)
+  }
   // Development events let a supervising process (the Agent workbench) observe
   // updates, errors and page reloads without parsing console output.
   const emit = event => { try { onEvent(event) } catch {} }
@@ -182,6 +218,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
   }
   async function update(file) {
     if (closing) return
+    if (isNonRuntimePluginFile(file)) return
     const key = fileKey(file), local = normalizePath(relative(root, file))
     if (local.startsWith('scripts/') || key === fileKey(resolve(root, 'pnpm-lock.yaml'))) {
       console.log('构建工具或依赖已修改，请重新运行 pnpm dev。'); return
@@ -224,7 +261,8 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
     if (Object.keys(targets).length) vite.ws.send('cordis:plugins', { version, targets })
   }
   const schedule = file => {
-    if (closing) return
+    if (closing || !isRelevantDevelopmentFile(file)) return
+    if (isNonRuntimePluginFile(file)) return
     changes.add(file)
     if (!timer && working++ === 0) emit({ type: 'busy' })
     clearTimeout(timer)
@@ -236,7 +274,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
         if (batch.some(file => ['server/', 'shared/'].some(prefix => local(file).startsWith(prefix)))) await reloadBackend()
         else {
           const manifest = batch.some(file => file.endsWith('package.json') && inside(resolve(applicationsDir), resolve(file)))
-          const backendFiles = batch.filter(file => backendSources.has(fileKey(file)) || /\.[cm]?[jt]sx?$/.test(file) && !allowed.has(fileKey(file)) && entries.some(entry => entry.serverEntry && inside(entry.sourceRoot, resolve(file))))
+          const backendFiles = batch.filter(file => !isNonRuntimePluginFile(file) && (backendSources.has(fileKey(file)) || /\.[cm]?[jt]sx?$/.test(file) && !allowed.has(fileKey(file)) && entries.some(entry => entry.serverEntry && inside(entry.sourceRoot, resolve(file)))))
           const dependency = batch.some(file => dependencyKeys.has(fileKey(file)))
           if (manifest || backendFiles.length || pendingPlugins.size || dependency) {
             await reloadPlugins(batch)
@@ -252,7 +290,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
       configFile: false, root, publicDir: false, appType: 'custom', cacheDir,
       optimizeDeps: { entries: entries.filter(e => e.manifest.client).map(e => resolve(e.sourceRoot, e.package.cordis.build.find(t => t.output === e.manifest.client).input)) },
       server: { host: '127.0.0.1', port, strictPort: true, cors: false,
-        watch: { ignored: ['**/dist/**', '**/data/**', '**/work/**', '**/.workbench/**', normalizePath(resolve(dataDir)) + '/**'] },
+        watch: { ignored: isIgnoredWatchPath },
         fs: { strict: true, allow: [root, applicationsDir], deny: ['**/.env*', '**/.git/**', '**/data/**', '**/*.pem', '**/*.key'] },
         proxy: { '^/(api/|builtin/|applications/[^/]+/icon$)': { target: `http://127.0.0.1:${backendPort}`, changeOrigin: true,
           configure(proxy) {
@@ -318,7 +356,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
           })
         },
         hotUpdate(context) {
-          if (this.environment.name !== 'client') return []
+          if (this.environment.name !== 'client' || !isRelevantDevelopmentFile(context.file) || isNonRuntimePluginFile(context.file)) return []
           if (context.file.endsWith('.css')) {
             const updates = context.modules.map(mod => ({ type: 'css-update', path: mod.url, acceptedPath: mod.url, timestamp: context.timestamp }))
             if (updates.length) context.server.ws.send({ type: 'update', updates })
@@ -331,10 +369,10 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
     // Files outside the frontend module graph still need backend/manifest watching.
     vite.watcher.add([resolve(root, 'server'), resolve(root, 'shared'), resolve(root, 'scripts'), resolve(applicationsDir)])
     vite.watcher.add([resolve(root, 'public/index.html'), resolve(root, 'pnpm-lock.yaml'), resolve(root, 'node_modules/.modules.yaml')])
-    const backendChange = file => backendSources.has(fileKey(file)) || inside(resolve(applicationsDir), resolve(file)) && (!allowed.has(fileKey(file)) || file.endsWith('package.json')) || ['server/', 'shared/', 'scripts/'].some(prefix => normalizePath(relative(root, file)).startsWith(prefix)) || ['public/index.html', 'pnpm-lock.yaml', 'node_modules/.modules.yaml'].includes(normalizePath(relative(root, file)))
+    const backendChange = file => isRelevantDevelopmentFile(file) && !isNonRuntimePluginFile(file) && (backendSources.has(fileKey(file)) || inside(applicationRoot, resolve(file)) && (!allowed.has(fileKey(file)) || file.endsWith('package.json')) || ['server/', 'shared/', 'scripts/'].some(prefix => normalizePath(relative(root, file)).startsWith(prefix)) || ['public/index.html', 'pnpm-lock.yaml', 'node_modules/.modules.yaml'].includes(normalizePath(relative(root, file))))
     vite.watcher.on('change', file => { if (backendChange(file)) schedule(file) })
     vite.watcher.on('add', file => { if (backendChange(file)) schedule(file) })
-    vite.watcher.on('unlink', file => { if (allowed.has(fileKey(file)) || backendSources.has(fileKey(file)) || file.endsWith('package.json')) schedule(file) })
+    vite.watcher.on('unlink', file => { if (isRelevantDevelopmentFile(file) && !isNonRuntimePluginFile(file) && (allowed.has(fileKey(file)) || backendSources.has(fileKey(file)) || file.endsWith('package.json'))) schedule(file) })
     await vite.listen()
     await vite.cordisWatcherReady
     // Vite intentionally ignores node_modules. pnpm's completion stamp is watched separately.

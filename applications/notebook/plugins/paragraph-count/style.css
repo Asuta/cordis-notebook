@@ -1,0 +1,19 @@
+.paragraph-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--theme-muted);
+  white-space: nowrap;
+}
+.paragraph-count-value {
+  font-size: 12px;
+  color: var(--theme-text);
+  font-variant-numeric: tabular-nums;
+}
+.paragraph-count[data-state='empty'] .paragraph-count-value,
+.paragraph-count[data-state='no-note'] .paragraph-count-value {
+  color: var(--theme-muted);
+  font-variant-numeric: normal;
+}

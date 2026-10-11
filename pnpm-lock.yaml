@@ -130,6 +130,8 @@ importers:
 
   applications/notebook/plugins/export: {}
 
+  applications/notebook/plugins/focus-timer: {}
+
   applications/notebook/plugins/format-freeform:
     dependencies:
       '@cordis-notebook/host':
@@ -265,6 +267,8 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
+  applications/notebook/plugins/paragraph-count: {}
+
   applications/notebook/plugins/pin: {}
 
   applications/notebook/plugins/plugin-manager-ui:
@@ -275,6 +279,8 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+
+  applications/notebook/plugins/reading-time: {}
 
   applications/notebook/plugins/rich-text:
     dependencies:

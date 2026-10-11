@@ -11,12 +11,16 @@ async function fixture(t) {
   t.after(async () => { assert.ok(root.startsWith(resolve('work') + sep)); await rm(root, { recursive: true, force: true }) })
   const plugin = join(root, 'applications/sample/plugins/exporter')
   await mkdir(join(plugin, 'test/nested'), { recursive: true }); await mkdir(join(root, 'test'))
+  await mkdir(join(plugin, 'types'))
   await writeFile(join(root, 'package.json'), '{"type":"module"}')
   await writeFile(join(root, 'applications/sample/package.json'), JSON.stringify({ cordisApp: { id: 'sample', name: '验证测试' } }))
   await writeFile(join(plugin, 'package.json'), JSON.stringify({ name: '@test/exporter', version: '1.0.0', type: 'module',
     cordis: { schemaVersion: 1, id: 'exporter', name: '导出', client: 'client.js', requires: { server: [], client: ['documents'] }, provides: { server: [], client: [] }, public: ['client.js'],
       build: [{ type: 'bundle', platform: 'browser', input: 'client.js', output: 'client.js' }] } }))
   await writeFile(join(plugin, 'client.js'), 'export default () => {}')
+  await writeFile(join(plugin, 'types/client.d.ts'), 'export {}')
+  await writeFile(join(plugin, 'test/export.types.ts'), 'export {}')
+  await writeFile(join(plugin, 'test/nested/ignored.types.ts'), 'export {}')
   await writeFile(join(plugin, 'test/nested/export.test.js'), 'throw Error("选择测试时不能执行代码")')
   await writeFile(join(root, 'test/documents.test.js'), 'throw Error("选择测试时不能执行代码")')
   await writeFile(join(root, 'test/unrelated.test.js'), '')
@@ -32,6 +36,14 @@ test('任意插件测试自动发现，关联按应用和服务分端选择，�
   const f = await fixture(t), plan = await planPluginTests({ root: f.root, ...f.options })
   assert.deepEqual(plan.tests.map(item => item.file), ['applications/sample/plugins/exporter/test/nested/export.test.js', 'test/documents.test.js'])
   assert.match(plan.tests[1].reasons[0], /client:documents/)
+  assert.equal(plan.coverage.typecheck.config, 'tsconfig.contracts.json')
+  assert.equal(plan.coverage.typecheck.runtimeImplementation, '未纳入自动检查；需要单独的类型测试、构建或运行时测试验证。')
+  assert.deepEqual(plan.coverage.typecheck.pluginTypeFiles.exporter, [
+    'applications/sample/plugins/exporter/test/export.types.ts',
+    'applications/sample/plugins/exporter/types/client.d.ts',
+  ])
+  assert.equal(plan.coverage.tests.count, 2)
+  assert.equal(plan.coverage.browser.status, 'not-run')
   await rm(join(f.plugin, 'test/nested/export.test.js'))
   const gap = await planPluginTests({ root: f.root, ...f.options })
   assert.ok(gap.warnings.some(message => message.includes('没有插件内业务测试')))

@@ -11,6 +11,7 @@ import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
 import { discoverApplications } from '../server/application-discovery.js'
 import { writeSnapshot } from './persistence.js'
 import { BrowserVerification } from './browser-verification.js'
+import { developmentInfo, developmentRuntimeInfo, scaffoldPlugin } from './development-tools.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -80,6 +81,13 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     let record = turn.events.find(record => record.id === event.id)
     if (!record) { record = { id: event.id || randomUUID(), kind: event.kind || 'notice', startedAt: Date.now(), status: 'running' }; turn.events.push(record) }
     for (const key of ['kind', 'name', 'input', 'output', 'text', 'status', 'messageId']) if (event[key] !== undefined) record[key] = redact(event[key]).slice(0, key === 'output' || key === 'input' ? 64000 : 256000)
+    for (const key of ['startedAt', 'endedAt']) if (Number.isFinite(event[key]) && event[key] >= 0) record[key] = event[key]
+    if (record.kind === 'model' && event.timing) {
+      record.timing ||= {}
+      for (const key of ['invokedAt', 'requestStartedAt', 'responseAt', 'firstOutputAt', 'endedAt', 'preparationMs', 'responseWaitMs', 'waitMs', 'streamingMs', 'totalMs']) {
+        if (Number.isFinite(event.timing[key]) && event.timing[key] >= 0) record.timing[key] = event.timing[key]
+      }
+    }
     if (event.delta) { const full = (record.text || '') + redact(event.delta); record.text = full.slice(0, 256000); record.truncated = full.length > 256000 || record.truncated }
     if (['done', 'error', 'stopped'].includes(record.status)) record.endedAt ||= Date.now()
     // Coalesce token events; one bounded write/broadcast per 200 ms, with a final
@@ -110,13 +118,20 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (task.cancelled) throw Error('任务已停止')
     if (name.startsWith('browser_')) {
       if (!task.turn?.browserVerificationEnabled) throw Error('用户关闭了本轮浏览器验收，不能调用或绕过开关')
-      if (!['browser_open', 'browser_action', 'browser_finish'].includes(name)) throw Error('未知浏览器工具')
-      if (!task.browser && name !== 'browser_open') throw Error('请先 browser_open')
-      task.browser ||= browserFactory({ root, appId: task.appId, dataDir, signal: task.controller.signal,
+      if (!['browser_open', 'browser_action', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
+      if (!task.browser && name !== 'browser_open' && name !== 'browser_report') throw Error('请先 browser_open')
+      task.browser ||= browserFactory({ root, appId: task.appId, dataDir, signal: task.controller?.signal,
         onChange(report) { task.turn.browserVerification = report; changed(task.thread) },
       })
       return task.browser.run(name, args)
     }
+    if (name === 'workspace_development_info') {
+      const info = await developmentInfo(root, task.appId, args)
+      const status = await application.status()
+      return { ...info, runtime: developmentRuntimeInfo({ appId: task.appId, status, url: 'http://127.0.0.1:' + application.port,
+        dataDir: resolve(root, application.env.DATA_DIR || application.dataDir) }) }
+    }
+    if (name === 'workspace_scaffold_plugin') return scaffoldPlugin(root, task.appId, args, { signal: task.controller?.signal })
     if (name === 'exec_command') return commands.start(ownerFor(task), args)
     if (name === 'write_stdin') return commands.read(ownerFor(task), args)
     if (name === 'terminate_command') return commands.terminate(ownerFor(task), args.session_id)

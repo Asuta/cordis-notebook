@@ -4,6 +4,21 @@ import { Window } from 'happy-dom'
 import { renderMarkdown } from '../workbench/markdown.js'
 import { createTurn, updateTurn, finalAnswer, developmentStatus } from '../workbench/public/timeline.js'
 
+test('模型请求显示首段等待与持续输出，保留没有计时的旧记录', async () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const element = createTurn(), turn = { status: 'done', startedAt: 100, endedAt: 4100, events: [
+      { id: 'model', kind: 'model', name: '模型请求', status: 'done', startedAt: 100, endedAt: 4100,
+        timing: { preparationMs: 100, responseWaitMs: 300, waitMs: 1200, streamingMs: 2700 } },
+      { id: 'old-model', kind: 'model', status: 'done', startedAt: 100, endedAt: 4100 },
+    ] }
+    updateTurn(element, turn)
+    assert.match(element.textContent, /首段等待 1.2 秒/); assert.match(element.textContent, /持续输出 2.7 秒/)
+    assert.match(element.textContent, /响应头等待包含在首段等待中/); assert.doesNotMatch(element.textContent, /NaN|undefined/)
+  } finally { globalThis.document = previous; await window.happyDOM.abort() }
+})
+
 test('浏览器验收区分用户关闭、未执行和失败，展示本地截图与报告', () => {
   const window = new Window(), previous = globalThis.document
   globalThis.document = window.document

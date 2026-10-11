@@ -14,12 +14,17 @@ export class BrowserVerification {
     this.abort = () => { void this.close('stopped').catch(() => {}) }
     signal?.addEventListener('abort', this.abort, { once: true })
   }
-  summary() { return { ...this.report, reportUrl: this.directory ? `/api/browser-artifacts/${this.report.id}/report.json` : undefined } }
+  summary() { return { ...this.report, reportTool: 'browser_report', reportUrl: this.directory ? `/api/browser-artifacts/${this.report.id}/report.json` : undefined } }
   progress() {
     return { id: this.report.id, status: this.report.status, stepCount: this.report.steps.length,
       passedChecks: this.report.checks.filter(check => check.passed).length,
       failedChecks: this.report.checks.filter(check => !check.passed).length,
       usageErrors: this.report.steps.filter(step => step.errorKind === 'usage').length,
+      operationErrors: this.report.steps.filter(step => step.errorKind === 'operation').length,
+      infrastructureErrors: this.report.steps.filter(step => step.errorKind === 'infrastructure').length,
+      pageErrors: this.report.errors.length, reportTool: 'browser_report',
+      recentFailures: this.report.steps.filter(step => step.error).slice(-3).map(({ name, error, errorKind, diagnostics }) => ({ name, error: error.slice(0, 800), errorKind,
+        ...(diagnostics ? { target: diagnostics.target, matchCount: diagnostics.matchCount } : {}) })),
       reportUrl: this.summary().reportUrl }
   }
   async save() {
@@ -47,7 +52,7 @@ export class BrowserVerification {
       this.pending.delete(message.id); clearTimeout(task.timer)
       if (message.errors) this.report.errors = message.errors
       if (message.checks) this.report.checks = message.checks
-      message.error ? task.reject(Object.assign(Error(message.error), { kind: message.errorKind || 'infrastructure' })) : task.resolve(message.result)
+      message.error ? task.reject(Object.assign(Error(message.error), { kind: message.errorKind || 'infrastructure', diagnostics: message.diagnostics })) : task.resolve(message.result)
     })
     const reject = message => { for (const task of this.pending.values()) { clearTimeout(task.timer); task.reject(Error(message)) }; this.pending.clear() }
     child.on('error', error => reject(error.message))
@@ -73,6 +78,7 @@ export class BrowserVerification {
     return task
   }
   async perform(name, args) {
+    if (name === 'browser_report') { validateBrowserInput(name, args); return this.summary() }
     if (this.closed || this.signal?.aborted) throw Error('浏览器验收已停止')
     try { validateBrowserInput(name, args) }
     catch (error) {
@@ -122,9 +128,13 @@ export class BrowserVerification {
         checks: this.report.checks.slice(checkCount), report: this.progress() }
     } catch (error) {
       step.error = error.message; step.errorKind = error.kind || 'infrastructure'; step.endedAt = Date.now()
+      if (error.diagnostics) step.diagnostics = error.diagnostics
       if (!this.closed && step.errorKind !== 'usage') this.report.status = 'failed'
       await this.save()
       if (name === 'browser_open') await this.close('failed')
+      if (error.diagnostics) error.message += '\n定位诊断：' + JSON.stringify(error.diagnostics)
+      const { recentFailures, ...progress } = this.progress()
+      error.message += '\n当前验收状态：' + JSON.stringify(progress) + '。完整步骤可直接调用 browser_report({}) 读取。'
       throw error
     }
   }

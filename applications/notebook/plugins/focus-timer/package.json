@@ -1,0 +1,52 @@
+{
+  "name": "@cordis-notebook/focus-timer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "focus-timer",
+    "name": "专注计时器",
+    "description": "在编辑区底栏显示 25 分钟专注倒计时，可开始、暂停和重置。",
+    "requires": {
+      "server": [],
+      "client": [
+        "shell"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 26,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Puzzle",
+    "styles": [
+      "style.css"
+    ]
+  }
+}

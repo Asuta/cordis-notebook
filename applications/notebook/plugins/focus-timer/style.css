@@ -1,0 +1,55 @@
+.focus-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--theme-muted);
+}
+.focus-timer-caption {
+  letter-spacing: 0.08em;
+}
+.focus-timer-clock {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text);
+}
+.focus-timer[data-status='finished'] .focus-timer-clock {
+  color: var(--theme-accent);
+}
+.focus-timer-action {
+  padding: 2px 8px;
+  border: 1px solid var(--theme-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.focus-timer-action:hover:not(:disabled) {
+  background: var(--theme-selected);
+}
+.focus-timer-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.focus-timer-action:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 1px;
+}
+.focus-timer-notice {
+  color: var(--theme-accent);
+}
+.focus-timer-notice:empty {
+  display: none;
+}
+@media (max-width: 620px) {
+  .focus-timer-caption {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-timer-action {
+    transition: none;
+  }
+}

@@ -137,13 +137,16 @@ test('执行过程持久化、相同工具调用分别记录、日志密钥脱�
       process.send({type:'trace',event:{id,output:'fixture-private-key',status:id==='call-b'?'error':'done'}});
     }
     process.send({type:'trace',event:{id:'thinking',kind:'thinking',delta:'分析文件',status:'running'}});
+    process.send({type:'trace',event:{id:'model',kind:'model',status:'done',startedAt:100,endedAt:300,timing:{invokedAt:100,requestStartedAt:110,firstOutputAt:200,endedAt:300,waitMs:90,streamingMs:100,totalMs:200,private:'fixture-private-key'}}});
     process.send({type:'usage',usage:{tokens:5000,contextWindow:1048576}});
     process.send({type:'done'});
   })`)
   await request('run', { appId: 'notebook', prompt: '显示过程' })
   const state = await until(async () => { const value = (await request('state')).body; return !value.activeThreadId && value.threads.length && value })
   const thread = state.threads[0]
-  assert.equal(thread.turns[0].events.length, 3)
+  assert.equal(thread.turns[0].events.length, 4)
+  assert.deepEqual(thread.turns[0].events[3].timing, { invokedAt: 100, requestStartedAt: 110, firstOutputAt: 200, endedAt: 300, waitMs: 90, streamingMs: 100, totalMs: 200 })
+  assert.equal(thread.turns[0].events[3].startedAt, 100); assert.equal(thread.turns[0].events[3].endedAt, 300)
   assert.equal(thread.turns[0].events[1].status, 'error')
   assert.equal(thread.turns[0].events[0].output, '[密钥已隐藏]')
   assert.equal(thread.contextUsage.tokens, 5000)

@@ -13,3 +13,9 @@
 自由页面采用 block/outline 富文本数据，历史、粘贴、缩进和缩放有专门实现。改交互前阅读 `docs/自由页面设计与使用.md`、相应测试；不要绕过 model.edit、历史边界或格式校验。图片存储归 note-assets，不依赖笔记文件路径。
 
 用户继续输入后，旧 revision 和旧选区应被拒绝。不要自动用新 revision 重试旧的整篇内容。刷新会失去选区附件定位，需要重新添加；聊天中的引用文字会保留。
+
+## 插件开发快速入口
+
+通用流程见 `docs/插件开发导航.md` 和 `docs/Workspace插件开发指南.md`。本应用的最小界面插件可先看 `plugins/stats/`：它通过 `requires.client: ["shell"]` 消费 `footer` 挂载点，用 `sdk.mount('footer', node)` 添加界面；`plugins/note-list/` 还展示 `sdk.slot` 提供扩展位。复杂 React 界面参考 `plugins/editor-host/` 或 `plugins/plugin-manager-ui/`。样式由插件自己通过清单的 `public`、`styles` 和 `build` 声明加载，主题变量见 `plugins/ui/theme.css`。
+
+新增插件后，在工作台管理的开发模式中先看 `workspace_status` 的热更新事件，不要例行构建或重启。测试放在插件自己的 `test/**/*.test.js`；`workspace_test` 的类型检查只覆盖项目声明文件和类型测试，不会自动为 JavaScript 运行实现做静态类型检查。界面改动是否做真实浏览器验收以本轮开关为准。

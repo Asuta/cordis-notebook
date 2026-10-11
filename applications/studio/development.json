@@ -1,0 +1,8 @@
+{
+  "templates": [{ "id": "studio-action", "description": "通过 canvasUI.menu 注册画布工具动作；owner 自动释放" }],
+  "recipes": {
+    "ui": { "contracts": ["plugins/canvas-ui/types/client.d.ts", "plugins/canvas/types/client.d.ts"], "examples": ["plugins/canvas-basic-cards/package.json", "plugins/canvas-basic-cards/client.js"], "patterns": ["界面扩展通过 canvasUI.register/menu/extend，传 ctx 绑定生命周期；本应用没有 notebook/shell 页脚。", "画板读取和修改通过 canvasSession，修改保留 expectedRevision 和历史；视图订阅用 attachView(ctx, view)。"] },
+    "backend": { "contracts": ["plugins/canvas/types/server.d.ts"], "examples": ["plugins/canvas-basic-cards/server.js", "plugins/canvas-basic-cards/package.json"], "patterns": ["后端注册使用 canvasDocuments 的卡片/图片提供者契约，传 ctx 自动释放；真实生成须用户明确要求。"] },
+    "agent": { "contracts": ["plugins/canvas/types/client.d.ts"], "examples": ["plugins/canvas-agent-tools/client.js", "plugins/canvas-agent-tools/package.json"], "patterns": ["sdk.agent.register 注册；canvasSession.edit 校验 expectedRevision，用户继续编辑后重新读取。"] }
+  }
+}

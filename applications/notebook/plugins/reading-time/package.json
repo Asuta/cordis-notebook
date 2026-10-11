@@ -1,0 +1,67 @@
+{
+  "name": "@cordis-notebook/reading-time",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "reading-time",
+    "name": "阅读时长",
+    "description": "在编辑区底栏显示当前笔记的预计阅读时间，没有选中笔记或正文为空时显示空状态。",
+    "requires": {
+      "server": [],
+      "client": [
+        "notebook",
+        "shell"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "settings": {
+      "mode": "live",
+      "fields": {
+        "charsPerMinute": {
+          "type": "number",
+          "label": "每分钟非空白字符数",
+          "default": 300,
+          "min": 50,
+          "max": 2000,
+          "step": 10,
+          "integer": true
+        }
+      }
+    },
+    "order": 25,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "BookOpen",
+    "styles": [
+      "style.css"
+    ]
+  }
+}

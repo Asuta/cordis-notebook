@@ -2,7 +2,17 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { resolve, join, sep } from 'node:path'
-import { startDevelopment } from '../scripts/dev.js'
+import { isNonRuntimePluginFile, startDevelopment } from '../scripts/dev.js'
+
+test('开发服务器把验证和说明文件与运行插件文件分开', () => {
+  assert.equal(isNonRuntimePluginFile('applications/notebook/plugins/example/test/client.test.js'), true)
+  assert.equal(isNonRuntimePluginFile('applications/notebook/plugins/example/test/client.types.ts'), true)
+  assert.equal(isNonRuntimePluginFile('applications/notebook/plugins/example/README.md'), true)
+  assert.equal(isNonRuntimePluginFile('applications/notebook/plugins/example/client.js'), false)
+  assert.equal(isNonRuntimePluginFile('applications/notebook/plugins/example/helper.js'), false)
+  assert.equal(isNonRuntimePluginFile('applications/notebook/plugins/example/style.css'), false)
+  assert.equal(isNonRuntimePluginFile('applications/notebook/plugins/example/package.json'), false)
+})
 
 test('Vite 开发服务限制源码公开、编译失败保留后端，并等待页面保存后原地更新插件', { timeout: 60000 }, async () => {
   const directory = await mkdtemp(resolve('vite-test-')), apps = join(directory, 'applications')
@@ -19,7 +29,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     listeners.add(receive)
   })
   try {
-    await mkdir(folder, { recursive: true })
+    await mkdir(join(folder, 'test'), { recursive: true })
     await writeFile(join(apps, 'sample/package.json'), JSON.stringify({ cordisApp: { id: 'sample', name: '测试应用' } }))
     await writeFile(join(folder, 'package.json'), JSON.stringify({
       name: '@test/sample', version: '1.0.0', type: 'module', dependencies: {},
@@ -32,6 +42,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
       },
     }))
     await writeFile(join(folder, 'client.js'), 'export default () => {}')
+    await writeFile(join(folder, 'test/fixture.test.js'), 'export const fixture = 1')
     await writeFile(join(folder, 'style.css'), '.sample { color: red }')
     await writeFile(join(folder, 'helper.js'), 'export const value = (')
     const backend = version => `export default ctx => { ctx.http.route(ctx, 'GET', new RegExp('^/api/sample$'), () => ({version:${version}})) }`
@@ -65,6 +76,10 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     const resources = (await (await fetch(base + '/__cordis/dev')).json()).plugins.sample.sample
     assert.equal((await fetch(base + resources.client)).status, 200)
     assert.ok((await (await fetch(base + resources.styles['style.css'])).text()).includes('color: red'))
+    const verificationFileAfter = sequence
+    await writeFile(join(folder, 'test/fixture.test.js'), 'export const fixture = 2')
+    await new Promise(resolve => setTimeout(resolve, 500))
+    assert.equal(sequence, verificationFileAfter, '修改插件测试文件不应触发页面保存、插件重载或 HMR 事件')
     await writeFile(join(folder, 'style.css'), '.sample { color: blue }')
     await message(value => value.type === 'update' && value.updates.some(update => update.type === 'css-update'), '样式更新')
     assert.ok((await (await fetch(base + resources.styles['style.css'])).text()).includes('color: blue'))

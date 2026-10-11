@@ -1,0 +1,7 @@
+{
+  "recipes": {
+    "ui": { "contracts": [], "examples": ["plugins/canvas/client.js", "plugins/canvas/package.json"], "patterns": ["画图应用没有 notebook、shell 或 canvasUI 服务；通用 client 骨架只挂独立面板。", "原生 DOM 用 sdk.effect/sdk.listen 管理释放；画作数据格式参照 canvas，实现坐标和 version 校验。"] },
+    "backend": { "contracts": [], "examples": ["plugins/storage/server.js", "plugins/storage/package.json"], "patterns": ["后端 drawingStorage 提供画作数据；参考实现并保留 revision 冲突校验；HTTP 路由传 ctx 管理释放。"] },
+    "agent": { "contracts": [], "examples": ["plugins/canvas/client.js"], "patterns": ["现有 drawing_read/drawing_update 位于 canvas/client.js，修改遵循本页 version 和撤销约定。"] }
+  }
+}

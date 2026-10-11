@@ -22,6 +22,7 @@ const variants = [
   object({ action: Type.Literal('assert'), target, assertion: Type.Literal('visible'), expected: Type.Boolean(), label }),
 ]
 export const browserSchemas = {
+  browser_report: object({}),
   browser_open: object({ width: Type.Optional(Type.Integer({ minimum: 320, maximum: 1920 })),
     height: Type.Optional(Type.Integer({ minimum: 300, maximum: 1440 })) }),
   // Keep an object at the root for model providers, with required fields per operation.
