@@ -57,7 +57,9 @@ function createHarness({ note = null } = {}) {
   createParagraphCount(ctx, sdk)
   const root = mounted[0].node
   return {
-    mounted, root, slot: slots[0], value: root.children[0], observers,
+    mounted, root, slot: slots[0],
+    caption: root.children[0], value: root.children[1],
+    observers,
     setNote: next => { state.note = next },
     /** 模拟 notebook/changed：编辑正文或切换笔记都会走这里。 */
     notify: () => { for (const handler of [...observers]) handler() },
@@ -65,43 +67,53 @@ function createHarness({ note = null } = {}) {
   }
 }
 
-test('挂载到编辑区底栏，没有选中笔记时显示空状态', () => {
-  const { mounted, root, value } = createHarness()
+test('挂载到编辑区底栏，没有选中笔记时显示未选择笔记', () => {
+  const { mounted, root, caption, value } = createHarness()
   assert.equal(mounted.length, 1, '一次激活只挂载一份界面')
   assert.equal(mounted[0].name, 'footer')
   assert.equal(root.className, 'paragraph-count')
   assert.equal(root.getAttribute('role'), 'group')
   assert.equal(root.getAttribute('aria-label'), '段落计数')
+  assert.equal(caption.textContent, '段落')
   assert.equal(value.textContent, '未选择笔记')
   assert.equal(root.dataset.state, 'no-note')
-  assert.equal(root.title, '选择一篇笔记后显示段落数')
+  assert.equal(root.title, '选择一篇笔记后显示非空段落数')
 })
 
-test('选中没有正文的笔记时显示「正文为空」', () => {
-  const harness = createHarness({ note: { id: 'a', content: '   \n\t' } })
-  assert.equal(harness.value.textContent, '正文为空')
-  assert.equal(harness.root.dataset.state, 'empty')
-  assert.equal(harness.root.title, '当前笔记正文为空，写点内容后显示段落数')
-})
-
-test('编辑内容后段落数即时更新', () => {
-  const harness = createHarness({ note: { id: 'a', content: '第一段\n\n第二段' } })
+test('普通笔记按空行统计，编辑后即时更新', () => {
+  const harness = createHarness({ note: { id: 'a', type: 'plain', content: '第一段\n\n第二段' } })
   assert.equal(harness.value.textContent, '2 段')
   assert.equal(harness.root.dataset.state, 'ready')
-  assert.equal(harness.root.title, '共 2 个非空段落，按空行分段')
-  harness.setNote({ id: 'a', content: '第一段\n\n第二段\n\n第三段' })
+  assert.equal(harness.root.title, '当前笔记共 2 个非空段落（按空行分段）')
+  harness.setNote({ id: 'a', type: 'plain', content: '第一段' })
   harness.notify()
-  assert.equal(harness.value.textContent, '3 段')
-  harness.setNote({ id: 'a', content: '' })
+  assert.equal(harness.value.textContent, '1 段')
+  harness.setNote({ id: 'a', type: 'plain', content: '  \n\t\n' })
   harness.notify()
   assert.equal(harness.value.textContent, '正文为空')
   assert.equal(harness.root.dataset.state, 'empty')
+  assert.equal(harness.root.title, '当前笔记正文为空，没有可统计的段落')
 })
 
-test('切换笔记后按新笔记内容更新，包括 Markdown 派生正文', () => {
-  const harness = createHarness({ note: { id: 'a', content: '单段' } })
-  assert.equal(harness.value.textContent, '1 段')
-  harness.setNote({ id: 'b', type: 'markdown', markdown: '# 标题\n\n正文一\n\n正文二', content: '标题\n正文一\n正文二' })
+test('Markdown 用源码统计，空源码不回退派生 content', () => {
+  const harness = createHarness({ note: { id: 'm', type: 'markdown', markdown: '# 标题\n\n正文一\n\n正文二', content: '标题 正文一 正文二' } })
+  assert.equal(harness.value.textContent, '3 段')
+  harness.setNote({ id: 'm', type: 'markdown', markdown: '', content: '过期派生文本' })
+  harness.notify()
+  assert.equal(harness.value.textContent, '正文为空')
+})
+
+test('不支持的格式显示明确提示', () => {
+  const harness = createHarness({ note: { id: 'f', type: 'freeform', content: '文字块' } })
+  assert.equal(harness.value.textContent, '当前格式不支持段落计数')
+  assert.equal(harness.root.dataset.state, 'unsupported')
+  assert.equal(harness.root.title, '当前笔记格式不支持段落计数，仅支持普通笔记与 Markdown')
+})
+
+test('切换笔记后按新笔记内容更新', () => {
+  const harness = createHarness({ note: { id: 'a', type: 'plain', content: '一\n\n二' } })
+  assert.equal(harness.value.textContent, '2 段')
+  harness.setNote({ id: 'b', type: 'markdown', markdown: '一\n\n二\n\n三' })
   harness.notify()
   assert.equal(harness.value.textContent, '3 段')
   harness.setNote(undefined)
@@ -110,17 +122,17 @@ test('切换笔记后按新笔记内容更新，包括 Markdown 派生正文', (
 })
 
 test('停用后释放订阅与节点，重新启用只保留一份界面', () => {
-  const first = createHarness({ note: { id: 'a', content: '一\n\n二' } })
+  const first = createHarness({ note: { id: 'a', type: 'plain', content: '一\n\n二' } })
   assert.equal(first.observers.length, 1)
   assert.equal(first.slot.children.length, 1)
   first.dispose()
   assert.equal(first.observers.length, 0, '停用后不再收到 notebook/changed')
   assert.equal(first.slot.children.length, 0, '停用后移除界面节点')
 
-  const second = createHarness({ note: { id: 'a', content: '一\n\n二' } })
+  const second = createHarness({ note: { id: 'a', type: 'plain', content: '一\n\n二\n\n三' } })
   assert.equal(second.mounted.length, 1)
   assert.equal(second.slot.children.length, 1, '重新启用不重复挂载')
-  assert.equal(second.value.textContent, '2 段')
+  assert.equal(second.value.textContent, '3 段')
   second.dispose()
   assert.equal(second.slot.children.length, 0)
 })

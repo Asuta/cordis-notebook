@@ -8,8 +8,7 @@
     "schemaVersion": 1,
     "id": "paragraph-count",
     "name": "段落计数",
-    "description": "在编辑区底栏显示当前笔记按空行分段后的非空段落数，没有选中笔记或正文为空时显示空状态。",
-    "defaultEnabled": false,
+    "description": "在编辑区底栏显示当前笔记的非空段落数（按空行分段），支持普通笔记与 Markdown。",
     "requires": {
       "server": [],
       "client": [
@@ -21,6 +20,9 @@
       "server": [],
       "client": []
     },
+    "order": 33,
+    "defaultEnabled": true,
+    "client": "client.js",
     "public": [
       "client.js",
       "style.css"
@@ -30,7 +32,8 @@
         "type": "bundle",
         "input": "client.js",
         "output": "client.js",
-        "platform": "browser"
+        "platform": "browser",
+        "minify": true
       },
       {
         "type": "copy",
@@ -38,15 +41,13 @@
         "output": "style.css"
       }
     ],
-    "client": "client.js",
-    "styles": [
-      "style.css"
-    ],
-    "order": 26,
     "category": {
       "id": "features",
       "label": "功能"
     },
-    "icon": "AlignLeft"
+    "icon": "List",
+    "styles": [
+      "style.css"
+    ]
   }
 }
