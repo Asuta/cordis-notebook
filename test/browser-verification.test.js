@@ -58,6 +58,79 @@ test('截图作为图片内容传给模型，不在文字工具结果中塞入 b
   assert.match(browserGuidance(false), /用户关闭.*不要运行浏览器测试/)
 })
 
+test('批量操作预校验全部参数，顺序执行失败即停并保留现场；独立复测不覆盖原报告', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cordis-browser-batch-')), workerFile = join(dir, 'worker.cjs')
+  await writeFile(workerFile, `let count=0; const checks=[]; process.on('message', m => {
+    if(m.type==='close') process.exit(0);
+    if(m.method==='finish') { process.send({id:m.id,result:{checks,errors:[]}}); return; }
+    if(m.input?.target?.css==='#bad') {
+      checks.push({passed:false}); process.send({id:m.id,error:'真实断言失败',errorKind:'assertion',checks,errors:[]}); return;
+    }
+    if(m.input?.action==='click') count++;
+    if(m.input?.action==='assert') checks.push({passed:true});
+    process.send({id:m.id,result:{checks,errors:[],snapshot:'计数 '+count,...(m.method==='open' || m.input?.action==='screenshot' ? {image:{type:'image',mimeType:'image/jpeg',data:'eA=='}} : {})}});
+  })`)
+  const v = new BrowserVerification({ root: resolve('.'), appId: 'notebook', dataDir: dir, workerFile })
+  t.after(async () => { await v.close(); await rm(dir, { recursive: true, force: true }) })
+  await assert.rejects(v.run('browser_retest', { reason: '尚未开始' }), /已开始/)
+  await v.run('browser_open')
+  const click = { action: 'click', target: { css: '#button' } }
+  await assert.rejects(v.run('browser_batch', { steps: [click, { action: 'press', value: 'Escape' }] }), /调用参数错误/)
+  assert.equal((await v.run('browser_action', { action: 'snapshot' })).snapshot, '计数 0', '参数错误整批零执行')
+  await assert.rejects(v.run('browser_batch', { steps: Array(13).fill(click) }), /调用参数错误/)
+  const result = await v.run('browser_batch', { steps: [click, { action: 'assert', target: { css: '#bad' }, expected: 'ok' }, click] })
+  assert.equal(result.ok, false); assert.equal(result.completed, 1); assert.equal(result.stoppedAt, 2)
+  assert.match(result.failure.snapshot, /计数 1/)
+  assert.equal(v.report.steps.filter(step => step.batchId === result.batchId).length, 2)
+  const old = await v.run('browser_finish', { result: 'passed', summary: '后续不执行' })
+  assert.equal(old.status, 'failed')
+  const oldFile = join(dir, 'browser', old.id, 'report.json'), oldBytes = await readFile(oldFile, 'utf8')
+  await assert.rejects(v.run('browser_retest', { reason: '   ' }), /调用参数错误/)
+  assert.equal(await readFile(oldFile, 'utf8'), oldBytes, '无效复测参数不能修改已结束的原始报告')
+  const fresh = await v.run('browser_retest', { reason: '修复正文来源后复测' })
+  assert.notEqual(fresh.report.id, old.id); assert.match(fresh.snapshot, /计数 0/)
+  const batch = await v.run('browser_batch', { steps: [click,
+    { action: 'assert', target: { css: '#button' }, expected: '计数 1' }, { action: 'screenshot' }] })
+  assert.equal(batch.ok, true); assert.equal(batch.completed, 3); assert.equal(batch.image.type, 'image')
+  const tool = browserToolResult(batch)
+  assert.equal(tool.content.filter(item => item.type === 'image').length, 1)
+  assert.doesNotMatch(tool.content[0].text, /eA==/)
+  const final = await v.run('browser_finish', { result: 'passed', summary: '新实例顺序操作通过' })
+  assert.equal(final.status, 'passed'); assert.equal(final.previousAttemptId, old.id)
+  assert.equal(final.previousAttempts[0].status, 'failed'); assert.equal(final.previousAttempts[0].checks[0].passed, false)
+  assert.equal(final.checks.length, 1); assert.equal(final.checks[0].passed, true)
+  assert.equal(await readFile(oldFile, 'utf8'), oldBytes, '原始报告字节不变')
+  const saved = JSON.parse(await readFile(join(dir, 'browser', final.id, 'report.json'), 'utf8'))
+  assert.equal(saved.previousAttempts[0].reportUrl, old.reportUrl)
+  await assert.rejects(v.run('browser_retest', { reason: '已通过不重复' }), /失败或未完成/)
+  const wb = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: dir })
+  await wb.close()
+  await writeFile(join(dir, 'conversations.json'), JSON.stringify([{ id: 'history', appId: 'notebook', messages: [], turns: [{ id: 'turn', events: [], browserVerification: final }] }]))
+  const restored = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: dir })
+  try {
+    const base = 'http://127.0.0.1:' + restored.server.address().port
+    assert.equal((await (await fetch(base + old.reportUrl)).json()).status, 'failed')
+    assert.equal((await fetch(base + old.screenshots[0].url)).status, 200)
+    assert.equal((await (await fetch(base + final.reportUrl)).json()).status, 'passed')
+  } finally { await restored.close() }
+})
+
+test('批量操作遇到页面错误立即停止，取消后的验收不能开启复测', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cordis-browser-page-batch-')), workerFile = join(dir, 'worker.cjs')
+  await writeFile(workerFile, `process.on('message', m => {
+    if(m.type==='close') process.exit(0);
+    process.send({id:m.id,result:{checks:[],errors:m.method==='open'?[]:['页面错误'],snapshot:'错误现场'}});
+  })`)
+  const controller = new AbortController(), v = new BrowserVerification({ root: resolve('.'), appId: 'notebook', dataDir: dir, workerFile, signal: controller.signal })
+  t.after(async () => { await v.close(); await rm(dir, { recursive: true, force: true }) })
+  await v.run('browser_open')
+  const result = await v.run('browser_batch', { steps: [{ action: 'snapshot' }, { action: 'screenshot' }] })
+  assert.equal(result.stoppedAt, 1); assert.equal(result.failure.errorKind, 'page')
+  assert.equal(v.report.steps.filter(step => step.batchId).length, 1)
+  controller.abort(); await v.close('stopped')
+  await assert.rejects(v.run('browser_retest', { reason: '取消后重试' }), /停止/)
+})
+
 test('每轮开关固定，偏好随会话保存，新会话默认关闭，关闭时后端拒绝且不启动实例', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-browser-policy-')), workerFile = join(dir, 'worker.cjs')
   await writeFile(workerFile, `process.send({type:'ready'}); process.on('message', m => {
@@ -161,7 +234,7 @@ test('工作台重启把未完成的验收记录标记停止，报告文件与�
   assert.equal((await fetch(base + '/api/browser-artifacts/00000000-0000-0000-0000-000000000003/report.json')).status, 404)
 })
 
-test('真实浏览器使用独立应用数据，执行交互断言、截图并关闭端口', { skip: process.env.CORDIS_BROWSER_TEST !== '1', timeout: 90000 }, async t => {
+test('真实浏览器使用独立应用数据，执行交互断言、截图、批量操作和修复后独立复测', { skip: process.env.CORDIS_BROWSER_TEST !== '1', timeout: 120000 }, async t => {
   const root = await mkdtemp(resolve('browser-test-')), folder = join(root, 'applications/sample/plugins/counter')
   await mkdir(folder, { recursive: true })
   await writeFile(join(root, 'applications/sample/package.json'), JSON.stringify({ cordisApp: { id: 'sample', name: '浏览器验收测试' } }))
@@ -235,5 +308,24 @@ test('真实浏览器使用独立应用数据，执行交互断言、截图并�
     assert.equal(final.checks[0].passed, false); assert.equal(final.checks[1].passed, true)
     assert.ok(final.steps.some(step => step.errorKind === 'assertion'))
     assert.ok(final.steps.some(step => step.errorKind === 'operation'))
+    const original = await readFile(join(root, 'reports/browser', final.id, 'report.json'), 'utf8')
+    // The fresh worker must load repaired source and begin from empty state.
+    await writeFile(join(folder, 'client.js'), (await readFile(join(folder, 'client.js'), 'utf8')).replace("'计数 '+ ++count", "'计数 '+ (count += 2)"))
+    const retest = await failed.run('browser_retest', { reason: '修复计数增量为 2 后独立复测' })
+    assert.notEqual(retest.report.id, final.id); assert.match(retest.snapshot, /计数 0/)
+    const batch = await failed.run('browser_batch', { steps: [
+      { action: 'click', target: { role: 'button', name: '计数 0' } },
+      { action: 'assert', target: { role: 'button', name: '计数 2' }, expected: '计数 2' },
+      { action: 'fill', target: input, value: '新实例正文' },
+      { action: 'assert', target: input, assertion: 'value', expected: '新实例正文' },
+      { action: 'screenshot' },
+    ] })
+    assert.equal(batch.ok, true, JSON.stringify(batch.failure)); assert.equal(batch.completed, 5)
+    assert.equal(batch.image.type, 'image')
+    const passed = await failed.run('browser_finish', { result: 'passed', summary: '修复后新实例中的批量操作与断言通过' })
+    assert.equal(passed.status, 'passed'); assert.equal(passed.checks.length, 2)
+    assert.equal(passed.previousAttempts[0].status, 'failed')
+    assert.equal(await readFile(join(root, 'reports/browser', final.id, 'report.json'), 'utf8'), original)
+    await assert.rejects(fetch(retest.url, { signal: AbortSignal.timeout(1000) }))
   } finally { await failed.close() }
 })

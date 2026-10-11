@@ -37,6 +37,12 @@ test('浏览器验收区分用户关闭、未执行和失败，展示本地截�
     updateTurn(element, turn)
     assert.match(panel.textContent, /未完成.*尚无成功断言.*1 次调用参数错误/)
     assert.match(panel.textContent, /未计为产品验收失败/)
+    turn.browserVerification = { id: 'current', status: 'passed', retryReason: '修复 Markdown 字段', previousAttempts: [
+      { id, status: 'failed', summary: '原始 Markdown 断言失败', reportUrl: `/api/browser-artifacts/${id}/report.json`, screenshots: [{ url: `/api/browser-artifacts/${id}/1.jpg` }] },
+    ] }
+    updateTurn(element, turn)
+    assert.match(panel.textContent, /最新复测通过.*修复 Markdown 字段.*第 1 次验收 · 失败.*原始 Markdown 断言失败/)
+    assert.equal(panel.querySelector('.browser-attempt a').href, `/api/browser-artifacts/${id}/1.jpg`)
   } finally { globalThis.document = previous; window.happyDOM.abort() }
 })
 

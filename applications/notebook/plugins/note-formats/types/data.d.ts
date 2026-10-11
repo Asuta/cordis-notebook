@@ -9,9 +9,11 @@ export interface NoteFormat {
   readonly editorLayout?: 'standard' | 'wide'
   /** Legacy custom hook. Builtin formats use editorLayout instead. */
   readonly editorClass?: string
+  /** 格式拥有的源码字段：plain 为 content；markdown 为 markdown；freeform 为 blocks/page/version。 */
   readonly fields: readonly string[]
   defaults(): Record<string, unknown>
   normalize(data: Readonly<Record<string, unknown>>): Record<string, unknown>
+  /** 搜索/摘要用的派生纯文本，写入 Note.content；不承诺保留 Markdown 空行或自由页面块结构。 */
   toText(data: Readonly<Record<string, unknown>>): string
 }
 export interface NoteFormats {

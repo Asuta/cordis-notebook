@@ -3,6 +3,7 @@ export interface Note {
   readonly [field: string]: unknown
   readonly id: string
   readonly title: string
+  /** plain 的正文；其他格式由 toText 派生的纯文本，不保证保留空行或块结构。Markdown 源码在 markdown 字段。 */
   readonly content: string
   readonly pinned: boolean
   readonly createdAt: string

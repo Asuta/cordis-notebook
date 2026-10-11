@@ -36,7 +36,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       item.running = false; item.messages.push({ role: 'system', text: '工作台曾中断；可以继续此会话。' })
       for (const turn of item.turns.filter(turn => turn.status === 'running')) {
         turn.status = 'stopped'; turn.endedAt = Date.now()
-        if (turn.browserVerification?.status === 'running') {
+        if (turn.browserVerification && !turn.browserVerification.endedAt && !['disabled', 'not-run'].includes(turn.browserVerification.status)) {
           const report = turn.browserVerification
           report.status = 'stopped'; report.endedAt = turn.endedAt
           report.errors ||= []; report.errors.push('工作台中断，浏览器验收未完成。')
@@ -118,7 +118,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (task.cancelled) throw Error('任务已停止')
     if (name.startsWith('browser_')) {
       if (!task.turn?.browserVerificationEnabled) throw Error('用户关闭了本轮浏览器验收，不能调用或绕过开关')
-      if (!['browser_open', 'browser_action', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
+      if (!['browser_open', 'browser_action', 'browser_batch', 'browser_retest', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
       if (!task.browser && name !== 'browser_open' && name !== 'browser_report') throw Error('请先 browser_open')
       task.browser ||= browserFactory({ root, appId: task.appId, dataDir, signal: task.controller?.signal,
         onChange(report) { task.turn.browserVerification = report; changed(task.thread) },
@@ -298,7 +298,8 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       const path = new URL(req.url, `http://${host}`).pathname
       const artifact = path.match(/^\/api\/browser-artifacts\/([a-f0-9-]{36})\/(report\.json|[1-9][0-9]*\.jpg)$/)
       if (req.method === 'GET' && artifact) {
-        const report = conversations.flatMap(thread => thread.turns).find(turn => turn.browserVerification?.id === artifact[1])?.browserVerification
+        const report = conversations.flatMap(thread => thread.turns).flatMap(turn => turn.browserVerification
+          ? [turn.browserVerification, ...(turn.browserVerification.previousAttempts || [])] : []).find(report => report.id === artifact[1])
         if (!report) throw fail(404, '验收报告不存在')
         const data = await readFile(join(dataDir, 'browser', artifact[1], artifact[2])).catch(error => { if (error.code === 'ENOENT') throw fail(404, '验收文件不存在'); throw error })
         res.writeHead(200, { 'Content-Type': artifact[2].endsWith('.jpg') ? 'image/jpeg' : 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(data); return

@@ -25,6 +25,9 @@ export const browserSchemas = {
   browser_report: object({}),
   browser_open: object({ width: Type.Optional(Type.Integer({ minimum: 320, maximum: 1920 })),
     height: Type.Optional(Type.Integer({ minimum: 300, maximum: 1440 })) }),
+  browser_retest: object({ reason: text(), width: Type.Optional(Type.Integer({ minimum: 320, maximum: 1920 })),
+    height: Type.Optional(Type.Integer({ minimum: 300, maximum: 1440 })) }),
+  browser_batch: object({ steps: Type.Array(Type.Union(variants), { minItems: 1, maxItems: 12 }) }),
   // Keep an object at the root for model providers, with required fields per operation.
   browser_action: Type.Intersect([
     Type.Object({ action: Type.Union([...new Set(variants.map(item => item.properties.action.const))].map(Type.Literal)) }),
@@ -48,6 +51,11 @@ export function validateBrowserInput(name, args) {
     throw usageError(errors.join('；'))
   }
   if (name === 'browser_finish' && !args.summary.trim()) throw usageError('summary 需要说明实际检查范围')
+  if (name === 'browser_retest' && !args.reason.trim()) throw usageError('reason 需要说明修复内容与复测原因')
+  if (name === 'browser_batch') for (const [index, step] of args.steps.entries()) {
+    try { validateBrowserInput('browser_action', step) }
+    catch (error) { throw usageError('steps/' + index + '：' + error.message) }
+  }
   if (name === 'browser_action' && args.action === 'assert' && (args.assertion ?? 'text') === 'text' && !args.expected.trim()) {
     throw usageError('text 断言需要非空 expected；空输入框请用 value')
   }

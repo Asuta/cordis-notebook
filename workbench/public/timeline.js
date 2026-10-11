@@ -209,7 +209,7 @@ function updateBrowserReport(element, report) {
   if (!report || element._signature === signature) return
   element._signature = signature
   const labels = { disabled: '用户关闭，未执行', 'not-run': '已开启，本轮未调用', running: '进行中', passed: '通过', failed: '失败', incomplete: '未完成', stopped: '已停止' }
-  const summary = node('summary', '', '浏览器验收 · ' + (labels[report.status] || report.status))
+  const summary = node('summary', '', '浏览器验收 · ' + (report.previousAttempts?.length ? '最新复测' : '') + (labels[report.status] || report.status))
   const text = node('p', '', report.summary || '')
   const errors = node('pre', '', (report.errors || []).join('\n'))
   const usageErrors = (report.steps || []).filter(step => step.errorKind === 'usage').length
@@ -223,5 +223,13 @@ function updateBrowserReport(element, report) {
   if (/^\/api\/browser-artifacts\/[a-f0-9-]{36}\/report\.json$/.test(report.reportUrl || '')) {
     const link = node('a', '', '查看完整验收报告'); link.href = report.reportUrl; link.target = '_blank'; link.rel = 'noopener'; links.append(link)
   }
-  element.replaceChildren(summary, text, errors, notes, links)
+  const history = node('div', 'browser-attempts')
+  for (const [index, previous] of (report.previousAttempts || []).entries()) {
+    const attempt = node('details', 'browser-attempt')
+    updateBrowserReport(attempt, previous)
+    attempt.querySelector('summary').textContent = '第 ' + (index + 1) + ' 次验收 · ' + (labels[previous.status] || previous.status) + '（保留原始记录）'
+    history.append(attempt)
+  }
+  const reason = node('p', '', report.retryReason ? '复测原因：' + report.retryReason : '')
+  element.replaceChildren(summary, text, errors, notes, reason, links, history)
 }

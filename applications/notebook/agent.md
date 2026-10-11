@@ -1,6 +1,6 @@
 # 笔记应用上下文
 
-应用 ID 是 notebook。业务全部在本目录 `plugins/` 中：storage 管持久化；notes/notes-api 管业务与 HTTP；note-formats 和 plain/markdown/freeform 格式插件管数据类型；notebook 管浏览器选择、草稿、保存；editor/markdown-editor/free-page-editor 管实际编辑界面；rich-text 封装 TipTap。
+应用 ID 是 notebook。业务全部在本目录 `plugins/` 中：storage 管持久化；notes/notes-api 管业务与 HTTP；note-formats 和 format-plain/format-markdown/format-freeform 格式插件管数据类型；markdown 提供 Markdown 渲染与纯文本转换服务；notebook 管浏览器选择、草稿、保存；editor/markdown-editor/free-page-editor 管实际编辑界面；rich-text 封装 TipTap。
 
 工具在 `plugins/agent-tools/client.js`，依赖 notebook 服务，停用该插件后这些工具应消失。工具通过浏览器公开模型读取当前页面及未保存内容，不直接读写 notes.json。
 
@@ -13,6 +13,8 @@
 自由页面采用 block/outline 富文本数据，历史、粘贴、缩进和缩放有专门实现。改交互前阅读 `docs/自由页面设计与使用.md`、相应测试；不要绕过 model.edit、历史边界或格式校验。图片存储归 note-assets，不依赖笔记文件路径。
 
 用户继续输入后，旧 revision 和旧选区应被拒绝。不要自动用新 revision 重试旧的整篇内容。刷新会失去选区附件定位，需要重新添加；聊天中的引用文字会保留。
+
+正文语义见 `note-content.md`：普通笔记源码是 `content`，Markdown 源码是 `markdown`，自由页面是 `blocks/page/version`。Markdown 和自由页面的 `content` 是派生纯文本，不保留原始空行或块结构；按空行计数必须使用对应源码。创建或修改 Markdown 用 `{ markdown: "…" }`。
 
 ## 插件开发快速入口
 

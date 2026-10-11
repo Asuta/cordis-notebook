@@ -67,7 +67,7 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
   assert.equal(user.content.filter(c => c.type === 'image_url').length, 2)
   assert.equal(low.events.some(e => e.type === 'trace' && e.event.kind === 'thinking' && e.event.delta === '思考示例'), true)
   assert.equal(low.events.some(e => e.type === 'trace' && e.event.kind === 'text'), true)
-  for (const name of ['workspace_development_info', 'workspace_scaffold_plugin', 'browser_report']) assert.ok(low.requests[0].tools.some(tool => tool.function.name === name))
+  for (const name of ['workspace_development_info', 'workspace_scaffold_plugin', 'browser_report', 'browser_batch', 'browser_retest']) assert.ok(low.requests[0].tools.some(tool => tool.function.name === name))
   toolOnly = true; sessionFile = undefined
   const tool = await run('low'); assert.equal(tool.requests.length, 2)
   assert.ok(tool.events.some(e => e.type === 'tool' && e.name === 'workspace_development_info'))

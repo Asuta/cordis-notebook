@@ -7,7 +7,12 @@ import { discoverBuiltins, inside } from '../server/plugin-discovery.js'
 
 const object = properties => Type.Object(properties, { additionalProperties: false })
 export const developmentSchemas = {
-  workspace_development_info: object({ focus: Type.Optional(Type.Union(['ui', 'backend', 'agent'].map(Type.Literal))) }),
+  workspace_development_info: object({
+    focus: Type.Optional(Type.Union(['ui', 'backend', 'agent'].map(Type.Literal))),
+    task: Type.Optional(Type.String({ minLength: 1, maxLength: 60 })),
+    template: Type.Optional(Type.String({ minLength: 1, maxLength: 60 })),
+    includeAllProviders: Type.Optional(Type.Boolean()),
+  }),
   workspace_scaffold_plugin: object({
     id: Type.String({ pattern: '^[a-z][a-z0-9-]{1,49}$' }), name: Type.String({ minLength: 1, maxLength: 80 }),
     template: Type.String({ minLength: 1, maxLength: 60 }),
@@ -15,11 +20,11 @@ export const developmentSchemas = {
   }),
 }
 export const developmentTools = [
-  ['workspace_development_info', '一次读取绑定应用的真实开发入口：服务提供者、契约正文、相关最小示例、挂载/订阅/释放方式、可用脚手架、验证命令以及实际运行地址、数据目录与启用协议。focus 为 ui（默认）、backend 或 agent；返回的文件带真实路径，不需要再次猜路径或扫描所有插件。', developmentSchemas.workspace_development_info],
-  ['workspace_scaffold_plugin', '为绑定应用创建完整可发现的插件骨架。先从 workspace_development_info 选择 template；默认停用，写齐实现和清单并校验后整体发布。拒绝重复 ID、目录或包名，不覆盖已有文件。返回生成文件和下一步；骨架还需实现需求和验证。', developmentSchemas.workspace_scaffold_plugin],
+  ['workspace_development_info', '一次读取绑定应用的开发资料，默认仅返回相关服务、契约正文和示例。focus 为 ui（默认）、backend 或 agent；已知模板可传 template（如 notebook-footer），专项资料传返回的 tasks 中的 task ID。task 和 template 二选一；includeAllProviders=true 展开全部服务索引。同时返回挂载/释放规则、验证命令、实际运行地址和启用协议；文件有真实路径和正文，无需重复读取。', developmentSchemas.workspace_development_info],
+  ['workspace_scaffold_plugin', '为绑定应用创建完整可发现的插件骨架。先从 workspace_development_info 选择 template；默认停用，写齐实现和清单并校验后整体发布。拒绝重复 ID、目录或包名，不覆盖已有文件。sources 直接返回生成文件的路径与完整源码，可立即编辑，无需再次读取；骨架还需实现需求和验证。', developmentSchemas.workspace_scaffold_plugin],
 ]
 export const developmentGuidance = [
-  '插件开发先调用 workspace_development_info，按任务选 ui/backend/agent。它已返回契约正文和相关示例；仅为尚未解决的具体问题追加定向读取，不反复读取相同文件或无目标扫描插件。新增插件优先 workspace_scaffold_plugin；需要自建时先写齐实现和构建输入，最后发布清单。',
+  '插件开发先调用 workspace_development_info，按任务选 focus 或已知 template/task，默认只含相关服务；需要其他服务时才 includeAllProviders=true。它已返回契约正文和相关示例；仅为尚未解决的具体问题追加定向读取，不反复读取相同文件或无目标扫描插件。新增插件优先 workspace_scaffold_plugin，直接用 sources 中的源码开始编辑；需要自建时先写齐实现和构建输入，最后发布清单。',
   '小功能按用户要求实现最小范围；未要求的配置、设置页和额外功能不要顺手增加。契约和最接近示例确认后开始实现，不要求读完整项目。验证选择目标插件；修复实际失败或新增改动后才重跑已通过检查。结束报告依据已有结果，不例行再扫描目录、dist 或重读报告。',
   '启用插件使用开发入口 runtime.activation 的协议或插件管理界面；defaultEnabled 只影响首次登记，不能覆盖已保存的停用状态。只以受管理运行实例返回的数据目录为准，不能假定 root/data，不能直接改状态文件。HTTP 写入前读取最新应用 session 并确认仍是本应用，带 x-application-session；以响应里的 enabled/state/error 判断结果。浏览器验收使用独立实例和数据，不代表用户页面已经启用。',
 ]
@@ -46,14 +51,21 @@ async function source(root, name, limit = 8000) {
   return { path: file, content: text.slice(0, limit), truncated: text.length > limit }
 }
 const templates = profile => [
-  { id: 'client', description: '通用前端面板，sdk.effect 管理 DOM 生命周期；无应用服务依赖' },
-  { id: 'server', description: '通用后端 HTTP 接口 /api/plugins/<id>/status，依赖 http' },
+  { id: 'client', description: '通用前端面板，sdk.effect 管理 DOM 生命周期；无应用服务依赖', focus: 'ui', recipe: { services: { client: [], server: [] } } },
+  { id: 'server', description: '通用后端 HTTP 接口 /api/plugins/<id>/status，依赖 http', focus: 'backend', recipe: { services: { server: ['http'], client: [] } } },
   ...(profile.templates || []),
 ]
 export async function developmentInfo(root, appId, args = {}) {
   validate('workspace_development_info', args)
-  const paths = await applicationPaths(root, appId), profile = await profileFor(paths), focus = args.focus || 'ui'
-  const recipe = profile.recipes?.[focus] || {}, providers = [], warnings = []
+  const paths = await applicationPaths(root, appId), profile = await profileFor(paths)
+  if (args.task && args.template) throw Error('task 和 template 二选一')
+  const selected = args.task ? (profile.tasks || []).find(task => task.id === args.task)
+    : args.template ? templates(profile).find(template => template.id === args.template) : null
+  if ((args.task || args.template) && !selected) throw Error('任务或模板不存在；请从 tasks/templates 选择')
+  if (selected?.focus && args.focus && args.focus !== selected.focus) throw Error('focus 与任务或模板不一致')
+  const focus = args.focus || selected?.focus || 'ui'
+  const recipe = selected ? selected.recipe || profile.recipes?.[focus] || {} : profile.recipes?.[focus] || {}
+  const providers = [], warnings = []
   for (const folder of await readdir(paths.plugins, { withFileTypes: true })) {
     if (!folder.isDirectory() || folder.name.startsWith('.') || folder.name === 'node_modules') continue
     try {
@@ -67,9 +79,20 @@ export async function developmentInfo(root, appId, args = {}) {
   const names = [...new Set(['packages/host/index.d.ts', ...(recipe.contracts || []).map(file => 'applications/' + appId + '/' + file)])]
   const contracts = await Promise.all(names.map(file => source(paths.root, file)))
   const examples = await Promise.all((recipe.examples || []).map(file => source(paths.root, 'applications/' + appId + '/' + file, 6000)))
-  return { appId, name: paths.pkg.cordisApp.name, root: paths.root, pluginDirectory: paths.plugins, focus, providers, warnings,
+  // Older application profiles without service lists keep their full index.
+  const relevant = args.includeAllProviders || !recipe.services ? providers : providers.filter(provider =>
+    ['client', 'server'].some(side => (recipe.services[side] || []).some(service => provider.provides[side]?.includes(service))))
+  for (const side of ['client', 'server']) for (const service of recipe.services?.[side] || []) {
+    if (side === 'server' && service === 'http') continue
+    if (!providers.some(provider => provider.provides[side]?.includes(service))) warnings.push({ service, side, error: '当前应用未提供此服务' })
+  }
+  const descriptor = ({ id, description, focus }) => ({ id, description, ...(focus ? { focus } : {}) })
+  return { appId, name: paths.pkg.cordisApp.name, root: paths.root, pluginDirectory: paths.plugins, focus,
+    ...(args.task ? { task: args.task } : {}), ...(args.template ? { template: args.template } : {}),
+    providers: relevant, providerScope: relevant === providers ? 'all' : 'related', providerCount: providers.length,
+    expandProviders: { tool: 'workspace_development_info', arguments: { ...args, includeAllProviders: true } }, warnings,
     contracts, examples, patterns: recipe.patterns || ['sdk.effect / sdk.listen 的释放随插件上下文处理。应用服务只能来自当前应用。'],
-    templates: templates(profile),
+    templates: templates(profile).map(descriptor), tasks: (profile.tasks || []).map(descriptor),
     verification: { tool: 'workspace_test', arguments: { plugins: ['<plugin-id>'] }, command: 'pnpm test:plugin --app ' + appId + ' --plugin <plugin-id>',
       hotUpdate: '开发模式保存后先 workspace_status，检查 development.events 和 blocked；运行模式按 workspace_status 判断。',
       coverage: '分别报告类型契约、构建、目标测试、浏览器验收及缺口；骨架成功不代表功能测试通过。' },
@@ -148,6 +171,7 @@ export async function scaffoldPlugin(root, appId, args, { signal } = {}) {
     await rm(staging, { recursive: true, force: true })
   }
   return { appId, id: args.id, template: args.template, directory: target, files: Object.keys(files).map(file => join(target, file)),
+    sources: Object.entries(files).map(([file, content]) => ({ path: join(target, file), content, truncated: false })),
     defaultEnabled: pkg.cordis.defaultEnabled, validated: '插件清单和构建输入已校验；尚未构建或验证业务',
     next: ['修改生成的实现完成用户需求', '开发模式用 workspace_status 检查热更新', 'workspace_test({plugins:["' + args.id + '"]})', '按本轮开关执行浏览器验收，用 browser_report 读取当前报告'] }
 }

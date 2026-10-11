@@ -47,6 +47,11 @@ test('脚手架生成各应用完整骨架，清单与所有构建输入可真�
     for (const template of templates) {
       const id = 'new-' + template, result = await scaffoldPlugin(root, appId, { id, name: '测试 "插件"', template })
       assert.equal(result.defaultEnabled, false)
+      assert.deepEqual(result.sources.map(source => source.path), result.files)
+      for (const source of result.sources) {
+        assert.equal(source.content, await readFile(source.path, 'utf8'))
+        assert.equal(source.truncated, false)
+      }
       for (const file of result.files) assert.ok((await readFile(file, 'utf8')).length)
     }
     assert.equal((await readdir(plugins)).some(name => name.startsWith('.scaffold-')), false)
@@ -55,6 +60,34 @@ test('脚手架生成各应用完整骨架，清单与所有构建输入可真�
     assert.equal(entries.length, templates.length + 1)
     for (const entry of entries) for (const item of entry.package.cordis.build) assert.ok((await readFile(join(entry.sourceRoot, 'dist', item.output))).length)
   }
+})
+
+test('开发资料按模板和专项任务收窄，完整服务可展开且不跨应用', async () => {
+  const all = await developmentInfo(resolve('.'), 'notebook', { includeAllProviders: true })
+  const footer = await developmentInfo(resolve('.'), 'notebook', { template: 'notebook-footer' })
+  assert.equal(footer.providerScope, 'related'); assert.equal(all.providerScope, 'all')
+  assert.ok(footer.providers.length < all.providers.length)
+  assert.equal(footer.providerCount, all.providers.length)
+  assert.ok(footer.contracts.some(file => file.path.endsWith('note-content.md')))
+  assert.ok(footer.providers.every(provider => ['notebook', 'layout', 'note-formats'].includes(provider.id)))
+  const expanded = await developmentInfo(resolve('.'), 'notebook', footer.expandProviders.arguments)
+  assert.deepEqual(expanded.providers, all.providers)
+  const content = await developmentInfo(resolve('.'), 'notebook', { task: 'note-content' })
+  assert.ok(content.examples.some(file => file.path.endsWith(join('format-markdown', 'format.js'))))
+  assert.match(content.contracts.find(file => file.path.endsWith('note-content.md')).content, /3 个非空段落/)
+  for (const appId of ['notebook', 'studio', 'drawing']) {
+    const generic = await developmentInfo(resolve('.'), appId, { template: 'client' })
+    assert.deepEqual(generic.providers, []); assert.deepEqual(generic.examples, [])
+    assert.deepEqual(generic.contracts.map(file => file.path), [resolve('packages/host/index.d.ts')])
+    assert.equal((await developmentInfo(resolve('.'), appId, { template: 'server' })).focus, 'backend')
+  }
+  const action = await developmentInfo(resolve('.'), 'studio', { template: 'studio-action' })
+  assert.deepEqual(action.providers.map(provider => provider.id), ['canvas-ui'])
+  assert.equal(action.contracts.length, 2)
+  await assert.rejects(developmentInfo(resolve('.'), 'drawing', { template: 'notebook-footer' }), /不存在/)
+  await assert.rejects(developmentInfo(resolve('.'), 'notebook', { task: 'missing' }), /不存在/)
+  await assert.rejects(developmentInfo(resolve('.'), 'notebook', { task: 'note-content', template: 'client' }), /二选一/)
+  await assert.rejects(developmentInfo(resolve('.'), 'notebook', { template: 'server', focus: 'ui' }), /不一致/)
 })
 
 test('脚手架拒绝重复目录、非法 ID、越界应用、不支持模板和取消；不覆盖原文件', async t => {
