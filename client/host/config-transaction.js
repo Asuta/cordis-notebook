@@ -1,3 +1,4 @@
+import { operationError, restoreError } from '../../shared/errors.js'
 /** Run inside the page's host synchronization queue, including recovery. */
 export async function applyConfiguration({ plugin, config, host, request, synchronize, getSnapshot }) {
   let staged, problem
@@ -19,11 +20,11 @@ export async function applyConfiguration({ plugin, config, host, request, synchr
       try { await request('/api/plugins/config/confirm', 'POST', { token: staged.pendingConfig.token, success: false, error: error.message }) } catch {}
     }
   }
-  try { await synchronize() } catch { throw new Error('无法确认配置结果，连接恢复后会自动同步，请稍后查看设置。') }
+  try { await synchronize() } catch { throw operationError('CONFIG_RESULT_UNKNOWN', '无法确认配置结果，连接恢复后会自动同步，请稍后查看设置。', { operationId: problem?.operationId || staged?.operation?.id }) }
   const current = getSnapshot().plugins.find(p => p.id === plugin.id)
   const failed = healthy.filter(id => host.state(id) !== 'enabled')
   if (failed.length) throw new Error('配置处理后这些插件未恢复运行，请重载前端：' + failed.join('、'))
   if (current && JSON.stringify(current.config) === JSON.stringify(config) && !current.configError) return
-  if (problem) throw new Error(`配置未保存：${problem.message}。已恢复原配置。`)
+  if (problem) throw Object.assign(restoreError(problem), { message: `配置未保存：${problem.message}。已恢复原配置。` })
   throw new Error(current?.configError || '配置没有生效，请载入最新设置')
 }

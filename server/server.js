@@ -6,6 +6,7 @@ import { Http, body, fail } from './host/http.js'
 import { Applications } from './host/applications.js'
 import { discoverApplications, defaultApplicationsDir } from './application-discovery.js'
 import { defaultPluginsDir, containedFile } from './plugin-discovery.js'
+import { capabilityCatalog } from '../shared/capabilities.js'
 
 const rootDir = fileURLToPath(new URL('../', import.meta.url))
 // Single-directory adapter for plugin development and existing isolated tests.
@@ -23,9 +24,11 @@ export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data
     route('GET', /^\/api\/applications$/, () => applications.describe())
     route('POST', /^\/api\/applications\/switch$/, async ({ req }) => { const input = await body(req); return applications.switch(input.id, input.session) })
     route('GET', /^\/api\/plugins$/, () => applications.snapshot())
-    route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/config$/, manage(async (manager, { req, match }) => { const input = await body(req); return manager.settings.begin(match[1], input.config, input.expectedRevision) }))
+    route('GET', /^\/api\/capabilities$/, manage(manager => capabilityCatalog(manager.serialize().plugins)))
+    route('GET', /^\/api\/operations\/([a-zA-Z0-9_-]+)$/, manage((manager, { match }) => manager.operations.get(match[1])))
+    route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/config$/, manage(async (manager, { req, match }) => { const input = await body(req); return manager.settings.begin(match[1], input.config, input.expectedRevision, input.operationId) }))
     route('POST', /^\/api\/plugins\/config\/confirm$/, manage(async (manager, { req }) => { const input = await body(req); return manager.settings.finish(input.token, input.success, input.error) }))
-    route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/toggle$/, manage(async (manager, { req, match }) => manager.toggle(match[1], (await body(req)).enabled)))
+    route('POST', /^\/api\/plugins\/([a-z0-9-]+)\/toggle$/, manage(async (manager, { req, match }) => { const input = await body(req); return manager.toggle(match[1], input.enabled, input.operationId) }))
     route('POST', /^\/api\/plugins\/exclusive\/confirm$/, manage(async (manager, { req }) => { const input = await body(req); return manager.finishExclusive(input.token, input.success, input.error) }))
     route('GET', /^\/api\/events$/, ({ req, res }) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' }); res.write('event: plugins\ndata: connected\n\n')

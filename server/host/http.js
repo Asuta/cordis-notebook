@@ -1,7 +1,8 @@
 import { Service } from 'cordis'
 import { createServer } from 'node:http'
+import { errorDetail } from '../../shared/errors.js'
 
-export const fail = (status, message) => Object.assign(new Error(message), { status })
+export const fail = (status, message, code, retryable = false) => Object.assign(new Error(message), { status, ...(code ? { code } : {}), retryable })
 export async function body(req) {
   const chunks = []; let size = 0
   for await (const chunk of req) { size += chunk.length; if (size > 2 * 1024 * 1024) throw fail(413, '请求不能超过 2 MB'); chunks.push(chunk) }
@@ -23,7 +24,7 @@ export class Http extends Service {
         const request = { req, res, pathname, match: route ? pathname.match(route.pattern) : null }
         const result = await (route ? route.handler(request) : this.fallback(request))
         if (!res.headersSent) send(200, result ?? { ok: true })
-      } catch (error) { if (!error.status) console.error(error); if (!res.headersSent) send(error.status || 500, { error: error.message, ...(typeof error.code === 'string' ? { code: error.code } : {}) }); else res.end() }
+      } catch (error) { if (!error.status) console.error(error); const detail = errorDetail(error); if (!res.headersSent) send(detail.status, { error: detail.message, ...detail }); else res.end() }
     })
     this.ready = new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(port, '127.0.0.1', resolve) })
     ctx.effect(() => async () => {

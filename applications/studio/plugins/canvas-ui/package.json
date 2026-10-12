@@ -8,6 +8,7 @@
     "@cordis-studio/canvas": "workspace:*"
   },
   "cordis": {
+    "capabilities": [{ "service": "canvasUI", "side": "client", "description": "画布菜单、卡片视图和扩展区域", "contracts": ["types/client.d.ts"], "examples": ["client.js"], "lifecycle": ["register/menu/extend 都传入 owner 管理释放；菜单按 order 排序。"] }],
     "schemaVersion": 1,
     "id": "canvas-ui",
     "name": "画布界面",

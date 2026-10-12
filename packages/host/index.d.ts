@@ -1,6 +1,18 @@
 import type { Context, Inject, Plugin } from 'cordis'
 export interface ClientServices {}
 export interface ServerServices {}
+export interface OperationErrorDetail { code: string; message: string; status: number; retryable: boolean; operationId?: string }
+export interface HostOperation {
+  id: string; kind: 'plugin.toggle' | 'plugin.configure'; targets: string[];
+  status: 'running' | 'awaiting-client' | 'succeeded' | 'failed';
+  phase: 'applying' | 'awaiting-client' | 'rolling-back' | 'completed';
+  startedAt: number; updatedAt: number; error?: OperationErrorDetail;
+}
+/** Plugin-local source references; supplied by the provider, indexed by the host. */
+export interface CapabilityDeclaration {
+  service: string; side: 'client' | 'server'; description: string; contracts: string[];
+  examples?: string[]; tests?: string[]; lifecycle?: string[];
+}
 type ScopedPlugin<C> = Plugin.Base & (
   | ((ctx: C, config: any) => any)
   | (new (ctx: C, config: any) => any)

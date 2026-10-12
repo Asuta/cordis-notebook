@@ -73,7 +73,8 @@ test('开发资料按模板和专项任务收窄，完整服务可展开且不�
   const expanded = await developmentInfo(resolve('.'), 'notebook', footer.expandProviders.arguments)
   assert.deepEqual(expanded.providers, all.providers)
   const content = await developmentInfo(resolve('.'), 'notebook', { task: 'note-content' })
-  assert.ok(content.examples.some(file => file.path.endsWith(join('format-markdown', 'format.js'))))
+  assert.ok(content.examples[0].path.endsWith(join('stats', 'client.js')), '正文任务先给消费用法')
+  assert.ok((await developmentInfo(resolve('.'), 'notebook', content.expandSources.arguments)).examples.some(file => file.path.endsWith(join('format-markdown', 'format.js'))))
   assert.match(content.contracts.find(file => file.path.endsWith('note-content.md')).content, /3 个非空段落/)
   for (const appId of ['notebook', 'studio', 'drawing']) {
     const generic = await developmentInfo(resolve('.'), appId, { template: 'client' })
@@ -115,6 +116,36 @@ test('界面资料按模板提供有限的真实样式、图标与排序选段�
     assert.doesNotMatch(JSON.stringify(generic.presentation), /--theme|--ink|canvasUI|notebook/)
     for (const focus of ['backend', 'agent']) assert.equal((await developmentInfo(resolve('.'), appId, { focus })).presentation, undefined)
   }
+})
+
+test('默认展开全部相关契约和示例，显式 false 仍可收窄且不影响服务索引', async () => {
+  for (const appId of ['notebook', 'studio', 'drawing']) {
+    const defaults = await developmentInfo(resolve('.'), appId, { focus: 'ui' })
+    const compact = await developmentInfo(resolve('.'), appId, { focus: 'ui', includeRelatedSources: false })
+    const full = await developmentInfo(resolve('.'), appId, compact.expandSources.arguments)
+    assert.deepEqual(defaults.contracts, full.contracts)
+    assert.deepEqual(defaults.examples, full.examples)
+    assert.deepEqual(defaults.relatedSources, { contracts: [], examples: [] })
+    assert.deepEqual(defaults.providers, compact.providers, '资料展开不改变服务范围')
+    assert.equal(compact.examples.length, 1)
+    assert.ok(!compact.examples[0].path.endsWith('package.json'), '优先给实现用法而非清单')
+    assert.ok(full.examples.length > compact.examples.length)
+    assert.ok(JSON.stringify(compact).length < JSON.stringify(full).length)
+    for (const path of compact.relatedSources.examples) assert.ok(full.examples.some(file => file.path === resolve(path)))
+    for (const path of compact.relatedSources.contracts) assert.ok(full.contracts.some(file => file.path === resolve(path)))
+    assert.deepEqual(full.relatedSources, { contracts: [], examples: [] })
+    assert.ok(compact.providers.every(provider => !('capabilities' in provider)), '服务索引不重复能力详情')
+  }
+  const footer = await developmentInfo(resolve('.'), 'notebook', { template: 'notebook-footer' })
+  assert.ok(footer.contracts.some(file => file.content.includes('markdown')), '保留异构正文的使用契约')
+  assert.ok(footer.examples[0].path.endsWith(join('stats', 'client.js')))
+  assert.ok(footer.examples.some(file => file.path.endsWith(join('stats', 'package.json'))))
+  assert.ok(footer.examples.some(file => file.path.endsWith(join('notebook', 'client.js'))))
+  assert.equal(footer.contracts.length, 7)
+  assert.equal(footer.examples.length, 5, '与完整资料对照组一致')
+  const allProviders = await developmentInfo(resolve('.'), 'notebook', { template: 'notebook-footer', includeAllProviders: true })
+  assert.deepEqual(allProviders.contracts, footer.contracts)
+  assert.deepEqual(allProviders.examples, footer.examples, '展开服务索引不改变已返回的完整资料')
 })
 
 test('脚手架拒绝重复目录、非法 ID、越界应用、不支持模板和取消；不覆盖原文件', async t => {

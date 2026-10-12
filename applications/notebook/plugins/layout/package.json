@@ -10,6 +10,7 @@
     "@cordis-notebook/ui": "workspace:*"
   },
   "cordis": {
+    "capabilities": [{ "service": "shell", "side": "client", "description": "笔记应用的布局插槽", "contracts": ["types/client.d.ts"], "examples": ["client.js"], "lifecycle": ["通过 sdk.mount 挂载到本服务声明的插槽；节点随插件生命周期释放。"] }],
     "schemaVersion": 1,
     "id": "layout",
     "name": "留白布局",

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "docs:inventory": "node scripts/plugin-inventory.js",
+    "docs:capabilities": "node scripts/capability-index.js",
     "workbench": "node workbench/build.js && node workbench/server.js",
     "workbench:production": "pnpm build && node workbench/server.js --production",
     "workbench:runtime": "node workbench/server.js --production",

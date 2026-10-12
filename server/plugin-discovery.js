@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { defaultPluginDirectory } from './application-discovery.js'
 import { normalizeConfig } from '../shared/config-schema.js'
 import { configBinding } from '../shared/config-binding.js'
+import { capabilitiesOf } from '../shared/capabilities.js'
 
 export const defaultPluginsDir = await defaultPluginDirectory().catch(() => undefined)
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -29,7 +30,7 @@ async function readPlugin(root, mode, loadServer) {
   const pkg = JSON.parse(await readFile(await containedFile(root, 'package.json'), 'utf8'))
   const m = pkg.cordis
   if (!object(m)) invalid('缺少 cordis 清单')
-  keys(m, ['schemaVersion','id','name','description','order','defaultEnabled','client','server','requires','provides','public','build','settings','exclusiveGroup','groupLabel','swatch','runtimePackages','category','icon','styles'], 'cordis')
+  keys(m, ['schemaVersion','id','name','description','order','defaultEnabled','client','server','requires','provides','public','build','settings','exclusiveGroup','groupLabel','swatch','runtimePackages','category','icon','styles','capabilities'], 'cordis')
   if (m.schemaVersion !== 1) invalid('仅支持 cordis.schemaVersion 1')
   if (!/^[a-z][a-z0-9-]{1,49}$/.test(m.id || '') || typeof m.name !== 'string' || !m.name.trim() || m.name.length > 80) invalid('插件 ID 或名称无效')
   if (!/^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*$/.test(pkg.name || '') || pkg.type !== 'module' || !/^\d+\.\d+\.\d+$/.test(pkg.version || '')) invalid('包名称、版本或 ESM 类型无效')
@@ -92,9 +93,11 @@ async function readPlugin(root, mode, loadServer) {
   }
   for (const field of ['exclusiveGroup','groupLabel','swatch']) if (m[field] !== undefined && (typeof m[field] !== 'string' || !m[field])) invalid(`${field} 必须是非空文本`)
   if (m.runtimePackages !== undefined && (!Array.isArray(m.runtimePackages) || m.runtimePackages.some(name => !Object.hasOwn(pkg.dependencies || {}, name)))) invalid('runtimePackages 必须引用本包的 dependencies')
+  const capabilities = capabilitiesOf(m)
+  if (mode !== 'runtime') for (const capability of capabilities) for (const name of [...capability.contracts, ...capability.examples, ...capability.tests]) await containedFile(root, name)
   const { client = null, server, requires, provides, settings, exclusiveGroup, groupLabel, swatch } = m
   const manifest = { id:m.id, name:m.name, description:m.description || '', version:pkg.version, schemaVersion:m.schemaVersion,
-    packageDependencies:pkg.dependencies || {}, client, requires, provides,
+    packageDependencies:pkg.dependencies || {}, client, requires, provides, capabilities: m.capabilities || [],
     styles:m.styles || [], category:m.category || {id:'features',label:'功能'}, icon:m.icon || 'Puzzle',
     ...(settings ? {settings} : {}), ...(exclusiveGroup ? {exclusiveGroup,groupLabel,swatch} : {}) }
   return { manifest, package:pkg, sourceRoot:root, assetRoot:resolve(root,'dist'), clientAssets:m.public,

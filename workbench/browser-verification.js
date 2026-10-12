@@ -115,15 +115,16 @@ export class BrowserVerification {
     const step = { name, input: args, startedAt: Date.now(), ...context.metadata }; this.report.steps.push(step)
     const previousErrors = new Set(this.report.errors), checkCount = this.report.checks.length
     try {
-      if (name === 'browser_action' && !this.child) {
+      if (['browser_action', 'browser_plugin'].includes(name) && !this.child) {
         if (this.report.startedAt) throw Error('浏览器验收进程已退出')
         throw usageError('请先 browser_open')
       }
       await this.start()
-      const result = await this.rpc(name === 'browser_open' ? 'open' : 'action', name === 'browser_open'
+      const result = await this.rpc(name === 'browser_open' ? 'open' : name === 'browser_plugin' ? 'plugin' : 'action', name === 'browser_open'
         ? { ...args, root: this.root, appId: this.appId, directory: this.directory } : args, context.timeout)
       if (this.closed) throw Error('浏览器验收已停止')
       this.report.errors = result.errors || []; this.report.checks = result.checks || []
+      if (name === 'browser_plugin') step.plugin = { ...result, errors: undefined, checks: undefined }
       if (result.image) {
         const name = `${this.report.screenshots.length + 1}.jpg`
         await writeFile(join(this.directory, name), Buffer.from(result.image.data, 'base64'))

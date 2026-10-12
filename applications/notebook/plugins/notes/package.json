@@ -8,6 +8,7 @@
     "@cordis-notebook/host": "workspace:*"
   },
   "cordis": {
+    "capabilities": [{ "service": "notes", "side": "server", "description": "持久化笔记的增删改查与版本校验", "contracts": ["types/server.d.ts", "types/data.d.ts"], "examples": ["server.js"], "lifecycle": ["外部写请求必须传 expectedRevision；不要绕过此服务直接覆盖笔记文件。"] }],
     "schemaVersion": 1,
     "id": "notes",
     "name": "笔记业务",

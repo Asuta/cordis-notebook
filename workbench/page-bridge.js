@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { operationError, restoreError } from '../shared/errors.js'
 
 /** @typedef {{name:string, [key:string]:unknown}} Tool */
 /** @typedef {{appId:string, pageId:string, session:string, tools:Tool[], seen:number}} Binding */
@@ -23,8 +24,9 @@ export function createPageBridge({ application, notify, apps, timeoutMs = 20000 
     if (task.cancelled) throw Error('任务已停止')
     const current = bindingFor(task.clientId)
     if (task.appId !== current.appId || task.pageId !== current.pageId || task.session !== current.session) throw Error('应用或页面已经切换；请在当前应用新建会话或重新发送任务')
+    const operationId = name === 'workspace_enable_plugin' && 'operationId' in args && typeof args.operationId === 'string' ? args.operationId : undefined
     return new Promise((resolve, reject) => {
-      const id = randomUUID(), timer = setTimeout(() => { pending.delete(id); reject(Error('页面工具响应超时；结果可能已执行，请先读取状态再决定是否重试')) }, timeoutMs)
+      const id = randomUUID(), timer = setTimeout(() => { pending.delete(id); reject(operationError('PAGE_RESULT_UNKNOWN', '页面工具响应超时；结果可能已执行，请先读取状态再决定是否重试', { operationId })) }, timeoutMs)
       pending.set(id, { clientId: task.clientId, pageId: task.pageId, session: task.session, resolve, reject, timer })
       notify({ type: 'page-call', clientId: task.clientId, pageId: task.pageId, session: task.session, id, name, args })
     })
@@ -48,13 +50,13 @@ export function createPageBridge({ application, notify, apps, timeoutMs = 20000 
     return live && Date.now() - live.seen <= 10000 ? live : null
   }
   return { clients, bindingFor, pageCall, rebindPage,
-    /** @param {{clientId?:unknown, type?:string, id?:string, appId?:string, pageId?:string, session?:string, tools?:Tool[], error?:string, result?:unknown}} input */
+    /** @param {{clientId?:unknown, type?:string, id?:string, appId?:string, pageId?:string, session?:string, tools?:Tool[], error?:string, errorDetail?:unknown, result?:unknown}} input */
     receive(input) {
       if (!input || typeof input.clientId !== 'string') throw Object.assign(Error('页面标识无效'), { status: 400 })
       if (input.type === 'result') {
         const entry = pending.get(input.id || '')
         if (entry && entry.clientId === input.clientId && entry.pageId === input.pageId && entry.session === input.session) {
-          pending.delete(input.id || ''); clearTimeout(entry.timer); input.error ? entry.reject(Error(input.error)) : entry.resolve(input.result)
+          pending.delete(input.id || ''); clearTimeout(entry.timer); input.error ? entry.reject(restoreError(input.errorDetail || input.error)) : entry.resolve(input.result)
         }
       } else if (input.type === 'disconnect') clients.delete(input.clientId)
       else if (input.type === 'ready' && typeof input.appId === 'string' && apps.some(app => app.id === input.appId) && typeof input.pageId === 'string' && typeof input.session === 'string' && Array.isArray(input.tools))

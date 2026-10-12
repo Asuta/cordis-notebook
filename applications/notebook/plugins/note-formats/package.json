@@ -9,6 +9,10 @@
     "@cordis-notebook/notes": "workspace:*"
   },
   "cordis": {
+    "capabilities": [
+      { "service": "noteFormats", "side": "client", "description": "页面笔记格式注册、正文提取和只读快照", "contracts": ["types/client.d.ts", "types/data.d.ts"], "examples": ["client.js"], "lifecycle": ["register(owner, definition) 随 owner 释放；派生 content 与原始格式字段需要区分。"] },
+      { "service": "noteFormats", "side": "server", "description": "服务端独立校验笔记格式与派生正文", "contracts": ["types/server.d.ts", "types/data.d.ts"], "examples": ["server.js"], "lifecycle": ["前后端分别注册格式，不能假定另一端已有相同提供者。"] }
+    ],
     "schemaVersion": 1,
     "id": "note-formats",
     "name": "笔记格式注册服务",

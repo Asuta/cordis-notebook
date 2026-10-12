@@ -1,6 +1,8 @@
 import { Value } from '@sinclair/typebox/value'
 import { developmentSchemas } from './development-tools.js'
 import { pluginActivationResult } from '../shared/plugin-activation.js'
+import { randomUUID } from 'node:crypto'
+import { errorDetail, restoreError } from '../shared/errors.js'
 
 export async function enablePlugin(appId, args, { status, url, signal, page } = {}) {
   if (!Value.Check(developmentSchemas.workspace_enable_plugin, args)) throw Error('插件启用参数无效；请提供插件 id')
@@ -24,10 +26,11 @@ export async function enablePlugin(appId, args, { status, url, signal, page } = 
   if (!plugin) throw Error('插件尚未发现：' + args.id + '；请先检查 workspace_status 的热更新或正式构建')
   if (snapshot.pendingSwitch || snapshot.pendingConfig) throw Error('正在确认插件切换或配置，请完成后再启用')
   signal?.throwIfAborted()
-  let operationError = null
+  let operationError = null, operation = null
+  const operationId = randomUUID()
   if (page) {
     try {
-      const observed = await page({ id: args.id, session })
+      const observed = await page({ id: args.id, session, operationId })
       signal?.throwIfAborted()
       if (observed.session !== session || observed.result.appId !== appId || observed.result.id !== args.id) throw Error('页面返回了过期的应用状态')
       // A switch can complete while the initiating page is sending its result.
@@ -36,18 +39,29 @@ export async function enablePlugin(appId, args, { status, url, signal, page } = 
         operationError: '插件状态在页面核对后发生变化；已读取最新后端状态，前端需重新核对。',
       })
       return observed.result
-    } catch (error) { signal?.throwIfAborted(); operationError = error.message }
+    } catch (error) { signal?.throwIfAborted(); operationError = errorDetail(error) }
   } else {
     if (plugin.exclusiveGroup && (!plugin.enabled || plugin.state !== 'enabled')) throw Error('单选组插件需要连接本应用页面，才能保存编辑内容并确认前端切换')
     if (!plugin.enabled || plugin.state === 'failed') {
       try {
         const response = await fetch(url + '/api/plugins/' + args.id + '/toggle', { method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-application-session': session }, body: JSON.stringify({ enabled: true }),
+          headers: { 'Content-Type': 'application/json', 'x-application-session': session }, body: JSON.stringify({ enabled: true, operationId }),
           signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000) })
-        if (!response.ok) { const result = await response.json(); operationError = result.error || '启用请求失败：' + response.status }
-      } catch (error) { signal?.throwIfAborted(); operationError = '启用请求结果待核对：' + error.message }
+        const result = await response.json(); operation = result.operation || null
+        if (!response.ok) operationError = errorDetail({ ...result, message: result.message || result.error, status: response.status })
+      } catch (error) { signal?.throwIfAborted(); operationError = { code: 'OPERATION_RESULT_UNKNOWN', message: '启用请求结果待核对：' + error.message, operationId, retryable: false, status: 500 } }
     }
   }
   // Backend failure can persist enabled=true even when POST returns 500. Never replay the write.
-  return pluginActivationResult(await read(session), args.id, { operationError })
+  return pluginActivationResult(await read(session), args.id, { operationError, operation })
+}
+
+export async function operationStatus(appId, args, { status, url, signal }) {
+  if (!Value.Check(developmentSchemas.workspace_operation_status, args)) throw Error('操作查询参数无效')
+  const runtime = await status()
+  if (!runtime.online || !runtime.managed || runtime.state?.current?.id !== appId || runtime.state.session !== args.session) throw Error('应用运行会话已变化，请先重新读取状态，不能重放旧操作')
+  const response = await fetch(url + '/api/operations/' + args.id, { headers: { 'x-application-session': args.session }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000) })
+  const result = await response.json()
+  if (!response.ok) throw restoreError(result)
+  return { appId, session: args.session, ...result }
 }

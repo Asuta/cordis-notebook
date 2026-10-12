@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { runtimeState, actualFiber, bindingsFor } from '../../shared/lifecycle.js'
 import { dependencyIds } from '../../shared/plugin-relations.js'
 import { PluginSettings } from './plugin-settings.js'
+import { Operations } from './operations.js'
 
 export class Plugins extends Service {
   static inject = ['http']
@@ -15,6 +16,7 @@ export class Plugins extends Service {
     this.pendingSwitch = null
     this.savedFlags = {}
     this.settings = new PluginSettings(this)
+    this.operations = new Operations(() => this.serialize(), () => this.changed())
     for (const item of builtinPlugins) this.records.set(item.manifest.id, { ...item, state: 'disabled', enabled: item.defaultEnabled !== false, error: '' })
     ctx.on('internal/status', fiber => {
       const record = [...this.records.values()].find(r => actualFiber(r.fiber) === fiber)
@@ -28,7 +30,7 @@ export class Plugins extends Service {
       waitingFor: record.state === 'waiting' ? (record.manifest.requires?.server || record.server?.inject || []).filter(name => !this.ctx.get(name)) : [],
     }
   }
-  serialize() { return { revision: this.revision, pendingConfig: this.settings.pending ? { id: this.settings.pending.id, token: this.settings.pending.token, backend: this.settings.pending.backend } : null, pendingSwitch: this.pendingSwitch ? { token: this.pendingSwitch.token, group: this.pendingSwitch.group, target: this.pendingSwitch.target, previous: this.pendingSwitch.previous, phase: this.pendingSwitch.phase } : null, plugins: [...this.records.values()].map(r => this.describe(r)) } }
+  serialize() { return { revision: this.revision, pendingConfig: this.settings.pending ? { id: this.settings.pending.id, token: this.settings.pending.token, operationId: this.settings.pending.operationId, backend: this.settings.pending.backend } : null, pendingSwitch: this.pendingSwitch ? { token: this.pendingSwitch.token, operationId: this.pendingSwitch.operationId, group: this.pendingSwitch.group, target: this.pendingSwitch.target, previous: this.pendingSwitch.previous, phase: this.pendingSwitch.phase } : null, plugins: [...this.records.values()].map(r => this.describe(r)) } }
   refreshState(record) {
     if (!record.fiber) return
     const state = runtimeState(record.fiber)
@@ -102,22 +104,22 @@ export class Plugins extends Service {
     if (record.fiber) { await record.fiber.dispose(); record.fiber = null }
     record.state = 'disabled'; this.changed()
   }
-  toggle(id, enabled) {
-    return this.locked(async () => {
+  toggle(id, enabled, operationId) {
+    return this.operations.run('plugin.toggle', [id], { enabled }, operationId, operationId => this.locked(async () => {
       this.settings.assertIdle()
       const record = this.records.get(id); if (!record) throw fail(404, '插件不存在')
       if (typeof enabled !== 'boolean') throw fail(400, 'enabled 必须是布尔值')
-      if (this.pendingSwitch) throw fail(409, '正在确认插件切换，请稍后再试')
-      if (record.manifest.exclusiveGroup) return this.beginExclusive(record, enabled)
+      if (this.pendingSwitch) throw fail(409, '正在确认插件切换，请稍后再试', 'PLUGIN_CHANGE_PENDING', true)
+      if (record.manifest.exclusiveGroup) return this.beginExclusive(record, enabled, operationId)
       if (!enabled) {
         const deps = this.dependents(id)
-        if (deps.length) throw fail(409, `请先停用依赖此插件的功能：${deps.map(key => this.records.get(key).manifest.name).join('、')}`)
+        if (deps.length) throw fail(409, `请先停用依赖此插件的功能：${deps.map(key => this.records.get(key).manifest.name).join('、')}`, 'PLUGIN_DEPENDENTS_ACTIVE')
         await this.stop(id); record.enabled = false
       } else { record.enabled = true; try { await this.start(id) } catch (error) { await this.persist(); throw error } }
       await this.persist(); return this.serialize()
-    })
+    }))
   }
-  async beginExclusive(record, enabled) {
+  async beginExclusive(record, enabled, operationId) {
     const id = record.manifest.id, group = record.manifest.exclusiveGroup
     if ((enabled && record.state === 'enabled') || (!enabled && record.state === 'disabled')) return this.serialize()
     const previous = [...this.records.values()].filter(r => r.manifest.exclusiveGroup === group && r.state === 'enabled').map(r => r.manifest.id)
@@ -125,7 +127,7 @@ export class Plugins extends Service {
       const users = this.dependents(oldId)
       if (users.length) throw fail(409, `无法切换，仍有插件依赖 ${this.records.get(oldId).manifest.name}：${users.map(key => this.records.get(key).manifest.name).join('、')}`)
     }
-    const transaction = { token: randomUUID(), group, previous, target: enabled ? id : null, requested: id, phase: 'switching', timer: null }
+    const transaction = { token: randomUUID(), operationId, group, previous, target: enabled ? id : null, requested: id, phase: 'switching', timer: null }
     this.pendingSwitch = transaction; this.changed()
     try {
       for (const oldId of previous) await this.stop(oldId)
@@ -133,6 +135,7 @@ export class Plugins extends Service {
       if (enabled) { record.enabled = true; await this.start(id) }
       else if (record.state !== 'disabled') await this.stop(id)
       transaction.phase = 'awaiting-client'
+      this.operations.waiting(operationId)
       // Old committed flags remain on disk until the initiating page confirms mount.
       transaction.timer = setTimeout(() => this.locked(() => this.rollbackExclusive(transaction.token, '页面未在 20 秒内确认，切换已取消')).catch(console.error), 20000)
       this.changed(); return this.serialize()
@@ -145,16 +148,17 @@ export class Plugins extends Service {
       if (typeof success !== 'boolean') throw fail(400, 'success 必须是布尔值')
       if (!success) {
         const message = await this.rollbackExclusive(token, String(error).slice(0, 500) || '前端加载失败')
-        return { ...this.serialize(), message }
+        return { ...this.serialize(), message, operation: this.operations.get(pending.operationId) }
       }
       try { await this.persist(true) } catch (cause) { const message = await this.rollbackExclusive(token, `保存插件选择失败：${cause.message}`); throw fail(500, message) }
-      clearTimeout(pending.timer); this.pendingSwitch = null; this.changed(); return this.serialize()
+      clearTimeout(pending.timer); this.pendingSwitch = null; this.operations.succeed(pending.operationId); this.changed(); return { ...this.serialize(), operation: this.operations.get(pending.operationId) }
     })
   }
   async rollbackExclusive(token, reason) {
     const pending = this.pendingSwitch
     if (!pending || pending.token !== token) return '此切换已结束'
     clearTimeout(pending.timer); pending.phase = 'rolling-back'; this.changed()
+    this.operations.update(pending.operationId, 'running', 'rolling-back')
     const problems = []
     for (const record of this.records.values()) if (record.manifest.exclusiveGroup === pending.group) {
       try { if (record.fiber) await this.stop(record.manifest.id) } catch (error) { problems.push(error.message) }
@@ -168,7 +172,9 @@ export class Plugins extends Service {
     const message = `切换失败：${reason}。${problems.length ? problems.join('；') : pending.previous.length ? '已恢复原插件' : '已停用此插件'}`
     if (!pending.previous.includes(pending.requested)) { requested.state = 'failed'; requested.error = message; requested.enabled = false }
     else requested.error = message
-    this.pendingSwitch = null; this.changed(); return message
+    this.pendingSwitch = null
+    this.operations.fail(pending.operationId, Object.assign(fail(500, message, problems.length ? 'PLUGIN_RECOVERY_FAILED' : 'PLUGIN_CHANGE_REJECTED'), { operationId: pending.operationId }))
+    this.changed(); return message
   }
   async close() { await this.queue; if (this.settings.pending) await this.settings.cancel(this.settings.pending.token, '应用正在退出'); if (this.pendingSwitch) await this.rollbackExclusive(this.pendingSwitch.token, '应用正在退出'); for (const id of [...this.records.keys()].reverse()) await this.stop(id) }
 }

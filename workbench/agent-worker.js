@@ -10,6 +10,7 @@ import { browserTools, browserGuidance, browserToolResult } from './browser-tool
 import { appToolResult } from './app-tool-result.js'
 import { developmentTools, developmentGuidance } from './development-tools.js'
 import { instrumentModelStream } from './model-timing.js'
+import { restoreError, errorDetail } from '../shared/errors.js'
 
 let session, busy = false, cancelled = false
 const pending = new Map()
@@ -75,7 +76,10 @@ async function run(input) {
       ['workspace_test', '验证绑定应用中的插件：自动类型检查、构建应用产物，执行插件内及明确关联的测试，输出覆盖缺口与独立报告。不会重启应用；running 时用 write_stdin 等待退出码。', Type.Object({ plugins: Type.Array(Type.String(), { minItems: 1 }), yield_time_ms: execWaitParameter })],
     ]
     const customTools = definitions.map(([name, description, parameters]) => ({ name, label: name, description, promptSnippet: description, parameters,
-      async execute(id, args, signal) { const result = await callParent(name, args, signal); return name.startsWith('browser_') ? browserToolResult(result) : name === 'app_call' ? appToolResult(result) : { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} } },
+      async execute(id, args, signal) {
+        try { const result = await callParent(name, args, signal); return name.startsWith('browser_') ? browserToolResult(result) : name === 'app_call' ? appToolResult(result) : { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} } }
+        catch (error) { throw error.code ? new Error(JSON.stringify(errorDetail(error)), { cause: error }) : error }
+      },
     }))
     const manager = task.sessionFile ? SessionManager.open(task.sessionFile, join(agentDir, 'sessions'), root) : SessionManager.create(root, join(agentDir, 'sessions'))
     ;({ session } = await createAgentSession({ cwd: root, agentDir, modelRuntime: runtime, model: runtime.getModel('workbench-deepseek', config.model), thinkingLevel: config.thinking ? config.reasoningEffort : 'off',
@@ -136,7 +140,7 @@ async function run(input) {
 process.on('message', message => {
   if (message.type === 'result') {
     const entry = pending.get(message.id); pending.delete(message.id)
-    if (entry) message.error ? entry.reject(Error(message.error)) : entry.resolve(message.result)
+    if (entry) message.error ? entry.reject(restoreError(message.errorDetail || message.error)) : entry.resolve(message.result)
   } else if (message.type === 'run' && !busy) void run(message)
   else if (message.type === 'interrupt') { cancelled = true; session?.abortCompaction(); void session?.abort() }
 })

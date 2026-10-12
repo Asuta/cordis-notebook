@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { activationFixture } from './fixtures/plugin-activation.js'
 import { enablePlugin } from '../workbench/plugin-activation.js'
 import { pluginActivationResult } from '../shared/plugin-activation.js'
+import { createPageBridge } from '../workbench/page-bridge.js'
 
 test('启用工具使用真实协议更新保存的停用选择，重复调用仅读取状态', async t => {
   const f = await activationFixture(t)
@@ -69,13 +70,21 @@ test('无页面不发起单选组事务，页面超时不重放启用，双端�
   const f = await activationFixture(t), baseline = (await f.read()).revision
   await assert.rejects(f.enable('theme-second'), /需要连接本应用页面/)
   assert.equal((await f.read()).revision, baseline); assert.equal((await f.read()).pendingSwitch, null)
-  let calls = 0
-  const result = await enablePlugin('sample', { id: 'panel' }, { status: f.status, url: f.url, page: async ({ session }) => {
+  let calls = 0, sent
+  const task = { appId: 'sample', clientId: 'client', pageId: 'page', session: (await f.status()).state.session }
+  const bridge = createPageBridge({ application: { mode: 'runtime' }, apps: [{ id: 'sample' }], timeoutMs: 20, notify: message => { sent = message } })
+  t.after(() => bridge.close())
+  bridge.receive({ ...task, type: 'ready', tools: [] })
+  const result = await enablePlugin('sample', { id: 'panel' }, { status: f.status, url: f.url, page: async input => {
     calls++
-    await fetch(f.url + '/api/plugins/panel/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-application-session': session }, body: JSON.stringify({ enabled: true }) })
-    throw Error('页面响应超时；结果可能已执行')
+    await fetch(f.url + '/api/plugins/panel/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-application-session': input.session }, body: JSON.stringify({ enabled: true, operationId: input.operationId }) })
+    return bridge.pageCall(task, 'workspace_enable_plugin', input)
   } })
   assert.equal(calls, 1); assert.equal(result.enabled, true); assert.equal(result.running, null); assert.match(result.operationError, /超时/)
+  assert.equal(result.operationFailure.code, 'PAGE_RESULT_UNKNOWN')
+  assert.equal(typeof sent.args.operationId, 'string'); assert.equal(result.operationFailure.operationId, sent.args.operationId)
+  const operation = await f.wb.execute(task, 'workspace_operation_status', { id: result.operationFailure.operationId, session: result.session })
+  assert.equal(operation.status, 'succeeded'); assert.deepEqual(operation.targets, ['panel'])
   for (const clientState of ['waiting', 'failed', 'enabled']) {
     const snapshot = await f.read(), plugin = snapshot.plugins.find(p => p.id === 'panel')
     Object.assign(plugin, { state: clientState, clientState, error: clientState === 'failed' ? '前端失败' : '', waitingFor: clientState === 'waiting' ? ['前端 missingClient'] : [] })

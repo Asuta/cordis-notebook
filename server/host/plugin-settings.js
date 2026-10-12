@@ -35,7 +35,7 @@ export class PluginSettings {
     this.savedValues = stored
     this.values = next
   }
-  assertIdle() { if (this.pending) throw fail(409, '正在应用插件配置，请稍后再试') }
+  assertIdle() { if (this.pending) throw fail(409, '正在应用插件配置，请稍后再试', 'PLUGIN_CONFIG_PENDING', true) }
   async applyBackend(record, value, restart = false) {
     record.configOverride = value
     if (restart || record.manifest.settings.mode === 'restart') {
@@ -57,25 +57,25 @@ export class PluginSettings {
       if (record.state !== 'enabled') throw new Error(`${record.manifest.name} 未恢复运行`)
     }
   }
-  begin(id, input, expectedRevision) {
-    return this.manager.locked(async () => {
+  begin(id, input, expectedRevision, operationId) {
+    return this.manager.operations.run('plugin.configure', [id], { config: input, expectedRevision }, operationId, operationId => this.manager.locked(async () => {
       this.assertIdle()
-      if (this.manager.pendingSwitch) throw fail(409, '正在确认插件切换，请稍后再试')
+      if (this.manager.pendingSwitch) throw fail(409, '正在确认插件切换，请稍后再试', 'PLUGIN_CHANGE_PENDING', true)
       const record = this.manager.records.get(id)
       if (!record?.manifest.settings) throw fail(400, '此插件尚未提供配置声明')
       const previous = this.describe(record)
-      if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== previous.configRevision) throw fail(409, '配置已在其他页面更新，请载入最新设置后重试')
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== previous.configRevision) throw fail(409, '配置已在其他页面更新，请载入最新设置后重试', 'CONFIG_REVISION_CONFLICT')
       let value
       try { value = normalizeConfig(record.manifest.settings, input) } catch (error) { throw fail(400, error.message) }
       if (JSON.stringify(value) === JSON.stringify(previous.config) && !previous.configError) return this.manager.serialize()
-      if (record.enabled && record.state !== 'enabled') throw fail(409, '插件尚未就绪，请恢复运行或停用后保存配置')
+      if (record.enabled && record.state !== 'enabled') throw fail(409, '插件尚未就绪，请恢复运行或停用后保存配置', 'PLUGIN_NOT_READY')
       const revision = previous.configRevision + 1
       if (!record.enabled) {
         await this.persist(id, value, revision); this.errors.delete(id); this.manager.changed()
         return this.manager.serialize()
       }
       this.errors.delete(id)
-      const pending = { id, token: randomUUID(), value, revision, previous: previous.config, backend: !!record.server,
+      const pending = { id, token: randomUUID(), operationId, value, revision, previous: previous.config, backend: !!record.server,
         healthy: [...this.manager.records.values()].filter(r => r.state === 'enabled').map(r => r.manifest.id), generation: record.generation }
       this.pending = pending
       this.manager.changed()
@@ -90,16 +90,17 @@ export class PluginSettings {
         }
       }
       pending.timer = setTimeout(() => this.manager.locked(() => this.cancel(pending.token, '页面未在 20 秒内确认应用，原配置已保留')).catch(console.error), 20000)
+      this.manager.operations.waiting(operationId)
       this.manager.changed()
       return { ...this.manager.serialize(), preview: { ...this.manager.describe(record), config: value, configRevision: revision } }
-    })
+    }))
   }
   finish(token, success, message = '') {
     return this.manager.locked(async () => {
       const pending = this.pending
       if (!pending || pending.token !== token) throw fail(409, '本次配置变更已结束，请载入最新设置')
       if (typeof success !== 'boolean') throw fail(400, 'success 必须是布尔值')
-      if (!success) { await this.cancel(token, `配置应用失败：${String(message).slice(0, 500)}。原配置已保留`); return this.manager.serialize() }
+      if (!success) { await this.cancel(token, `配置应用失败：${String(message).slice(0, 500)}。原配置已保留`); return { ...this.manager.serialize(), operation: this.manager.operations.get(pending.operationId) } }
       const record = this.manager.records.get(pending.id)
       if (!record.enabled || record.state !== 'enabled' || record.generation !== pending.generation) { await this.cancel(token, '插件运行状态已变化，原配置已保留'); throw fail(409, '插件运行状态已变化，配置未保存') }
       try {
@@ -108,22 +109,26 @@ export class PluginSettings {
       }
       catch (error) { await this.cancel(token, '写入配置失败，原配置已保留'); throw error }
       delete record.configOverride
-      clearTimeout(pending.timer); this.pending = null; this.errors.delete(pending.id); this.manager.changed()
-      return this.manager.serialize()
+      clearTimeout(pending.timer); this.pending = null; this.errors.delete(pending.id); this.manager.operations.succeed(pending.operationId); this.manager.changed()
+      return { ...this.manager.serialize(), operation: this.manager.operations.get(pending.operationId) }
     })
   }
   async cancel(token, message) {
     if (this.pending?.token !== token) return
     const pending = this.pending, record = this.manager.records.get(pending.id)
+    this.manager.operations.update(pending.operationId, 'running', 'rolling-back')
+    let recoveryFailed = false
     clearTimeout(pending.timer)
     if (pending.backend) {
       try {
         // Recreate the committed activation, even if a live callback failed halfway.
         await this.applyBackend(record, pending.previous, true)
         await this.checkHealthy(pending.healthy)
-      } catch (error) { message += `；恢复失败：${error.message}` }
+      } catch (error) { recoveryFailed = true; message += `；恢复失败：${error.message}` }
       finally { delete record.configOverride }
     }
-    this.errors.set(pending.id, message); this.pending = null; this.manager.changed()
+    this.errors.set(pending.id, message); this.pending = null
+    this.manager.operations.fail(pending.operationId, Object.assign(fail(500, message, recoveryFailed ? 'CONFIG_RECOVERY_FAILED' : 'CONFIG_CHANGE_REJECTED'), { operationId: pending.operationId }))
+    this.manager.changed()
   }
 }

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { developmentInfo, developmentRuntimeInfo, scaffoldPlugin } from './development-tools.js'
-import { enablePlugin } from './plugin-activation.js'
+import { enablePlugin, operationStatus } from './plugin-activation.js'
 
 const selectionTool = { name: 'replace_selection', description: '仅替换用户添加的选区并保留撤销。默认传 text；若附件 formats 包含 richtext，可传 format:"richtext" 和 content，结构见附件 richText/replacementHint。不要同时传 text 和 content。选区变化或跨页面时拒绝。', inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, format: { type: 'string', enum: ['text', 'richtext'] }, text: { type: 'string' }, content: { type: 'object', description: '由选区所属插件定义的结构化替换片段；仅对声明支持的选区使用。' } }, required: ['id'], oneOf: [{ required: ['text'], properties: { format: { const: 'text' } }, not: { required: ['content'] } }, { required: ['format', 'content'], properties: { format: { const: 'richtext' } }, not: { required: ['text'] } }] } }
 
@@ -9,9 +9,10 @@ export function createToolExecutor({ root, dataDir, application, commands, owner
   const { bindingFor, pageCall, rebindPage } = bridge
   return async function execute(task, name, args) {
     if (task.cancelled) throw Error('任务已停止')
+    if (name === 'workspace_operation_status') return operationStatus(task.appId, args, { status: () => application.status(), url: 'http://127.0.0.1:' + application.port, signal: task.controller?.signal })
     if (name.startsWith('browser_')) {
       if (!task.turn?.browserVerificationEnabled) throw Error('用户关闭了本轮浏览器验收，不能调用或绕过开关')
-      if (!['browser_open', 'browser_action', 'browser_batch', 'browser_retest', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
+      if (!['browser_open', 'browser_plugin', 'browser_action', 'browser_batch', 'browser_retest', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
       if (!task.browser && name !== 'browser_open' && name !== 'browser_report') throw Error('请先 browser_open')
       task.browser ||= browserFactory({ root, appId: task.appId, dataDir, signal: task.controller?.signal,
         onChange(report) { task.turn.browserVerification = report; changed(task.thread) },

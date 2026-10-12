@@ -1,3 +1,4 @@
+import { errorDetail } from '../../shared/errors.js'
 /** Application-neutral, lifecycle-owned tools. The workbench owns the Agent process. */
 export function createAgentBridge({ application, session, stopping, enablePlugin, window, document }) {
   const tools = new Map(), attachments = new Map(), pageId = crypto.randomUUID()
@@ -61,7 +62,7 @@ export function createAgentBridge({ application, session, stopping, enablePlugin
     if (event.source !== peer || event.origin !== origin || message.type !== 'call') return
     if (message.pageId !== pageId || message.session !== session) return send({ type: 'result', id: message.id, error: '应用页面已更换' })
     try { send({ type: 'result', id: message.id, result: await call(message.name, message.args) }) }
-    catch (error) { send({ type: 'result', id: message.id, error: error.message }) }
+    catch (error) { send({ type: 'result', id: message.id, error: error.message, errorDetail: errorDetail(error) }) }
   }
   window.addEventListener('message', listener)
   const dismiss = event => { if (menu && !menu.contains(event.target)) menu.remove() }

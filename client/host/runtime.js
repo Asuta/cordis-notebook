@@ -12,6 +12,8 @@ import { applicationStorage } from './application-storage.js'
 import { applicationView } from './application-view.js'
 import { createAgentBridge } from './agent-bridge.js'
 import { installDevelopmentSave } from './development-save.js'
+import { createRequest } from './request.js'
+import { errorDetail, restoreError } from '../../shared/errors.js'
 let application = await (await fetch('/api/applications')).json()
 const pageSession = application.session
 let development = import.meta.hot ? await (await fetch('/__cordis/dev')).json() : null
@@ -24,14 +26,11 @@ updatePlaceholder()
 const stopping = new StopCoordinator(root, error => toast(error.message))
 const agentBridge = createAgentBridge({ application: application.current, session: pageSession, stopping, enablePlugin: enablePluginFromAgent, window, document })
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false
-async function request(path, method = 'GET', data, signal) {
-  const response = await fetch(path, { method, headers: { 'Content-Type': 'application/json', 'X-Application-Session': pageSession }, signal, ...(data === undefined ? {} : { body: JSON.stringify(data) }) })
-  const result = await response.json(); if (!response.ok) throw Object.assign(new Error(result.error || '请求失败'), { status: response.status, ...(typeof result.code === 'string' ? { code: result.code } : {}) }); return result
-}
+const request = createRequest(pageSession)
 function toast(message) { const node = $('#toast'); const dialog = [...document.querySelectorAll('dialog[open]')].at(-1); (dialog || document.body).append(node); node.textContent = message; node.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => node.hidden = true, 6000) }
 function el(tag, props = {}, text) {
   const node = document.createElement(tag)
-  for (const [key, value] of Object.entries(props)) { if (key === 'class') node.className = value; else if (key.startsWith('aria-')) node.setAttribute(key, value); else node[key] = value }
+  for (const [key, value] of Object.entries(props)) { if (key === 'class') node.className = value; else if (key.startsWith('aria-') || key.startsWith('data-')) node.setAttribute(key, value); else node[key] = value }
   if (text !== undefined) node.textContent = text; return node
 }
 function sdkFor(ctx, plugin) {
@@ -150,33 +149,42 @@ function pluginCard(plugin, id = 'plugin-' + plugin.id) {
     if (plugin.enabled && ['failed', 'disabled'].includes(plugin.clientState)) { const retry = el('button', { disabled: busy }, '重载前端'); retry.onclick = () => operate(() => retryPlugin(plugin)); actions.append(retry) }
     card.append(actions); return card
 }
-async function changePlugin(plugin, enabled) {
+async function changePlugin(plugin, enabled, operationId) {
   const targets = !enabled || plugin.state === 'failed' ? [plugin.id] : []
   if (plugin.exclusiveGroup) targets.push(...snapshot.plugins.filter(p => p.enabled && p.exclusiveGroup === plugin.exclusiveGroup).map(p => p.id))
-  const action = async () => { try { await applyPluginChange(plugin, enabled) } finally { await scheduleSync() } }
+  const action = async () => { try { return await applyPluginChange(plugin, enabled, operationId) } finally { await scheduleSync() } }
   if (!targets.length) return action()
   return stopping.run({ reason: plugin.exclusiveGroup ? 'switch' : 'disable', targets: [...new Set(targets)] }, action)
 }
-async function enablePluginFromAgent({ id, session }) {
+async function enablePluginFromAgent({ id, session, operationId }) {
   const check = () => {
     if (session !== pageSession || leaving || application.phase !== 'idle') throw Error('应用已经切换或正在切换')
     if (snapshot.pendingSwitch || snapshot.pendingConfig) throw Error('正在确认插件切换或配置')
   }
   check()
   if (working) throw Error('插件管理正在执行其他操作，请完成后再启用')
-  let operationError = null
+  let operationError = null, operation = null
   await operate(async () => {
     await scheduleSync(true)
     check()
     const plugin = snapshot.plugins.find(plugin => plugin.id === id)
     if (!plugin) throw Error('插件尚未发现：' + id)
     if (!plugin.enabled || plugin.state === 'failed') {
-      try { await changePlugin(plugin, true) } catch (error) { operationError = error.message }
+      try { operation = await changePlugin(plugin, true, operationId) } catch (error) { operationError = errorDetail(error); operation = error.operation || null }
     }
   }, true)
   check()
   const observed = { ...snapshot, plugins: snapshot.plugins.map(plugin => host.describe(plugin)) }
-  return { session: pageSession, revision: snapshot.revision, result: pluginActivationResult(observed, id, { clientVerified: true, operationError }) }
+  return { session: pageSession, revision: snapshot.revision, result: pluginActivationResult(observed, id, { clientVerified: true, operationError, operation }) }
+}
+// A fixed development-only adapter used by the isolated verification worker.
+// Enabling uses the same save guards, transaction and client checks as the UI.
+export async function verificationPlugin({ appId, id, enable = false }) {
+  if (!import.meta.hot || appId !== application.current?.id || leaving || !/^[a-z][a-z0-9-]{1,49}$/.test(id)) throw Error('验收应用或插件参数无效')
+  if (enable) return (await enablePluginFromAgent({ id, session: pageSession, operationId: crypto.randomUUID() })).result
+  await scheduleSync(true)
+  if (leaving || application.current?.id !== appId || application.phase !== 'idle' || application.session !== pageSession) throw Error('验收应用已切换')
+  return pluginActivationResult({ ...snapshot, plugins: snapshot.plugins.map(plugin => host.describe(plugin)) }, id, { clientVerified: true })
 }
 async function retryPlugin(plugin) {
   return stopping.run({ reason: 'reload', targets: [plugin.id] }, () => {
@@ -184,11 +192,11 @@ async function retryPlugin(plugin) {
     syncQueue = task.catch(() => {}); return task
   })
 }
-async function applyPluginChange(plugin, enabled) {
-  const result = await request(`/api/plugins/${plugin.id}/toggle`, 'POST', { enabled })
+async function applyPluginChange(plugin, enabled, operationId) {
+  const result = await request(`/api/plugins/${plugin.id}/toggle`, 'POST', { enabled, operationId })
   failures.delete(plugin.id)
   const pending = result.pendingSwitch
-  if (!pending) return
+  if (!pending) return result.operation
   let loadError
   try {
     await scheduleSync()
@@ -202,9 +210,12 @@ async function applyPluginChange(plugin, enabled) {
   await scheduleSync()
   if (loadError) {
     const restoreFailed = pending.previous.some(id => host.state(id) !== 'enabled')
-    throw new Error(restoreFailed ? `${confirmed.message}；原插件页面恢复失败，请重载前端。` : confirmed.message)
+    const error = restoreError(confirmed.operation?.error || confirmed.message)
+    if (restoreFailed) error.message += '；原插件页面恢复失败，请重载前端。'
+    throw Object.assign(error, { operation: confirmed.operation })
   }
   toast(pending.target ? `已切换为${plugin.name}` : '已停用此插件')
+  return confirmed.operation
 }
 async function saveConfig(plugin, config) {
   plugin = { ...snapshot.plugins.find(p => p.id === plugin.id), configRevision: plugin.configRevision }

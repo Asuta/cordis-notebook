@@ -25,7 +25,7 @@ export async function activationFixture(t) {
       { id: 'client-waiting', client: 'export default () => {}', requires: { server: [], client: ['missingClient'] } },
       { id: 'client-broken', client: 'export default () => { throw Error("前端失败测试") }' },
       { id: 'theme-first', client: 'export default ctx => { ctx.on("plugins/before-stop", change => { if (!change.targets.includes("theme-first")) return; document.body.dataset.activationPrepared="true"; if(document.body.dataset.activationVeto==="true") return "保存未完成测试"; change.hold(()=>{document.body.dataset.activationReleased="true"}) }) }', exclusiveGroup: 'themes', defaultEnabled: true },
-      { id: 'theme-second', client: 'export default () => {}', exclusiveGroup: 'themes' },
+      { id: 'theme-second', client: 'export default () => { if (document.body.dataset.activationRestoreFails === "true") throw Error("页面恢复失败测试") }', exclusiveGroup: 'themes' },
       { id: 'theme-broken', client: 'export default () => { throw Error("主题失败测试") }', exclusiveGroup: 'themes' },
     ]
     for (const entry of entries) {

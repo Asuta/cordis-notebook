@@ -9,6 +9,7 @@
     "@cordis-notebook/notes": "workspace:*"
   },
   "cordis": {
+    "capabilities": [{ "service": "notebook", "side": "client", "description": "当前页面的笔记、草稿、保存与筛选服务", "contracts": ["types/client.d.ts"], "examples": ["client.js"], "lifecycle": ["observe(owner, handler) 的订阅随 owner 释放；current() 返回只读快照。", "先 flush 再切换或停止；版本冲突保留草稿并由用户另存副本。"] }],
     "schemaVersion": 1,
     "id": "notebook",
     "name": "前端笔记服务",

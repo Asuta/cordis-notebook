@@ -92,6 +92,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
                       key={p.id}
                       className={'manager-plugin-row' + (p.id === plugin?.id ? ' active' : '')}
                       aria-pressed={p.id === plugin?.id}
+                      data-testid={'plugin-select-' + p.id}
                       onClick={() => select(p.id)}
                     >
                       {p.swatch ? (
@@ -138,6 +139,7 @@ export function mountManager(ctx, sdk, root, dependencies) {
                       <div className="detail-actions">
                         <Button
                           disabled={busy || ['starting', 'stopping'].includes(plugin.state)}
+                          data-testid={'plugin-toggle-' + plugin.id}
                           variant={plugin.enabled ? 'outline' : 'default'}
                           onClick={() => run(() => api.toggle(plugin, !plugin.enabled))}
                         >

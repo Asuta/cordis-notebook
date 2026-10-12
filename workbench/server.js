@@ -16,6 +16,7 @@ import { BrowserVerification } from './browser-verification.js'
 import { recoverConversations, createTraceReporter } from './task-state.js'
 import { createPageBridge } from './page-bridge.js'
 import { createToolExecutor } from './tool-router.js'
+import { errorDetail } from '../shared/errors.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -102,7 +103,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       if (!active) return
       const task = active, item = task.thread
       if (message.type === 'tool') {
-        execute(task, message.name, message.args).then(result => { if (child.connected) child.send({ type: 'result', id: message.id, result }) }, error => { if (child.connected) child.send({ type: 'result', id: message.id, error: redact(error.message) }) })
+        execute(task, message.name, message.args).then(result => { if (child.connected) child.send({ type: 'result', id: message.id, result }) }, error => { if (child.connected) child.send({ type: 'result', id: message.id, error: redact(error.message), errorDetail: { ...errorDetail(error), message: redact(error.message) } }) })
       } else if (message.type === 'session') { item.sessionFile = message.file; store.mark(item) }
       else if (message.type === 'assistant-start') { task.turn.currentMessageId = message.messageId; delete task.turn.finalAnswer; changed(item) }
       else if (message.type === 'trace') updateTrace(task, message.event)
