@@ -26,24 +26,26 @@ export const developmentSchemas = {
 }
 export const developmentTools = [
   ['workspace_operation_status', '查询插件启停或配置操作的当前阶段及错误码。使用启用结果中的 operation.id 或 operationFailure.operationId，以及原 session；记录仅在该应用运行会话内保留，未知结果不能自动重放写操作。', developmentSchemas.workspace_operation_status],
-  ['workspace_development_info', '一次读取绑定应用的开发资料，默认展开当前任务相关的全部契约与示例正文，包括示例清单和提供者实现。focus 为 ui（默认）、backend 或 agent；已知模板可传 template（如 notebook-footer），专项资料传返回的 tasks 中的 task ID。ui 的 presentation 另含该模板的样式、图标、排序说明与有限真实源码选段，无需再扫描样式文件。task、template、capability 互斥；includeAllProviders=true 仅展开服务索引。includeRelatedSources 默认为 true；显式 false 才收窄到使用契约和单个示例。同时返回挂载/释放规则、验证命令、实际运行地址和启用工具；文件有真实路径和正文，无需重复读取。', developmentSchemas.workspace_development_info],
+  ['workspace_development_info', '一次读取绑定应用的开发资料，默认展开当前任务相关的全部契约与示例正文，包括示例清单和提供者实现。优先从本轮应用开发路径目录选 task；首次就传匹配的 task，无需先查询默认资料。没有匹配任务时可选 focus（ui/backend/agent）、已知 template 或 capability。ui 的 presentation 另含样式、图标、排序说明与有限真实源码选段，无需再扫描样式文件。task、template、capability 互斥；includeAllProviders=true 仅展开服务索引。includeRelatedSources 默认为 true；显式 false 才收窄到使用契约和单个示例。同时返回挂载/释放规则、验证命令、实际运行地址和启用工具；文件有真实路径和正文，无需重复读取。', developmentSchemas.workspace_development_info],
   ['workspace_scaffold_plugin', '为绑定应用创建完整可发现的插件骨架。先从 workspace_development_info 选择 template；默认停用，写齐实现和清单并校验后整体发布。拒绝重复 ID、目录或包名，不覆盖已有文件。sources 直接返回生成文件的路径与完整源码，可立即编辑，无需再次读取；骨架还需实现需求和验证。', developmentSchemas.workspace_scaffold_plugin],
   ['workspace_enable_plugin', '启用绑定应用的插件并一次返回 enabled、running、双端状态、依赖与失败原因。自动核对受管理实例与最新应用 session；已启用时读取状态。连接页面时复用插件管理流程和保存保护，确认前端加载；无页面的普通插件只确认后端，running=null 表示前端未知。单选组切换需要页面。不代替功能测试或浏览器验收，不自动启用依赖或重试写请求。', developmentSchemas.workspace_enable_plugin],
 ]
 export const developmentGuidance = [
   '服务能力由提供者的 cordis.capabilities 声明。workspace_development_info 的 capabilities 精简索引可发现新服务，传 capability:"client:服务名" 或 "server:服务名" 读取提供者契约、示例和生命周期要求，无需修改应用级任务导航。声明存在不等于已运行；/api/capabilities 返回提供者状态，前端仍需页面核对。插件操作结果包含 operation 和结构化 operationFailure；响应不确定时使用 workspace_operation_status 查询原 session 中的操作，不能盲目重放。',
-  '插件开发先调用 workspace_development_info，按任务选 focus 或已知 template/task，默认展开当前任务相关的全部契约、示例清单和实现正文；需要其他服务时才 includeAllProviders=true。已返回的文件无需再读；仅为尚未解决的具体问题追加定向读取，不反复读取相同文件或无目标扫描插件。新增插件优先 workspace_scaffold_plugin，直接用 sources 中的源码开始编辑；需要自建时先写齐实现和构建输入，最后发布清单。',
+  '插件开发先从本轮提供的应用开发路径选择匹配的 task，首次 workspace_development_info 就传该 task；没有匹配任务时选择 focus、template 或 capability。不必先调用默认 ui 来发现路径。默认展开当前任务相关的全部契约、示例清单和实现正文；需要其他服务时才 includeAllProviders=true。已返回的文件无需再读；仅为尚未解决的具体问题追加定向读取，不反复读取相同文件或无目标扫描插件。新增插件优先 workspace_scaffold_plugin，直接用 sources 中的源码开始编辑；需要自建时先写齐实现和构建输入，最后发布清单。',
   '小功能按用户要求实现最小范围；未要求的配置、设置页和额外功能不要顺手增加。契约和最接近示例确认后开始实现，不要求读完整项目。验证选择目标插件；修复实际失败或新增改动后才重跑已通过检查。结束报告依据已有结果，不例行再扫描目录、dist 或重读报告。',
   '启用优先 workspace_enable_plugin({id:"插件ID"})，自动核对当前应用、最新 session 并返回双端状态与依赖；running=null 是前端未验证，不能报告已运行。失败先根据 operationError/error/waitingFor 处理，不盲目重放写请求。defaultEnabled 只影响首次登记，不能覆盖已保存的停用状态。只以受管理运行实例返回的数据目录为准，不能假定 root/data，不能直接改状态文件。浏览器验收使用独立实例和数据；browser_plugin({id:"插件ID",enable:true}) 仅启用并核对验收实例，不代表用户页面已经启用。',
 ]
 function validate(name, args) {
   if (!Value.Check(developmentSchemas[name], args)) throw Error('开发工具参数无效：' + [...Value.Errors(developmentSchemas[name], args)].slice(0, 3).map(e => e.path + ': ' + e.message).join('；'))
 }
-async function applicationPaths(root, appId) {
+async function applicationPaths(root, appId, { requirePlugins = true } = {}) {
   if (!/^[a-z][a-z0-9-]{1,49}$/.test(appId)) throw Error('应用 ID 无效')
   root = await realpath(root)
-  const app = await realpath(join(root, 'applications', appId)), plugins = await realpath(join(app, 'plugins'))
-  if (!inside(root, app) || !inside(app, plugins)) throw Error('应用或插件目录超出当前工作区')
+  const app = await realpath(join(root, 'applications', appId))
+  if (!inside(root, app)) throw Error('应用或插件目录超出当前工作区')
+  const plugins = requirePlugins ? await realpath(join(app, 'plugins')) : undefined
+  if (requirePlugins && !inside(app, plugins)) throw Error('应用或插件目录超出当前工作区')
   const pkg = JSON.parse(await readFile(join(app, 'package.json'), 'utf8'))
   if (pkg.cordisApp?.id !== appId) throw Error('应用 ID 与清单不一致')
   return { root, app, plugins, pkg }
@@ -83,6 +85,24 @@ const templates = profile => [
   { id: 'server', description: '通用后端 HTTP 接口 /api/plugins/<id>/status，依赖 http', focus: 'backend', recipe: { services: { server: ['http'], client: [] } } },
   ...(profile.templates || []),
 ]
+// The same application profile drives both the initial directory and tool replies.
+// Building this directory does not discover plugins or load their source files.
+export async function developmentNavigation(root, appId) {
+  const paths = await applicationPaths(root, appId, { requirePlugins: false }), profile = await profileFor(paths)
+  const lines = [`应用 ${appId} 的开发路径（来自 applications/${appId}/development.json）：`]
+  for (const [kind, entries] of [['task', profile.tasks || []], ['template', templates(profile)]]) {
+    const ids = new Set()
+    for (const entry of entries) {
+      if (!/^[a-z][a-z0-9-]{0,59}$/.test(entry.id) || ids.has(entry.id) || typeof entry.description !== 'string' || !entry.description.trim()
+        || (entry.focus && !['ui', 'backend', 'agent'].includes(entry.focus))) throw Error(`开发路径声明无效：${appId} ${kind} ${entry.id}`)
+      ids.add(entry.id)
+      lines.push(`- ${JSON.stringify({ [kind]: entry.id })}：${entry.description.replace(/\s+/g, ' ')}`)
+    }
+  }
+  lines.push('没有匹配的专项任务时：{"focus":"ui"} 获取一般界面资料；{"focus":"backend"} 获取后端接口与数据资料；{"focus":"agent"} 获取应用 Agent 工具资料。',
+    '首次 workspace_development_info 直接使用上面的一个参数对象；task/template/capability 互斥。task 是资料路径，template 是可生成的骨架，不必为了用骨架重复读取模板资料。组合需求可分别读取确实需要的路径。')
+  return lines.join('\n')
+}
 export async function developmentInfo(root, appId, args = {}) {
   validate('workspace_development_info', args)
   const paths = await applicationPaths(root, appId), profile = await profileFor(paths)

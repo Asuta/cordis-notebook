@@ -10,6 +10,7 @@
     "@cordis-notebook/ui": "workspace:*"
   },
   "cordis": {
+    "capabilities": [{ "service": "editorHost", "side": "client", "description": "按格式的 editor 标识注册编辑区与可选标题位置", "contracts": ["types/client.d.ts"], "examples": ["client.js"], "lifecycle": ["register(owner, type, node) 随 owner 释放；type 必须匹配格式的 editor，同一标识不能重复注册。"] }],
     "schemaVersion": 1,
     "id": "editor-host",
     "name": "笔记编辑区",

@@ -14,6 +14,8 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
   const root = await mkdtemp(join(tmpdir(), 'cordis-pi-features-')), requests = [], events = []
   await mkdir(join(root, 'agent'), { recursive: true }); await mkdir(join(root, 'applications/notebook'), { recursive: true })
   await writeFile(join(root, 'agent/ARCHITECTURE.md'), '只运行测试')
+  await mkdir(join(root, 'applications/notebook/plugins'))
+  await writeFile(join(root, 'applications/notebook/package.json'), JSON.stringify({ cordisApp: { id: 'notebook', name: '测试笔记' } }))
   let answer = '## 完成\n\n' + '保留测试内容。'.repeat(2000), promptTokens = 10000, toolOnly = false
   const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk

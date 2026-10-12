@@ -7,11 +7,14 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-test('真实 Pi SDK 使用 Chat Completions，调用文件与应用工具，并读取双层上下文', { timeout: 45000 }, async t => {
+for (const invalidProfile of [false, true]) test('真实 Pi SDK 读取双层上下文与开发目录并调用文件和应用工具' + (invalidProfile ? '；损坏目录仍可启动修复' : ''), { timeout: 45000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'cordis-pi-')), requests = [], events = [], outputFile = join(root, 'created-by-agent.txt')
   await mkdir(join(root, 'agent'), { recursive: true }); await mkdir(join(root, 'applications/notebook'), { recursive: true })
   await writeFile(join(root, 'agent/ARCHITECTURE.md'), 'HOST_CONTEXT_SENTINEL')
   await writeFile(join(root, 'applications/notebook/agent.md'), 'APP_CONTEXT_SENTINEL')
+  await mkdir(join(root, 'applications/notebook/plugins'))
+  await writeFile(join(root, 'applications/notebook/package.json'), JSON.stringify({ cordisApp: { id: 'notebook', name: '测试笔记' } }))
+  await writeFile(join(root, 'applications/notebook/development.json'), invalidProfile ? '{' : JSON.stringify({ tasks: [{ id: 'test-editor', focus: 'ui', description: 'EDITOR_PATH_SENTINEL' }] }))
   const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk
     const parsed = JSON.parse(body); requests.push({ url: req.url, ...parsed })
@@ -53,5 +56,7 @@ test('真实 Pi SDK 使用 Chat Completions，调用文件与应用工具，并�
   assert.equal(requests.length, 3); assert.equal(requests[0].url, '/v1/chat/completions')
   const instructions = JSON.stringify(requests[0].messages)
   assert.match(instructions, /HOST_CONTEXT_SENTINEL/); assert.match(instructions, /APP_CONTEXT_SENTINEL/)
+  if (invalidProfile) assert.match(instructions, /应用开发路径目录暂不可用/)
+  else { assert.match(instructions, /EDITOR_PATH_SENTINEL/); assert.match(instructions, /test-editor/) }
   assert.equal(instructions.includes('test-key'), false)
 })

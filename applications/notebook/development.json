@@ -6,12 +6,28 @@
     "references": [{ "file": "plugins/layout/style.css", "start": 77, "end": 91 }, { "file": "plugins/ui/types/client.d.ts", "start": 1, "end": 13 }]
   } }],
   "tasks": [{
-    "id": "note-content", "focus": "ui", "description": "读取当前笔记、正文统计与格式源码语义",
+    "id": "note-content", "focus": "ui", "description": "读取当前笔记、字数/段落/阅读时长等统计展示；区分普通与 Markdown 源码；不用于新增编辑器",
     "recipe": {
       "services": { "client": ["notebook", "shell", "noteFormats"], "server": [] },
       "contracts": ["plugins/notebook/types/client.d.ts", "plugins/layout/types/client.d.ts", "plugins/notes/types/data.d.ts", "plugins/note-formats/types/data.d.ts", "note-content.md"],
       "examples": ["plugins/stats/client.js", "plugins/stats/package.json", "plugins/format-plain/format.js", "plugins/format-markdown/format.js"],
       "patterns": ["ctx.notebook.observe(ctx, render) 立即调用并随 owner 释放；sdk.mount('footer', node) 由上下文释放。", "plain 原文为 content，markdown 原文为 markdown；派生 content 不保留源码空行。按空行计数应读取源码，空源码不能回退到派生文本。"]
+    }
+  }, {
+    "id": "note-action", "focus": "ui", "description": "给现有笔记添加工具栏按钮或菜单动作，如置顶、复制标题、导出；不改变笔记格式或编辑器",
+    "recipe": {
+      "services": { "client": ["notebook", "shell"], "server": [] },
+      "contracts": ["plugins/notes/types/data.d.ts"],
+      "examples": ["plugins/pin/client.js", "plugins/pin/package.json"],
+      "patterns": ["sdk.button('toolbar', label, handler) 同时管理挂载和监听释放；设置 aria-label，读取当前笔记决定禁用状态。", "修改当前笔记使用 notebook.edit，再按需要 flush；busy 或不可编辑时禁止修改。不要查找其他插件内部 DOM。", "工具栏会读取 button.dataset.menuLabel 作为溢出菜单文字；sdk.button 没有 order 参数。"]
+    }
+  }, {
+    "id": "note-editor", "focus": "ui", "description": "新增笔记格式或编辑器：格式定义及前后端注册、编辑区接入、草稿保存与恢复；不是页脚统计或普通按钮",
+    "recipe": {
+      "services": { "client": ["notebook", "noteFormats", "editorHost", "ui"], "server": ["noteFormats"] },
+      "contracts": ["plugins/notes/types/data.d.ts", "plugins/ui/types/client.d.ts", "note-content.md"],
+      "examples": ["plugins/format-plain/format.js", "plugins/format-plain/client.js", "plugins/format-plain/server.js", "plugins/format-plain/package.json", "plugins/editor/client.js", "plugins/editor/view.jsx", "plugins/editor/package.json"],
+      "patterns": ["新增格式参考 format-plain：为 type/editor 使用新的标识，声明 fields/defaults/normalize/toText，前后端分别注册同一格式定义并声明两端依赖。只修改已有编辑器时不必另建格式。", "editorHost.register(ctx, format.editor, node) 注册编辑区；不向 footer 挂载编辑器，不重复注册已有编辑器标识。React 示例使用 ui；原生 DOM 实现可以不依赖 ui。", "编辑源码通过 notebook.edit，不直接改 current() 快照或写持久化文件；遵守 busy/editable、版本冲突和保存保护。切换笔记、重载恢复、空文档、非法格式、停用再启用均需验证。", "examples 给出实际格式与编辑器文件；根据需求保留必要功能，不复制示例里的无关选区、样式或依赖。通用 client 骨架只是起点，双端格式还需增加后端入口与构建声明，写齐后再发布清单。"]
     }
   }],
   "recipes": {
