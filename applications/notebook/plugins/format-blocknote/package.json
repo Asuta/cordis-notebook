@@ -1,0 +1,15 @@
+{
+  "name": "@cordis-notebook/format-blocknote", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "cordis": "4.0.0-rc.10" },
+  "cordis": {
+    "schemaVersion": 1, "id": "format-blocknote", "name": "BlockNote 页面格式", "description": "保存 BlockNote 原生块数据，支持富文本、嵌套、表格与媒体。",
+    "requires": { "server": ["noteFormats"], "client": ["noteFormats"] },
+    "provides": { "server": ["blockNoteDocument"], "client": ["blockNoteDocument"] },
+    "order": 10, "defaultEnabled": true, "client": "client.js", "server": { "entry": "server.js", "export": "default" },
+    "public": ["client.js"], "styles": [], "category": { "id": "features", "label": "功能" }, "icon": "Blocks",
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser", "minify": true },
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" }
+    ]
+  }
+}

@@ -34,6 +34,39 @@ async function plugin(directory,id,override={},files={}) {
   return {folder,pkg,save:()=>writeFile(join(folder,'package.json'),json(pkg))}
 }
 
+test('第三方 CommonJS 与 ESM 依赖共享公开运行时，源码和服务边界保持有效', async t => {
+  const { plugins } = await fixture(t)
+  const provider = await plugin(plugins, 'runtime-owner', {
+    provides: { server: [], client: ['sharedUI'] }, runtimePackages: ['test-runtime'], runtimeModules: { 'test-runtime': 'runtime.js' },
+    public: ['client.js', 'runtime.js'], build: [
+      { type: 'bundle', input: 'client.js', output: 'client.js', platform: 'browser' },
+      { type: 'bundle', input: 'runtime.js', output: 'runtime.js', platform: 'browser' },
+    ],
+  }, {
+    'runtime.js': "export {default, value} from 'test-runtime'",
+    'client.js': "import runtime from 'test-runtime'; export default () => runtime.value",
+    'node_modules/test-runtime/package.json': '{"name":"test-runtime","version":"1.0.0","main":"index.cjs"}',
+    'node_modules/test-runtime/index.cjs': 'module.exports = { value: 42 }',
+  })
+  provider.pkg.dependencies['test-runtime'] = '1.0.0'; await provider.save()
+  const consumer = await plugin(plugins, 'runtime-consumer', { requires: { server: [], client: ['sharedUI'] } }, {
+    'client.js': "export {default} from 'vendor-library'",
+    'node_modules/vendor-library/package.json': '{"name":"vendor-library","version":"1.0.0","main":"index.cjs"}',
+    'node_modules/vendor-library/index.cjs': "const runtime=require('test-runtime'); module.exports=()=>runtime.value",
+  })
+  consumer.pkg.dependencies['vendor-library'] = '1.0.0'; await consumer.save()
+  await buildPlugins(plugins)
+  const source = await readFile(join(consumer.folder, 'dist/client.js'), 'utf8')
+  assert.match(source, /from "\/builtin\/runtime-owner\/runtime.js"/)
+  assert.doesNotMatch(source, /require\(["']\/builtin/)
+  consumer.pkg.cordis.requires.client = []; await consumer.save()
+  await assert.rejects(buildPlugins(plugins), /共享运行时需要声明提供者的服务依赖/)
+  await writeFile(join(consumer.folder, 'client.js'), "import runtime from 'test-runtime'; export default () => runtime")
+  await assert.rejects(buildPlugins(plugins), /运行时由 runtime-owner 提供/)
+  provider.pkg.cordis.runtimeModules['test-runtime'] = 'private.js'; await provider.save()
+  await assert.rejects(discoverBuiltins(plugins, { mode: 'build' }), /runtimeModules/)
+})
+
 test('新增目录即可发现、构建、启停、恢复及扩展公开类型，扫描不执行后端',async t=>{
   const {root,plugins}=await fixture(t), guarded=['server/builtins.js','client/contracts/index.d.ts','scripts/build.js']
   const before=await Promise.all(guarded.map(path=>readFile(path,'utf8')))

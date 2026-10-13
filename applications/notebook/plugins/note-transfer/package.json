@@ -1,0 +1,16 @@
+{
+  "name": "@cordis-notebook/note-transfer", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "markdown-it": "15.0.2" },
+  "cordis": {
+    "schemaVersion": 1, "id": "note-transfer", "name": "笔记导入与备份", "description": "导入导出 Markdown/HTML，打包本地图片备份并恢复为新副本。",
+    "requires": { "server": ["http", "notes", "noteAssets"], "client": ["ui", "shell", "notebook", "blockNoteIO"] },
+    "provides": { "server": [], "client": [] }, "order": 25, "defaultEnabled": true,
+    "client": "client.js", "server": { "entry": "server.js", "export": "default" },
+    "public": ["client.js", "style.css"], "styles": ["style.css"], "category": { "id": "features", "label": "功能" }, "icon": "Download",
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser", "minify": true },
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

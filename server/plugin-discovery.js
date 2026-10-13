@@ -30,7 +30,7 @@ async function readPlugin(root, mode, loadServer) {
   const pkg = JSON.parse(await readFile(await containedFile(root, 'package.json'), 'utf8'))
   const m = pkg.cordis
   if (!object(m)) invalid('缺少 cordis 清单')
-  keys(m, ['schemaVersion','id','name','description','order','defaultEnabled','client','server','requires','provides','public','build','settings','exclusiveGroup','groupLabel','swatch','runtimePackages','category','icon','styles','capabilities'], 'cordis')
+  keys(m, ['schemaVersion','id','name','description','order','defaultEnabled','client','server','requires','provides','public','build','settings','exclusiveGroup','groupLabel','swatch','runtimePackages','runtimeModules','category','icon','styles','capabilities'], 'cordis')
   if (m.schemaVersion !== 1) invalid('仅支持 cordis.schemaVersion 1')
   if (!/^[a-z][a-z0-9-]{1,49}$/.test(m.id || '') || typeof m.name !== 'string' || !m.name.trim() || m.name.length > 80) invalid('插件 ID 或名称无效')
   if (!/^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*$/.test(pkg.name || '') || pkg.type !== 'module' || !/^\d+\.\d+\.\d+$/.test(pkg.version || '')) invalid('包名称、版本或 ESM 类型无效')
@@ -93,6 +93,14 @@ async function readPlugin(root, mode, loadServer) {
   }
   for (const field of ['exclusiveGroup','groupLabel','swatch']) if (m[field] !== undefined && (typeof m[field] !== 'string' || !m[field])) invalid(`${field} 必须是非空文本`)
   if (m.runtimePackages !== undefined && (!Array.isArray(m.runtimePackages) || m.runtimePackages.some(name => !Object.hasOwn(pkg.dependencies || {}, name)))) invalid('runtimePackages 必须引用本包的 dependencies')
+  if (m.runtimeModules !== undefined) {
+    if (!object(m.runtimeModules)) invalid('runtimeModules 必须是包入口到公开 JS 文件的映射')
+    for (const [name, output] of Object.entries(m.runtimeModules)) {
+      const base = name.startsWith('@') ? name.split('/').slice(0, 2).join('/') : name.split('/')[0]
+      if (!m.runtimePackages?.includes(base) || !/^(@[\w-]+\/)?[\w.-]+(?:\/[\w.-]+)*$/.test(name)
+        || !m.public.includes(output) || !output.endsWith('.js') || mode !== 'runtime' && outputs.get(output)?.platform !== 'browser') invalid('runtimeModules 只能公开本插件拥有的浏览器运行时包')
+    }
+  }
   const capabilities = capabilitiesOf(m)
   if (mode !== 'runtime') for (const capability of capabilities) for (const name of [...capability.contracts, ...capability.examples, ...capability.tests]) await containedFile(root, name)
   const { client = null, server, requires, provides, settings, exclusiveGroup, groupLabel, swatch } = m
@@ -144,11 +152,13 @@ export async function discoverBuiltins(directory = defaultPluginsDir, { mode = '
     }
   }
   const byPackage = new Map(entries.map(item=>[item.package.name,item.manifest.id]))
+  const runtimeModules = new Map(entries.flatMap(entry => Object.entries(entry.package.cordis.runtimeModules || {}).map(([name, output]) => [name, { provider: entry.manifest.id, output, services: entry.manifest.provides.client }])))
   for (const entry of entries) {
     for (const [name, version] of Object.entries(entry.package.dependencies || {})) {
       if (mode !== 'runtime' && version.startsWith('workspace:') && name !== '@cordis-notebook/host' && !byPackage.has(name)) invalid(`${entry.manifest.id} 缺少 workspace 包：${name}`)
     }
     entry.runtimeOwners = owners
+    entry.runtimeModules = runtimeModules
   }
   return entries.sort((a,b)=>a.order-b.order || a.manifest.id.localeCompare(b.manifest.id))
 }

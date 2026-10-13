@@ -1,0 +1,14 @@
+@import '@blocknote/core/style.css';
+@import '@blocknote/ariakit/style.css';
+
+.blocknote-editor { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.blocknote-editor[hidden] { display: none; }
+.blocknote-help { padding: 10px 28px; color: var(--theme-muted); font-size: 12px; border-bottom: 1px solid var(--theme-border); }
+.blocknote-scroll { flex: 1; min-height: 0; overflow: auto; padding: 24px 0 100px; }
+.blocknote-error { margin: 8px 24px; padding: 10px; border: 1px solid var(--theme-border); color: var(--theme-text); background: var(--theme-panel); }
+.page-reference { display: inline; border: 0; border-radius: 4px; padding: 1px 4px; background: var(--theme-selected, #e2eadf); color: var(--theme-accent, #506b50); cursor: pointer; font: inherit; }
+.page-reference.missing { text-decoration: line-through; opacity: .65; cursor: default; }
+.cordis-blocknote { --bn-colors-editor-text: var(--theme-text); --bn-colors-editor-background: var(--theme-surface); --bn-font-family: inherit; min-height: 240px; }
+.cordis-blocknote .bn-editor { padding-inline: 54px; min-height: 240px; }
+.cordis-blocknote .bn-block-content { line-height: 1.7; }
+@media (max-width: 640px) { .blocknote-help { padding-inline: 14px; } .cordis-blocknote .bn-editor { padding-inline: 36px 16px; } }

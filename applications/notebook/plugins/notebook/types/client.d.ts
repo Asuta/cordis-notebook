@@ -17,6 +17,7 @@ export interface NotebookService {
   readonly selected: string | null
   readonly dirty: boolean
   readonly conflict: boolean
+  readonly conflictMessage: string
   readonly busy: boolean
   readonly editable: boolean
   readonly status: string
@@ -27,7 +28,9 @@ export interface NotebookService {
   registerFilter(owner: Context, key: string, predicate: NoteFilter): FilterRegistration
   choose(id: string): Promise<void>
   reorder(ids: string[]): Promise<void>
-  create(type?: string): Promise<void>
+  create(type?: string, fields?: NotePatch): Promise<Note | undefined>
+  /** Flush and hold edits while an importer atomically appends new notes. */
+  importNotes(action: () => Promise<Note[]>): Promise<Note[] | undefined>
   remove(): Promise<void>
   edit(patch: NotePatch): void
   flush(): Promise<void>

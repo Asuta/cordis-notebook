@@ -8,6 +8,8 @@ export interface Note {
   /** plain 的正文；其他格式由 toText 派生的纯文本，不保证保留空行或块结构。Markdown 源码在 markdown 字段。 */
   readonly content: string
   readonly pinned: boolean
+  /** null/absent means a root page. Parent removal promotes direct children. */
+  readonly parentId?: string | null
   readonly createdAt: string
   readonly updatedAt: string
   /** 手动排序序号，越小越靠前；未排序的笔记按更新时间排列。 */

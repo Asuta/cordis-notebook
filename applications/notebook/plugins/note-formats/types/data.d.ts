@@ -15,6 +15,8 @@ export interface NoteFormat {
   normalize(data: Readonly<Record<string, unknown>>): Record<string, unknown>
   /** 搜索/摘要用的派生纯文本，写入 Note.content；不承诺保留 Markdown 空行或自由页面块结构。 */
   toText(data: Readonly<Record<string, unknown>>): string
+  references?(data: Readonly<Record<string, unknown>>): readonly string[]
+  remapReferences?(data: Readonly<Record<string, unknown>>, ids: Readonly<Record<string, string>>): Record<string, unknown>
 }
 export interface NoteFormats {
   typeOf(note?: { readonly type?: string }): string
@@ -26,5 +28,7 @@ export interface NoteFormats {
   create(type?: string): NotePatch & { type: string }
   update(note: Note, patch: NotePatch): Note
   patch(note: Note): NotePatch
+  references(note: Note): string[]
+  remapReferences(note: Note, ids: Readonly<Record<string, string>>): Note
 }
 export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T

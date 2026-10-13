@@ -85,6 +85,7 @@ export default function (ctx: ClientContext, sdk: ClientSDK) {
 | `category` / `icon` | 分类 `{ "id":"tools", "label":"工具" }` 与 UI 图标名；分类自动出现，默认 features/功能、Puzzle |
 | `exclusiveGroup` / `groupLabel` / `swatch` | 通用互斥组、显示名、可选预览色；互斥组不决定插件分类，也不限于主题 |
 | `runtimePackages` | 可选共享运行时包清单；UI 包声明 React/React DOM，其他插件不得重复打包 |
+| `runtimeModules` | 可选包入口到公开浏览器 JS 产物的映射；用于第三方库的共享运行时。入口必须属于本插件的 `runtimePackages`，消费者须依赖提供者的前端服务；不开放跨插件源码导入 |
 
 清单中不写任意 shell 命令。当前支持指定的一套构建方式；新增通用构建方式才需要扩展执行器。
 

@@ -1,6 +1,6 @@
 import { build as viteBuild, transformWithOxc } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
-import { resolve, dirname, sep } from 'node:path'
+import { resolve, dirname, sep, posix } from 'node:path'
 import { realpath, rm } from 'node:fs/promises'
 import { isBuiltin } from 'node:module'
 import { inside } from '../server/plugin-discovery.js'
@@ -9,11 +9,12 @@ const clean = id => id.split('?')[0]
 const packageName = id => id.startsWith('@') ? id.split('/').slice(0, 2).join('/') : id.split('/')[0]
 
 // The same manifest boundaries apply in development and production.
-export function pluginSources(entries, { register = () => {} } = {}) {
+export function pluginSources(entries, { register = () => {}, sharedRuntime = false, runtimeEntry } = {}) {
   const owner = file => entries.find(entry => inside(entry.sourceRoot, resolve(clean(file))))
   return {
     name: 'cordis-plugin-sources', enforce: 'pre',
-    async resolveId(source, importer) {
+    async resolveId(source, importer, options) {
+      if (importer?.startsWith('\0cordis-runtime:')) return { id: source, external: true }
       if (!importer || source.startsWith('\0') || source.startsWith('/@vite/')) return
       const entry = owner(importer)
       const own = entry && !importer.includes(`${sep}node_modules${sep}`) && !importer.includes('/node_modules/')
@@ -27,6 +28,18 @@ export function pluginSources(entries, { register = () => {} } = {}) {
           throw Error('浏览器不能导入 Node 内置模块：' + source)
         }
         if (!Object.hasOwn(entry.package.dependencies || {}, name)) throw Error('代码包依赖未声明：' + name)
+      }
+      // Third-party React libraries must share the renderer's actual module, not
+      // embed another copy behind the service boundary. Source plugins still use ctx.ui.
+      if (sharedRuntime) {
+        const consumer = entries[0], runtime = consumer.runtimeModules?.get(source)
+        if (runtime && !(consumer.manifest.id === runtime.provider && runtimeEntry === runtime.output)) {
+          if (consumer.manifest.id !== runtime.provider && !runtime.services.some(name => consumer.manifest.requires.client.includes(name))) throw Error('共享运行时需要声明提供者的服务依赖：' + source)
+          const url = consumer.manifest.id === runtime.provider
+            ? './' + posix.relative(posix.dirname(runtimeEntry), runtime.output)
+            : `/builtin/${runtime.provider}/${runtime.output}`
+          return options?.kind === 'require-call' ? '\0cordis-runtime:' + url : { id: url, external: true }
+        }
       }
       const result = await this.resolve(source, importer, { skipSelf: true })
       if (!result || result.external || result.id.startsWith('\0')) return result
@@ -42,6 +55,9 @@ export function pluginSources(entries, { register = () => {} } = {}) {
       if (this.environment?.name !== 'ssr') register(file)
       return result
     },
+    load(id) {
+      if (id.startsWith('\0cordis-runtime:')) return `import runtime from ${JSON.stringify(id.slice('\0cordis-runtime:'.length))}; module.exports = runtime;`
+    },
     async transform(code, id) {
       const file = clean(id), entry = owner(file)
       if (!/\.[jt]sx$/.test(file) || file.includes('/node_modules/')) return
@@ -56,7 +72,7 @@ export function pluginSources(entries, { register = () => {} } = {}) {
 
 export async function buildBrowser(entry, task, input, target) {
   const css = task.type === 'tailwind'
-  // Each plugin keeps a self-contained ESM file and its declared filenames.
+  // Each plugin keeps one ESM entry, except for explicitly shared runtime modules.
   const virtual = resolve(entry.sourceRoot, '__cordis_css_entry__.js')
   await viteBuild({
     configFile: false, root: entry.sourceRoot, publicDir: false, logLevel: 'error',
@@ -64,7 +80,7 @@ export async function buildBrowser(entry, task, input, target) {
     plugins: css ? [tailwindcss(), {
       name: 'cordis-css-entry', resolveId: id => id === virtual ? virtual : undefined,
       load: id => id === virtual ? `import ${JSON.stringify(input.replaceAll('\\', '/'))}` : undefined,
-    }] : [pluginSources([entry])],
+    }] : [pluginSources([entry], { sharedRuntime: true, runtimeEntry: task.output })],
     build: {
       target: 'es2022', outDir: dirname(target), emptyOutDir: false,
       minify: css || (task.minify ?? false),

@@ -1,0 +1,13 @@
+.note-relations-dialog { color: var(--theme-text); background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 16px; padding: 24px; width: min(540px, 90vw); max-height: 85vh; overflow: auto; }
+.note-relations-dialog::backdrop { background: #0008; }
+.note-relations-dialog h2 { font-size: 20px; margin: 0 0 18px; }
+.note-relations-dialog h3 { font-size: 14px; margin: 16px 0 8px; }
+.note-relations-dialog select, .note-relations-dialog button { padding: 8px 12px; background: var(--theme-panel); color: var(--theme-text); border: 1px solid var(--theme-border); border-radius: 8px; }
+.note-relations-dialog select { max-width: 100%; }
+.note-relations-dialog label { display: grid; gap: 6px; }
+.note-relations-dialog section button { display: block; margin: 5px 0; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.relations-create { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.relations-hint, .note-relations-dialog section p { color: var(--theme-muted); font-size: 13px; }
+.note-page-path { padding: 4px 12px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+.note-page-path[hidden] { display: none; }
+.note-page-path button { color: var(--theme-muted); background: transparent; border: 0; cursor: pointer; text-decoration: underline; padding: 2px; }

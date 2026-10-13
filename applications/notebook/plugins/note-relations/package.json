@@ -1,0 +1,13 @@
+{
+  "name": "@cordis-notebook/note-relations", "version": "1.0.0", "private": true, "type": "module",
+  "cordis": {
+    "schemaVersion": 1, "id": "note-relations", "name": "页面关系", "description": "子页面、父页面调整、路径导航和双向页面引用。",
+    "requires": { "server": [], "client": ["ui", "shell", "notebook", "noteFormats"] },
+    "provides": { "server": [], "client": [] }, "order": 25, "defaultEnabled": true, "client": "client.js",
+    "public": ["client.js", "style.css"], "styles": ["style.css"], "category": { "id": "features", "label": "功能" }, "icon": "Network",
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser", "minify": true },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

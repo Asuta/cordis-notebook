@@ -23,8 +23,15 @@ test('每个内置插件聚合在同名目录，浏览器入口、相对依赖�
       const source = await response.text()
       if (!url.endsWith('.js')) return
       for (const [, specifier] of source.matchAll(/^import\s+.*?\s+from\s+['"]([^'"]+)['"]/gm)) {
-        assert.ok(specifier.startsWith('.'), `浏览器不能加载裸包：${url}: ${specifier}`)
-        assert.equal(new URL(specifier, url).pathname.split('/')[2], new URL(url).pathname.split('/')[2], `插件不能跨目录导入实现：${url}: ${specifier}`)
+        const consumer = builtins.find(entry => entry.manifest.id === new URL(url).pathname.split('/')[2])
+        if (specifier.startsWith('/builtin/')) {
+          const runtime = [...consumer.runtimeModules.values()].find(value => specifier === `/builtin/${value.provider}/${value.output}`)
+          assert.ok(runtime, `只能引用清单声明的共享运行时：${specifier}`)
+          assert.ok(consumer.manifest.id === runtime.provider || runtime.services.some(name => consumer.manifest.requires.client.includes(name)), '消费共享运行时须声明服务依赖')
+        } else {
+          assert.ok(specifier.startsWith('.'), `浏览器不能加载裸包：${url}: ${specifier}`)
+          assert.equal(new URL(specifier, url).pathname.split('/')[2], new URL(url).pathname.split('/')[2], `插件不能跨目录导入实现：${url}: ${specifier}`)
+        }
         await visit(new URL(specifier, url).href)
       }
       for (const [, stylesheet] of source.matchAll(/href:\s*['"]([^'"]+\.css)['"]/g)) await visit(new URL(stylesheet, url).href)

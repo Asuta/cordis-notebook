@@ -1,0 +1,10 @@
+{
+  "name": "@cordis-notebook/blocknote-agent-tools", "version": "1.0.0", "private": true, "type": "module",
+  "cordis": {
+    "schemaVersion": 1, "id": "blocknote-agent-tools", "name": "BlockNote Agent 工具", "description": "按块 ID 读取和编辑 BlockNote 页面，校验版本并保留保存失败草稿。",
+    "requires": { "server": [], "client": ["notebook", "blockNoteDocument"] }, "provides": { "server": [], "client": [] },
+    "order": 30, "defaultEnabled": true, "client": "client.js", "public": ["client.js"], "styles": [],
+    "category": { "id": "features", "label": "功能" }, "icon": "Blocks",
+    "build": [{ "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser", "minify": true }]
+  }
+}

@@ -2,3 +2,13 @@ packages:
   - 'applications/*'
   - 'applications/*/plugins/*'
   - 'packages/*'
+
+# Keep BlockNote's Tiptap extensions on the same patch as its React adapter.
+overrides:
+  '@blocknote/core>@tiptap/extensions': '3.31.4'
+  '@blocknote/core>@tiptap/extension-bold': '3.31.4'
+  '@blocknote/core>@tiptap/extension-code': '3.31.4'
+  '@blocknote/core>@tiptap/extension-italic': '3.31.4'
+  '@blocknote/core>@tiptap/extension-strike': '3.31.4'
+  '@blocknote/core>@tiptap/extension-text': '3.31.4'
+  '@blocknote/core>@tiptap/extension-underline': '3.31.4'

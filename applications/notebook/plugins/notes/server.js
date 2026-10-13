@@ -1,5 +1,6 @@
 import { Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
+import { assertHierarchy } from './hierarchy.js'
 
 const byOrder = (a, b) => Number(b.pinned) - Number(a.pinned) || (a.order ?? -1) - (b.order ?? -1) || b.updatedAt.localeCompare(a.updatedAt)
 
@@ -21,7 +22,8 @@ export class Notes extends Service {
   mutate(action) {
     const task = this.queue.then(async () => {
       const next = structuredClone(this.items)
-      const result = action(next)
+      const result = await action(next)
+      assertHierarchy(next)
       await this.ctx.storage.write(next)
       this.items = next
       return result
@@ -36,6 +38,31 @@ export class Notes extends Service {
       if (input?.fields !== undefined) Object.assign(note, this.ctx.noteFormats.update(note, input.fields))
       items.push(note)
       return note
+    })
+  }
+  importMany(input, beforeSave = async () => {}) {
+    return this.mutate(async items => {
+      if (!Array.isArray(input) || !input.length || input.length > 1000) throw Object.assign(Error('一次可恢复 1–1000 篇笔记'), { status: 400 })
+      const ids = new Map()
+      for (const note of input) {
+        if (!note || typeof note.id !== 'string' || !/^[\w:-]{1,100}$/.test(note.id) || ids.has(note.id)) throw Object.assign(Error('备份中的笔记 ID 无效或重复'), { status: 400 })
+        ids.set(note.id, randomUUID())
+      }
+      const now = new Date().toISOString(), created = input.map(original => {
+        const type = this.ctx.noteFormats.typeOf(original)
+        const restored = this.ctx.noteFormats.remapReferences(original, Object.fromEntries(ids))
+        const fields = this.ctx.noteFormats.patch(restored)
+        if (original.parentId != null && !ids.has(original.parentId)) throw Object.assign(Error('备份缺少父页面，请备份完整页面树'), { status: 400 })
+        fields.parentId = original.parentId == null ? null : ids.get(original.parentId)
+        return { ...this.ctx.noteFormats.update(this.ctx.noteFormats.create(type), fields),
+          id: ids.get(original.id), createdAt: now, updatedAt: now, revision: 0 }
+      })
+      assertHierarchy(created)
+      // Resources are written only after every note has passed validation. A
+      // failed resource write leaves the note collection unchanged.
+      await beforeSave(created)
+      items.push(...created)
+      return structuredClone(created)
     })
   }
   update(id, patch, expectedRevision) {
@@ -60,8 +87,13 @@ export class Notes extends Service {
       const index = items.findIndex(item => item.id === id)
       if (index < 0) throw Object.assign(new Error('笔记不存在'), { status: 404 })
       this.checkRevision(items[index], expectedRevision)
+      const removed = items[index], reparented = []
+      for (const note of items) if (note.parentId === id) {
+        note.parentId = removed.parentId ?? null; note.revision++; note.updatedAt = new Date().toISOString()
+        reparented.push(structuredClone(note))
+      }
       items.splice(index, 1)
-      return { ok: true }
+      return reparented.length ? { ok: true, reparented } : { ok: true }
     })
   }
   reorder(ids) {

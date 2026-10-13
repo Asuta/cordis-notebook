@@ -1,3 +1,5 @@
+import { treeRows } from './tree.js'
+
 export function mountNoteList(ctx, sdk, root, filters) {
   const {
     h,
@@ -40,6 +42,9 @@ export function mountNoteList(ctx, sdk, root, filters) {
     const formats = ctx.noteFormats.list(),
       notes = model.visible()
     const [drag, setDrag] = React.useState(null)
+    const [collapsed, setCollapsed] = React.useState(() => new Set())
+    const hierarchical = model.notes.some(note => note.parentId)
+    const rows = treeRows(notes, { collapsed, selected: model.selected, filtered: notes.length !== model.notes.length })
     // 只在筛选条件变更且可见集合确实变化时重播入场动效：排序、编辑和启动时的
     // 过滤器注册都不触发，避免拖动过程中卡片闪烁。
     const list = React.useRef(null)
@@ -110,7 +115,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
         }
       }
     }, [compact])
-    const canReorder = !model.busy && notes.length > 1 && notes.length === model.notes.length
+    const canReorder = !hierarchical && !model.busy && notes.length > 1 && notes.length === model.notes.length
     const startDrag = (note) => (event) => {
       event.dataTransfer.setData('text/plain', note.id)
       event.dataTransfer.effectAllowed = 'move'
@@ -196,7 +201,10 @@ export function mountNoteList(ctx, sdk, root, filters) {
         </div>
         <Slot node={filters} />
         <div className={'note-list' + (compact ? ' compact' : '')} aria-label="笔记列表" ref={list}>
-          {notes.map((note) => (
+          {rows.map(({ note, depth, hasChildren, expanded }) => (
+            <div key={note.id} className={hierarchical ? 'note-tree-row' : undefined} style={hierarchical ? { paddingLeft: `${Math.min(depth, 12) * 14}px` } : undefined}>
+            {hierarchical && (hasChildren ? <button type="button" className="note-tree-toggle" aria-label={(expanded ? '折叠子页面：' : '展开子页面：') + (note.title || '无标题笔记')} aria-expanded={expanded}
+              onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(note.id)) next.delete(note.id); else next.add(note.id); return next })}>{expanded ? '▾' : '▸'}</button> : <span className="note-tree-spacer" />)}
             <button
               key={note.id}
               className={
@@ -231,6 +239,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
                 </div>
               )}
             </button>
+            </div>
           ))}
           {!notes.length && (
             <div className="no-results">

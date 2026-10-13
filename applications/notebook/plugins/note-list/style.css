@@ -207,3 +207,7 @@
     animation: none;
   }
 }
+.note-tree-row { display: flex; align-items: flex-start; }
+.note-tree-row > .note-card { flex: 1; min-width: 0; }
+.note-tree-toggle, .note-tree-spacer { flex: 0 0 20px; width: 20px; margin-top: 14px; }
+.note-tree-toggle { border: 0; padding: 0; background: transparent; color: var(--theme-muted); cursor: pointer; }

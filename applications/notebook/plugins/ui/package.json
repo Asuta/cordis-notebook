@@ -40,7 +40,12 @@
     "client": "client.js",
     "public": [
       "client.js",
-      "style.css"
+      "style.css",
+      "react-dom.js",
+      "react.js",
+      "react-dom-client.js",
+      "react-jsx-dev-runtime.js",
+      "react-jsx-runtime.js"
     ],
     "build": [
       {
@@ -54,6 +59,41 @@
         "type": "tailwind",
         "input": "tailwind.css",
         "output": "style.css"
+      },
+      {
+        "minify": true,
+        "type": "bundle",
+        "output": "react-dom.js",
+        "input": "react-dom.js",
+        "platform": "browser"
+      },
+      {
+        "minify": true,
+        "type": "bundle",
+        "output": "react.js",
+        "input": "react.js",
+        "platform": "browser"
+      },
+      {
+        "minify": true,
+        "type": "bundle",
+        "output": "react-dom-client.js",
+        "input": "react-dom-client.js",
+        "platform": "browser"
+      },
+      {
+        "minify": true,
+        "type": "bundle",
+        "output": "react-jsx-dev-runtime.js",
+        "input": "react-jsx-dev-runtime.js",
+        "platform": "browser"
+      },
+      {
+        "minify": true,
+        "type": "bundle",
+        "output": "react-jsx-runtime.js",
+        "input": "react-jsx-runtime.js",
+        "platform": "browser"
       }
     ],
     "runtimePackages": [
@@ -67,7 +107,14 @@
     "icon": "Blocks",
     "styles": [
       "style.css"
-    ]
+    ],
+    "runtimeModules": {
+      "react-dom": "react-dom.js",
+      "react": "react.js",
+      "react-dom/client": "react-dom-client.js",
+      "react/jsx-dev-runtime": "react-jsx-dev-runtime.js",
+      "react/jsx-runtime": "react-jsx-runtime.js"
+    }
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

@@ -64,7 +64,7 @@ export function mountEditorHost(ctx, sdk, root, content, views, headings) {
           data-editor-layout={format?.editorLayout === 'wide' ? 'wide' : 'standard'} hidden={!note}>
           {headingTarget ? ctx.ui.createPortal(heading, headingTarget) : heading}
           {model.conflict && <div role="alert" className="note-conflict">
-            <p>这篇笔记已在其他页面更新。本页修改已保留，可以另存为副本。</p>
+            <p>{model.conflictMessage}</p>
             <Button disabled={model.busy} onClick={() => model.saveCopy().catch(e => sdk.toast(e.message))}>另存为副本</Button>
           </div>}
           <Slot node={content} className="editor-content-slot" />
