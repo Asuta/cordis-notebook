@@ -1,0 +1,14 @@
+{
+  "name": "@cordis-{{appId}}/{{id}}", "version": "1.0.0", "private": true, "type": "module", "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1, "id": {{id:json}}, "name": {{name:json}}, "description": {{description:json}}, "defaultEnabled": false,
+    "client": "client.js", "server": { "entry": "server.js", "export": "default" },
+    "requires": { "client": ["notebook", "noteFormats", "editorHost"], "server": ["noteFormats"] },
+    "provides": { "client": [], "server": [] }, "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

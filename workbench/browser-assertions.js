@@ -19,10 +19,15 @@ export async function assertTarget(input, target, checks) {
         const visible = style.visibility !== 'hidden' && style.visibility !== 'collapse' && !!(rect.width && rect.height)
         const supported = kind === 'value' ? /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)
           : kind === 'placeholder' ? /^(INPUT|TEXTAREA)$/.test(element.tagName) : true
-        return { count: 1, visible, supported, actual: kind === 'visible' ? visible : kind === 'value' ? element.value
+        return { count: 1, visible, supported, rect: { width: rect.width, height: rect.height }, display: style.display, visibility: style.visibility,
+          actual: kind === 'visible' ? visible : kind === 'value' ? element.value
           : kind === 'placeholder' ? element.getAttribute('placeholder') : element.innerText || '' }
       }, assertion)
       check.matchCount = sample.count
+      check.visible = sample.visible
+      check.rect = sample.rect
+      check.display = sample.display
+      check.visibility = sample.visibility
       if (sample.count > 1) throw Object.assign(Error(`定位需要唯一元素，实际匹配 ${sample.count} 个`), {
         diagnostics: { target: input.target, matchCount: sample.count, candidates: sample.candidates } })
       if (sample.supported === false) {
@@ -33,12 +38,15 @@ export async function assertTarget(input, target, checks) {
       check.actual = typeof actual === 'string' ? actual.slice(0, 3000) : actual ?? null
       check.passed = assertion === 'visible' ? actual === input.expected
         : sample.count === 1 && sample.visible && (assertion === 'text' ? actual.includes(input.expected) : actual === input.expected)
+      check.failedCondition = check.passed ? null : sample.count !== 1 ? 'missing-target' : !sample.visible ? 'visibility' : assertion
       if (check.passed) return
       const remaining = startedAt + timeoutMs - Date.now()
       if (remaining <= 0) break
       await delay(Math.min(50, remaining))
     } while (true)
-    throw Error(`页面断言失败：${check.label}；等待 ${timeoutMs}ms 后实际：${JSON.stringify(check.actual)}（匹配 ${check.matchCount} 个）`)
+    throw Object.assign(Error(`页面断言失败：${check.label}；未满足条件：${check.failedCondition}；等待 ${timeoutMs}ms 后实际：${JSON.stringify(check.actual)}（匹配 ${check.matchCount} 个，可见=${check.visible}）`), {
+      diagnostics: { ...check, hint: check.failedCondition === 'visibility' ? '目标本身不可见或没有尺寸；检查 rect/display/visibility，选择实际可见的卡片或输入控件，不要降低断言要求。' : '核对目标、预期值及前置操作。' },
+    })
   } catch (error) {
     check.error = error.message
     throw Object.assign(error, { kind: usage ? 'usage' : 'assertion' })

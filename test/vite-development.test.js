@@ -18,6 +18,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
   const directory = await mkdtemp(resolve('vite-test-')), apps = join(directory, 'applications')
   const folder = join(apps, 'sample/plugins/sample'), source = join(folder, 'server.js')
   let dev, socket, stalledSocket, prepareHook, savePage = true, saveStalledPage = false, sequence = 0
+  const developmentEvents = []
   const confirm = (client, token) => client.send(JSON.stringify({ type: 'custom', event: 'cordis:prepared', data: { token, success: true } }))
   const listeners = new Set(), messages = []
   const message = (predicate, label, after = 0) => new Promise((accept, reject) => {
@@ -47,7 +48,7 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     await writeFile(join(folder, 'helper.js'), 'export const value = (')
     const backend = version => `export default ctx => { ctx.http.route(ctx, 'GET', new RegExp('^/api/sample$'), () => ({version:${version}})) }`
     await writeFile(source, backend(1))
-    dev = await startDevelopment({ port: 0, dataDir: join(directory, 'data'), cacheDir: join(directory, 'cache'), applicationsDir: apps, initialApplication: 'sample', saveTimeout: 1500 })
+    dev = await startDevelopment({ port: 0, dataDir: join(directory, 'data'), cacheDir: join(directory, 'cache'), applicationsDir: apps, initialApplication: 'sample', saveTimeout: 1500, onEvent: event => developmentEvents.push(event) })
     const base = `http://127.0.0.1:${dev.vite.httpServer.address().port}`
     const get = async () => (await fetch(base + '/api/sample')).json()
     assert.deepEqual(await get(), { version: 1 })
@@ -90,9 +91,14 @@ test('Vite 开发服务限制源码公开、编译失败保留后端，并等待
     assert.deepEqual(updated.data.targets, { sample: ['sample'] })
     assert.ok((await (await fetch(base + resources.client + '?t=' + updated.data.version)).text()).includes('42'))
     const htmlAfter = sequence
+    const oldToken = (await (await fetch(base)).text()).match(/name="cordis-reload-token" content="([^"]+)"/)[1]
     dev.vite.ws.send({ type: 'full-reload', path: '*' })
     const html = await message(value => value.event === 'cordis:prepare', '整页刷新保存保护', htmlAfter)
     await message(value => value.event === 'cordis:restart', '保存后整页刷新', html.sequence)
+    const response = await fetch(base), newToken = (await response.text()).match(/name="cordis-reload-token" content="([^"]+)"/)[1]
+    assert.notEqual(newToken, oldToken)
+    assert.equal(newToken, developmentEvents.findLast(event => event.type === 'reload').reloadToken)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
     const sibling = join(folder, 'helper.js')
     await writeFile(join(folder, 'client.js'), "import { value } from './helper.js'; export default () => value")
     await message(value => value.type === 'error', '新增相对模块编译错误')

@@ -1,7 +1,8 @@
 import { Type } from '@sinclair/typebox'
 import { Value } from '@sinclair/typebox/value'
 import { readdir, readFile, realpath, lstat, mkdir, writeFile, rename, rm } from 'node:fs/promises'
-import { resolve, join, relative, sep } from 'node:path'
+import { resolve, join, relative, sep, dirname } from 'node:path'
+import { applicationScaffold, readDevelopmentAsset } from './development-assets.js'
 import { randomUUID } from 'node:crypto'
 import { discoverBuiltins, inside, containedFile } from '../server/plugin-discovery.js'
 import { capabilitiesOf } from '../shared/capabilities.js'
@@ -20,6 +21,7 @@ export const developmentSchemas = {
     id: Type.String({ pattern: '^[a-z][a-z0-9-]{1,49}$' }), name: Type.String({ minLength: 1, maxLength: 80 }),
     template: Type.String({ minLength: 1, maxLength: 60 }),
     description: Type.Optional(Type.String({ maxLength: 1000 })), defaultEnabled: Type.Optional(Type.Boolean()),
+    parameters: Type.Optional(Type.Record(Type.String(), Type.String({ maxLength: 2000 }))),
   }),
   workspace_enable_plugin: object({ id: Type.String({ pattern: '^[a-z][a-z0-9-]{1,49}$' }) }),
   workspace_operation_status: object({ id: Type.String({ pattern: '^[a-zA-Z0-9_-]{1,100}$' }), session: Type.String({ minLength: 1, maxLength: 100 }) }),
@@ -112,7 +114,9 @@ export async function developmentInfo(root, appId, args = {}) {
   if ((args.task || args.template) && !selected) throw Error('任务或模板不存在；请从 tasks/templates 选择')
   if (selected?.focus && args.focus && args.focus !== selected.focus) throw Error('focus 与任务或模板不一致')
   const focus = args.focus || selected?.focus || (args.capability?.startsWith('server:') ? 'backend' : 'ui')
-  let recipe = selected ? selected.recipe || profile.recipes?.[focus] || {} : profile.recipes?.[focus] || {}
+  let recipe = selected ? selected.recipe || (selected.task && profile.tasks?.find(task => task.id === selected.task)?.recipe) || profile.recipes?.[focus] || {} : profile.recipes?.[focus] || {}
+  const scaffold = templates(profile).find(template => template.id === (selected?.scaffold || args.template))
+  const scaffoldDefinition = scaffold?.file ? JSON.parse(await readDevelopmentAsset(paths.app, scaffold.file)) : null
   const providers = [], warnings = []
   for (const folder of await readdir(paths.plugins, { withFileTypes: true })) {
     if (!folder.isDirectory() || folder.name.startsWith('.') || folder.name === 'node_modules') continue
@@ -176,6 +180,13 @@ export async function developmentInfo(root, appId, args = {}) {
     expandSources: { tool: 'workspace_development_info', arguments: { ...args, includeRelatedSources: true } },
     contracts, examples, ...(presentation ? { presentation } : {}), patterns: [...(recipe.patterns || ['sdk.effect / sdk.listen 的释放随插件上下文处理。应用服务只能来自当前应用。']), ...selectedCapabilities.flatMap(capability => capability.lifecycle)],
     templates: templates(profile).map(descriptor), tasks: (profile.tasks || []).map(descriptor),
+    ...(scaffold ? { recommendedScaffold: { tool: 'workspace_scaffold_plugin', arguments: { template: scaffold.id, id: '<plugin-id>', name: '<插件名称>' },
+      parameters: scaffoldDefinition?.parameters || {}, note: '此骨架已接好该扩展形态；参数应来自用户需求。生成后修改业务差异，不必重写注册、清单或构建。' } } : {}),
+    ...(selected?.verification ? { browserScenarios: await Promise.all(selected.verification.map(async id => {
+      const entry = profile.verification?.[id], definition = JSON.parse(await readDevelopmentAsset(paths.app, entry.file))
+      return { id, description: entry.description, parameters: definition.parameters, coverage: definition.coverage,
+        tool: 'browser_scenario', note: '先在独立实例启用插件；公共步骤不替代本次业务差异验证。' }
+    })) } : {}),
     verification: { tool: 'workspace_test', arguments: { plugins: ['<plugin-id>'] }, command: 'pnpm test:plugin --app ' + appId + ' --plugin <plugin-id>',
       hotUpdate: '开发模式保存后先 workspace_status，检查 development.events 和 blocked；运行模式按 workspace_status 判断。',
       coverage: '分别报告类型契约、构建、目标测试、浏览器验收及缺口；骨架成功不代表功能测试通过。' },
@@ -233,8 +244,10 @@ export async function scaffoldPlugin(root, appId, args, { signal } = {}) {
   validate('workspace_scaffold_plugin', args)
   if (!args.name.trim() || /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(args.id)) throw Error('插件 ID 或名称无效')
   const paths = await applicationPaths(root, appId), profile = await profileFor(paths)
-  if (!templates(profile).some(t => t.id === args.template)) throw Error('模板不存在；请从 workspace_development_info.templates 选择')
-  const files = scaffoldFiles(appId, args), pkg = JSON.parse(files['package.json'])
+  const template = templates(profile).find(t => t.id === args.template)
+  if (!template) throw Error('模板不存在；请从 workspace_development_info.templates 选择')
+  if (!template.file && Object.keys(args.parameters || {}).length) throw Error('此模板不支持 parameters')
+  const files = template.file ? await applicationScaffold(paths.app, template.file, args, appId) : scaffoldFiles(appId, args), pkg = JSON.parse(files['package.json'])
   const entries = await discoverBuiltins(paths.plugins, { mode: 'development' })
   if (entries.some(e => e.manifest.id === args.id || e.package.name === pkg.name)) throw Error('插件 ID 或包名已存在，不能覆盖')
   for (const side of ['client', 'server']) for (const service of pkg.cordis.requires[side]) {
@@ -246,7 +259,7 @@ export async function scaffoldPlugin(root, appId, args, { signal } = {}) {
   signal?.throwIfAborted()
   await mkdir(folder, { recursive: true })
   try {
-    for (const [file, text] of Object.entries(files)) { signal?.throwIfAborted(); await writeFile(join(folder, file), text, { flag: 'wx' }) }
+    for (const [file, text] of Object.entries(files)) { signal?.throwIfAborted(); await mkdir(dirname(join(folder, file)), { recursive: true }); await writeFile(join(folder, file), text, { flag: 'wx' }) }
     await discoverBuiltins(staging, { mode: 'development' })
     signal?.throwIfAborted()
     await rename(folder, target)

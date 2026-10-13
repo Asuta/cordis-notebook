@@ -1,0 +1,22 @@
+import { format, field } from './format.js'
+
+export default function (ctx, sdk) {
+  ctx.noteFormats.register(ctx, format)
+  const model = ctx.notebook
+  let selectedId
+  const root = sdk.el('div', { class: 'plugin-{{id}}' })
+  const input = sdk.el('textarea', { 'aria-label': {{editorLabel:json}}, 'data-testid': '{{id}}-body', placeholder: '写下正文…', maxLength: 200000 })
+  root.append(input)
+  ctx.editorHost.register(ctx, format.editor, root)
+  sdk.listen(input, 'input', () => {
+    if (model.busy || !model.editable || model.current()?.type !== format.type) return
+    model.edit({ [field]: input.value })
+  })
+  model.observe(ctx, () => {
+    const note = model.current(), active = note?.type === format.type
+    const value = active ? note[field] : ''
+    if (selectedId !== note?.id || input.value !== value) input.value = value
+    selectedId = note?.id
+    input.disabled = !active || model.busy || !model.editable
+  })
+}

@@ -12,7 +12,7 @@ export class ApplicationProcess {
     Object.assign(this, { root, dataDir, port, commands, mode, env })
     this.logs = []; this.child = null; this.busy = false
     this.events = []; this.sequence = 0; this.pending = false; this.reloads = 0
-    this.session = null; this.blocked = null; this.saving = null
+    this.session = null; this.blocked = null; this.saving = null; this.reloadToken = undefined
   }
   log(text) { this.logs.push({ at: new Date().toISOString(), text: String(text).slice(-8000) }); if (this.logs.length > 100) this.logs.shift() }
   receive(message) {
@@ -26,7 +26,7 @@ export class ApplicationProcess {
     if (event.type === 'unblocked' || event.type === 'ready') this.blocked = null
     if (['unblocked', 'ready', 'noop'].includes(event.type)) this.saving = null
     // A reload replaces the bound page; the workbench rebinds the running task.
-    if (event.type === 'reload') this.reloads++
+    if (event.type === 'reload') { this.reloads++; this.reloadToken = event.reloadToken }
     this.events.push({ ...event, seq: ++this.sequence, at: new Date().toISOString() })
     if (this.events.length > 50) this.events.shift()
   }

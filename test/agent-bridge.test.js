@@ -5,6 +5,17 @@ import { createAgentBridge } from '../client/host/agent-bridge.js'
 import { StopCoordinator } from '../client/host/stop-coordinator.js'
 import agentTools, { revision } from '../applications/notebook/plugins/agent-tools/client.js'
 
+test('页面就绪确认携带文档加载时的刷新批次，后续状态变化不会改写', async t => {
+  const window = new Window(), sent = [], peer = { postMessage: message => sent.push(message) }
+  Object.defineProperty(window, 'parent', { value: peer })
+  window.document.head.innerHTML = '<meta name="cordis-reload-token" content="document-generation">'
+  const bridge = createAgentBridge({ application: { id: 'sample' }, session: 'session', window, document: window.document })
+  t.after(async () => { bridge.dispose(); await window.happyDOM.close() })
+  window.document.querySelector('meta').content = 'later-generation'
+  window.dispatchEvent(new window.MessageEvent('message', { source: peer, origin: 'http://127.0.0.1:3211', data: { channel: 'cordis-agent', type: 'connect' } }))
+  assert.equal(sent[0].reloadToken, 'document-generation')
+})
+
 test('宿主启用桥接核对最新 session，不向业务插件工具列表暴露内部操作', async t => {
   const window = new Window(), calls = []
   const bridge = createAgentBridge({ application: { id: 'sample' }, session: 'fresh', window, document: window.document,

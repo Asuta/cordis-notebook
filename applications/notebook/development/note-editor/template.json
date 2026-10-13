@@ -1,0 +1,15 @@
+{
+  "parameters": {
+    "field": { "default": "body", "pattern": "^(?!(?:id|type|title|pinned|order|createdAt|updatedAt|revision|constructor|prototype)$)[a-zA-Z][a-zA-Z0-9_]{0,49}$", "description": "用户要求的正文持久化字段，不使用 id/title/type 等公共字段" },
+    "editorLabel": { "default": "自定义正文", "description": "正文 textarea 的可访问名称" }
+  },
+  "files": {
+    "package.json": "development/note-editor/package.json.txt",
+    "format.js": "development/note-editor/format.js.txt",
+    "client.js": "development/note-editor/client.js.txt",
+    "server.js": "development/note-editor/server.js.txt",
+    "style.css": "development/note-editor/style.css.txt",
+    "test/format.test.js": "development/note-editor/format.test.js.txt",
+    "README.md": "development/note-editor/README.md.txt"
+  }
+}

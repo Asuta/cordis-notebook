@@ -3,8 +3,38 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
-import { until, command } from './fixture.js'
+import { until, command, sleep } from './fixture.js'
 import { selectCases } from './cases.js'
+
+// A runtime reload may briefly replace the toolbar after it first becomes visible.
+// Read count and visibility together, then require a settled result instead of
+// combining waitFor() and count() from two different DOM states.
+export async function waitForUniqueVisible(target, { timeout = 8000, stableMs = 200 } = {}) {
+  const deadline = performance.now() + timeout
+  let stableSince, last
+  while (performance.now() < deadline) {
+    try {
+      last = await target.evaluateAll(elements => ({
+        count: elements.length,
+        visible: elements.filter(element => {
+          const rect = element.getBoundingClientRect(), style = getComputedStyle(element)
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && !['hidden', 'collapse'].includes(style.visibility)
+        }).length,
+      }))
+    } catch (error) {
+      // Navigation is transient; selector errors and closed pages must still fail.
+      if (!/Execution context was destroyed|Cannot find context with specified id/i.test(error.message)) throw error
+      last = { navigating: true }
+    }
+    const now = performance.now()
+    if (last.count === 1 && last.visible === 1) {
+      stableSince ??= now
+      if (now <= deadline && now - stableSince >= stableMs) return
+    } else stableSince = undefined
+    await sleep(Math.max(0, Math.min(50, deadline - now)))
+  }
+  throw Error(`等待唯一可见目标稳定 ${stableMs}ms 超时（${timeout}ms）：${JSON.stringify(last)}`)
+}
 
 // These fixed checks run outside the Agent's project and survive all repair turns.
 export async function acceptPlugin({ project, directory, task, signal }) {
@@ -105,9 +135,9 @@ async function inspectPlugin({ project, directory, task, signal }) {
     await check('reenable-once', async () => {
       await toggle(true)
       if (task.id === 'action') await openActions()
-      if (target) { await target.waitFor(); assert.equal(await target.count(), 1) }
+      if (target) await waitForUniqueVisible(target)
       else if (task.id === 'backend') assert.deepEqual(await summary(), { total: 1, pinned: 1, byType: { plain: 1 } })
-      else { await create('便签页面', '重新启用的便签'); await editor.waitFor(); assert.equal(await editor.count(), 1); await editor.fill('恢复后可编辑'); await until(async () => (await notes()).some(n => n.body === '恢复后可编辑'), '重新启用后保存') }
+      else { await create('便签页面', '重新启用的便签'); await waitForUniqueVisible(editor); await editor.fill('恢复后可编辑'); await until(async () => (await notes()).some(n => n.body === '恢复后可编辑'), '重新启用后保存') }
       if (task.id === 'action') await page.keyboard.press('Escape')
     })
     // Page errors are checked even after an earlier assertion failed.

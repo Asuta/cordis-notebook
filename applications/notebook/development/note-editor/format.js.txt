@@ -1,0 +1,10 @@
+export const field = {{field:json}}
+export const format = {
+  type: {{id:json}}, editor: {{id:json}}, label: {{name:json}}, icon: 'FileText',
+  fields: [field], defaults: () => ({ [field]: '' }),
+  normalize(data) {
+    if (typeof data[field] !== 'string') throw Error('正文必须是文本')
+    return { [field]: data[field] }
+  },
+  toText: data => data[field],
+}
