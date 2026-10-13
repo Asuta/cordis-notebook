@@ -13,7 +13,7 @@
 
 ## 快速插件开发导航
 
-工作台插件任务先调用 `workspace_development_info({focus:"ui"})`（后端或工具选 backend/agent）；一次返回当前应用服务、契约正文、相关示例与验证入口。只追加读取仍有疑问的内容。新增插件优先 `workspace_scaffold_plugin`，写齐并校验清单和输入后整体发布，避免热更新看到半成品；骨架仍需实现用户功能和验证。小功能不附带额外设置，不重复已通过且源码未变的检查。
+工作台插件任务先从本轮自动提供的应用开发路径目录选择匹配的 task，首次 `workspace_development_info` 就传该 task，不必先查询默认 UI 资料。没有匹配任务时再选 focus（ui/backend/agent）、已知 template 或 capability；task/template/capability 互斥，focus 可省略或与所选路径保持一致。入口一次返回当前任务相关的完整契约、示例与验证方式，只追加读取仍有疑问的内容。task 是资料路径，template 是可生成的骨架，不要混用 ID。新增插件优先 `workspace_scaffold_plugin`，写齐并校验清单和输入后整体发布，避免热更新看到半成品；骨架仍需实现用户功能和验证。小功能不附带额外设置，不重复已通过且源码未变的检查。
 
 UI 入口的 `presentation` 按模板提供样式、图标、排序说明及有限真实选段；优先使用这些资料，只有具体问题尚未解决时才追加读取。应用资料由 `applications/<app>/development.json` 维护，通用 client 模板不携带应用专属主题或服务。
 
