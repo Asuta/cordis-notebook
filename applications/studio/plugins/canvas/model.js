@@ -13,6 +13,8 @@ export function validateBoard(board, assets, types) {
     if (typeof node.type !== 'string' || !/^[a-z][a-z0-9-]*$/.test(node.type)) invalid('卡片类型无效')
     for (const coordinate of [node.x, node.y]) if (!Number.isFinite(coordinate) || Math.abs(coordinate) > 100000) invalid('卡片坐标无效')
     string(node.title, 120, '卡片标题')
+    for (const key of ['width', 'height']) if (node[key] !== undefined && (!Number.isFinite(node[key]) || node[key] <= 0 || node[key] > 100000)) invalid('卡片尺寸无效')
+    if (node.groupId !== undefined && (node.type === 'group' || !board.nodes.some(n => n.id === node.groupId && n.type === 'group'))) invalid('分组不存在，请先取消编组再删除分组框')
     types?.get(node.type)?.validate(node, assets)
   }
   const edgeIds = new Set(), pairs = new Set()
@@ -68,12 +70,13 @@ export function applyOperation(board, operation, assets, types) {
       const node = { id: n.id, type: n.type, x: n.x ?? 80, y: n.y ?? 80, title: n.title ?? definition.label, ...structuredClone(defaults) }
       for (const key of definition.fields) if (Object.hasOwn(n, key)) node[key] = structuredClone(n[key])
       for (const key of ['sourceNodeId', 'jobId']) if (Object.hasOwn(n, key)) { string(n[key], 80, '来源标记'); node[key] = n[key] }
+      for (const key of ['width', 'height', 'groupId']) if (Object.hasOwn(n, key)) node[key] = structuredClone(n[key])
       next.nodes.push(node); inverse = { type: 'remove', ids: [node.id] }; break
     }
     case 'update': {
       const node = next.nodes.find(item => item.id === op.id)
       if (!node) invalid('卡片不存在')
-      const allowed = ['x', 'y', 'title', ...(types.get(node.type)?.fields || [])]
+      const allowed = ['x', 'y', 'title', 'width', 'height', 'groupId', ...(types.get(node.type)?.fields || [])]
       const unset = op.unset ?? []
       if (!op.patch || typeof op.patch !== 'object' || Array.isArray(op.patch) || !Array.isArray(unset) || new Set(unset).size !== unset.length || unset.some(key => Object.hasOwn(op.patch, key)) || [...Object.keys(op.patch), ...unset].some(key => !allowed.includes(key))) invalid('不能修改这些卡片字段')
       const keys = [...Object.keys(op.patch), ...unset]

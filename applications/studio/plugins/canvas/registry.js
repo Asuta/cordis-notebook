@@ -16,7 +16,7 @@ export function createRegistry() {
 
 export function createNodeRegistry() {
   const registry = createRegistry(), register = registry.register
-  const reserved = new Set(['id', 'type', 'title', 'x', 'y', 'sourceNodeId', 'jobId', '__proto__', 'constructor', 'prototype'])
+  const reserved = new Set(['id', 'type', 'title', 'x', 'y', 'width', 'height', 'groupId', 'sourceNodeId', 'jobId', '__proto__', 'constructor', 'prototype'])
   registry.register = (owner, definition) => {
     if (typeof definition?.label !== 'string' || !Array.isArray(definition.fields) || new Set(definition.fields).size !== definition.fields.length || definition.fields.some(f => typeof f !== 'string' || !/^[a-zA-Z][\w]*$/.test(f) || reserved.has(f)) || typeof definition.defaults !== 'function' || typeof definition.validate !== 'function') throw Error('卡片声明缺少合法的字段、默认值或校验方法')
     return register(owner, { ...definition, fields: Object.freeze([...definition.fields]), ...(definition.accepts ? { accepts: Object.freeze([...definition.accepts]) } : {}) })

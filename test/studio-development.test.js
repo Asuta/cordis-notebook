@@ -6,7 +6,7 @@ import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { startDevelopment } from '../scripts/dev.js'
 
-test('六插件从源码启动，视图和 Pixel 更新不重启宿主，原画板与任务历史保留', { timeout: 45000 }, async t => {
+test('八插件从源码启动，视图和 Pixel 更新不重启宿主，原画板与任务历史保留', { timeout: 45000 }, async t => {
   const workspace = resolve('.'), directory = await mkdtemp(join(workspace, 'studio-dev-test-'))
   const apps = join(directory, 'applications'), target = join(apps, 'studio'), dataDir = join(directory, 'data'), events = []
   let dev, calls = 0
@@ -28,7 +28,7 @@ test('六插件从源码启动，视图和 Pixel 更新不重启宿主，原画�
   const json = async path => { const response = await fetch(base + path); assert.equal(response.ok, true, await response.clone().text()); return response.json() }
   let before = await json('/api/studio')
   const catalog = await json('/api/plugins')
-  assert.equal(catalog.plugins.length, 6)
+  assert.equal(catalog.plugins.length, 8)
   assert.ok(catalog.plugins.every(plugin => plugin.state === 'enabled'), JSON.stringify(catalog.plugins.map(p => ({ id: p.id, state: p.state, error: p.error }))))
   const sources = (await json('/__cordis/dev')).plugins.studio
   for (const entry of Object.values(sources)) if (entry.client) assert.equal((await fetch(base + entry.client)).status, 200)

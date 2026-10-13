@@ -1,0 +1,8 @@
+{
+  "name":"@cordis-studio/canvas-groups","version":"1.0.0","private":true,"type":"module",
+  "dependencies":{"@cordis-notebook/host":"workspace:*","@cordis-studio/canvas":"workspace:*","@cordis-studio/canvas-ui":"workspace:*"},
+  "cordis":{"schemaVersion":1,"id":"canvas-groups","name":"画布分组","description":"编组、取消编组和组内卡片移动","defaultEnabled":true,"order":25,
+    "requires":{"server":["canvasDocuments"],"client":["canvasSession","canvasUI"]},"provides":{"server":[],"client":[]},
+    "build":[{"type":"bundle","input":"server.js","output":"server.js","platform":"node"},{"type":"bundle","input":"client.js","output":"client.js","platform":"browser"}],
+    "server":{"entry":"server.js","export":"default"},"client":"client.js","public":["client.js"]}
+}

@@ -5,10 +5,29 @@
   "type": "module",
   "dependencies": {
     "@cordis-notebook/host": "workspace:*",
-    "@cordis-studio/canvas": "workspace:*"
+    "@cordis-studio/canvas": "workspace:*",
+    "lucide-react": "^1.16.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.3"
   },
   "cordis": {
-    "capabilities": [{ "service": "canvasUI", "side": "client", "description": "画布菜单、卡片视图和扩展区域", "contracts": ["types/client.d.ts"], "examples": ["client.js"], "lifecycle": ["register/menu/extend 都传入 owner 管理释放；菜单按 order 排序。"] }],
+    "capabilities": [
+      {
+        "service": "canvasUI",
+        "side": "client",
+        "description": "画布菜单、卡片视图和扩展区域",
+        "contracts": [
+          "types/client.d.ts"
+        ],
+        "examples": [
+          "client.js"
+        ],
+        "lifecycle": [
+          "register/menu/extend 都传入 owner 管理释放；菜单按 order 排序。"
+        ]
+      }
+    ],
     "schemaVersion": 1,
     "id": "canvas-ui",
     "name": "画布界面",
@@ -35,7 +54,7 @@
         "platform": "browser"
       },
       {
-        "type": "copy",
+        "type": "tailwind",
         "input": "style.css",
         "output": "style.css"
       }

@@ -76,18 +76,16 @@ export default function (ctx, sdk) {
   view.root.append(fileInput, viewer)
   view.menu(ctx, { id: 'text', label: '＋ 文字', order: 10, run: () => add('text') })
   view.menu(ctx, { id: 'image', label: '↑ 图片', order: 20, run: () => fileInput.click() })
-  view.register(ctx, { id: 'text', label: '文字灵感', icon: 'T', output: true, height: 230,
-    actions: [{ label: '编辑文字', run: node => view.cards.querySelector(`[data-node="${node.id}"] textarea`)?.focus() }],
-    render(node, card) { card.append(view.field(node, 'text', true)) },
+  view.register(ctx, { id: 'text', label: '文字灵感', icon: 'T', output: true, upstream: true,
+    actions: [{ label: '编辑文字', run: node => view.editNode(node.id, 'text') }],
+    render(node, card) { return view.nodeCard(node, card, { output: true }) },
   })
-  view.register(ctx, { id: 'image', label: '图片', icon: '▧', output: true, height: 360,
-    actions: [{ label: '预览图片', run: node => viewImage(node.assetId) }],
+  view.register(ctx, { id: 'image', label: '图片', icon: '▧', output: true, upstream: true,
+    size(node) { const asset = s.state.assets[node.assetId], width = Math.min(640, asset?.width || 340); return { width, height: width * (asset?.height || 240) / (asset?.width || 340) } },
+    actions: [{ label: '预览图片', run: node => viewImage(node.assetId) },
+      { label: '下载图片', run: node => { const a = el('a', { href: imageUrl(node.assetId, false), download: (s.state.assets[node.assetId]?.name || '图片') + '.png' }); a.click() } }],
     render(node, card) {
-      const asset = s.state.assets[node.assetId], image = el('img', { src: imageUrl(node.assetId), alt: node.title, draggable: false, loading: 'lazy' })
-      image.ondblclick = () => viewImage(node.assetId)
-      const foot = el('div', { class: 'studio-image-foot' })
-      foot.append(el('small', {}, asset ? `${asset.width} × ${asset.height}` : '素材不可用'), button('预览', () => viewImage(node.assetId)), el('a', { href: imageUrl(node.assetId, false), download: (asset?.name || '图片') + '.png' }, '下载'))
-      card.append(image, foot)
+      return view.nodeCard(node, card, { output: true, onViewImage: current => viewImage(current.assetId) })
     },
   })
   view.extend(ctx, 'assets', {

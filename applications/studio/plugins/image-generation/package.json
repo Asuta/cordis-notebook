@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "react": "19.3.0",
     "cordis": "4.0.0-rc.10",
     "@cordis-notebook/host": "workspace:*",
     "@cordis-studio/canvas": "workspace:*",

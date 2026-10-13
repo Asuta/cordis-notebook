@@ -10,7 +10,8 @@ import { newBoard } from '../applications/studio/plugins/canvas/store.js'
 import { applyOperation } from './helpers/studio-fixture.js'
 
 async function setup(t) {
-  const window = new Window({ settings: { disableCSSFileLoading: true } }), previous = { window: globalThis.window, document: globalThis.document }
+  const window = new Window({ settings: { disableCSSFileLoading: true } }), names = ['window','document','Node','Element','HTMLInputElement','HTMLTextAreaElement','HTMLSelectElement','requestAnimationFrame','cancelAnimationFrame'], previous = Object.fromEntries(names.map(name=>[name,globalThis[name]]))
+  for (const name of names.slice(2)) globalThis[name] = typeof window[name] === 'function' && name.includes('AnimationFrame') ? window[name].bind(window) : window[name]
   globalThis.window = window; globalThis.document = window.document
   const cleanups = [], hooks = new Map(), tools = new Map()
   const board = newBoard('测试画板'), state = { boards: [board], assets: {}, jobs: [], config: { hasKey: true, model: 'test-model', baseUrl: 'https://example.com' } }
@@ -55,6 +56,18 @@ async function setup(t) {
   return { window, state, tools, hooks, generated, toasts, ctx, start, stop: id => running.get(id)() }
 }
 
+async function openEditor(window, kind = 'text') {
+  const card = window.document.querySelector('.studio-' + kind + '.studio-card')
+  assert.ok(card, '目标卡片存在')
+  if (kind === 'generator') { card.querySelector('.studio-config-chip[type="button"]').click() }
+  else card.querySelector('.node-element>div.relative').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }))
+  await waitUntil(() => card.querySelector('textarea'))
+  const input = card.querySelector('textarea'); input.focus(); return input
+}
+function typeInput(window, input, value) { input.value = value; input.dispatchEvent(new window.Event('input', { bubbles: true })) }
+async function settleBlur(input) { input.blur(); await new Promise(resolve => setTimeout(resolve, 20)) }
+function runButton(window) { return window.document.querySelector('.studio-config-content [aria-label="生成图片"]') }
+
 async function waitUntil(predicate) {
   for (let i = 0; i < 200; i++) {
     if (predicate()) return
@@ -72,6 +85,7 @@ test('卡片视图、生成操作与 Agent 可分别卸载和恢复，不删除�
   await assert.rejects(tools.get('studio_generate')({ nodeId: 'g', revision: state.boards[0].revision }), /不可用/)
   await start('generation')
   assert.deepEqual([...window.document.querySelector('.studio-action-dock').children].slice(0, 3).map(node => node.textContent), ['＋ 文字', '↑ 图片', '✦ 生成卡片'])
+  await openEditor(window, 'generator')
   assert.equal(window.document.querySelectorAll('.studio-generator textarea').length, 1)
   assert.equal(window.document.querySelector('textarea').value, '保留内容')
   await stop('agent')
@@ -96,6 +110,60 @@ test('前端扩展注册菜单、卡片和操作，Agent 可发现并执行；�
   assert.equal([...window.document.querySelectorAll('button')].some(b => b.textContent === '扩展入口'), false)
 })
 
+test('移植视口平移期间保护 Agent 写入，Esc 恢复原视角', async t => {
+  const { window, ctx, tools } = await setup(t)
+  const surface=window.document.querySelector('.studio-infinite-surface'), before={...ctx.canvasSession.viewport}
+  surface.setPointerCapture ||= () => {}
+  surface.dispatchEvent(new window.PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerId:7,clientX:100,clientY:100}))
+  await assert.rejects(tools.get('studio_edit')({revision:ctx.canvasSession.board().revision,operations:[{type:'add',node:{id:'blocked',type:'text',text:'不能写入'}}]}),/重新/)
+  window.dispatchEvent(new window.PointerEvent('pointermove',{pointerId:7,clientX:170,clientY:160}))
+  await new Promise(resolve=>window.requestAnimationFrame(resolve))
+  assert.notEqual(ctx.canvasSession.viewport.x,before.x)
+  surface.dispatchEvent(new window.KeyboardEvent('keydown',{bubbles:true,key:'Escape'}))
+  assert.deepEqual(ctx.canvasSession.viewport,before)
+})
+
+for (const saved of [false, true]) test(`空白画布点击结束${saved ? '已保存' : '待保存'}文字编辑，并恢复快捷键和 Agent 写入`, async t => {
+  const { window, ctx, tools, state } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'text', type: 'text' } }] })
+  const input = await openEditor(window), stage = window.document.querySelector('.studio-stage')
+  input.focus(); typeInput(window, input, '点击空白后保留这段文字')
+  if (saved) await waitUntil(() => !ctx.canvasSession.drafts.size)
+  assert.equal(ctx.canvasSession.editing, true)
+  const surface = window.document.querySelector('.studio-infinite-surface')
+  surface.setPointerCapture ||= () => {}
+  surface.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 8, clientX: 100, clientY: 100 }))
+  window.dispatchEvent(new window.PointerEvent('pointerup', { pointerId: 8, clientX: 100, clientY: 100 }))
+  await waitUntil(() => !ctx.canvasSession.drafts.size && !ctx.canvasSession.editing)
+  assert.equal(window.document.activeElement, stage)
+  assert.equal(state.boards[0].nodes[0].text, '点击空白后保留这段文字')
+  window.document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a', ctrlKey: true }))
+  assert.deepEqual(ctx.canvasUI.selection(), ['text'])
+  await tools.get('studio_edit')({ revision: ctx.canvasSession.board().revision, operations: [{ type: 'add', node: { id: 'agent-after-blur', type: 'text' } }] })
+  assert.equal(state.boards[0].nodes.length, 2)
+})
+
+test('聚焦及适应画布后可通过导航按钮恢复原视角', async t => {
+  const { window, ctx, tools } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'text', type: 'text', x: 1500, y: 900 } }] })
+  const stage = window.document.querySelector('.studio-stage'), controls = window.document.querySelector('.studio-viewport-controls')
+  Object.defineProperty(stage, 'clientWidth', { value: 1000 })
+  Object.defineProperty(stage, 'clientHeight', { value: 700 })
+  const back = controls.querySelector('[aria-label="返回视图"]')
+  assert.equal(back.disabled, true)
+  for (const action of ['聚焦所选', '适应画布']) {
+    ctx.canvasUI.select(['text'])
+    ctx.canvasSession.viewport = { x: 20, y: 40, zoom: 1.2 }
+    const before = { ...ctx.canvasSession.viewport }
+    await controls.querySelector(`[aria-label="${action}"]`).onclick()
+    assert.notDeepEqual(ctx.canvasSession.viewport, before)
+    assert.equal(back.disabled, false)
+    await back.onclick()
+    assert.deepEqual(ctx.canvasSession.viewport, before)
+    assert.equal(back.disabled, true)
+  }
+})
+
 test('灵感卡片选择显示上下文工具，批量排列及带内部连线的副本一次撤销', async t => {
   const { window, tools, state } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [
@@ -112,16 +180,16 @@ test('灵感卡片选择显示上下文工具，批量排列及带内部连线�
   const original = structuredClone(state.boards[0].nodes)
   const click = text => [...window.document.querySelectorAll('button')].find(b => b.textContent === text).onclick()
   await click('垂直排列')
-  assert.equal(state.boards[0].nodes[1].y, 270)
+  assert.equal(state.boards[0].nodes[1].y, 280)
   assert.equal(state.boards[0].nodes[1].x, 0)
   assert.equal(state.boards[0].nodes[1].prompt, '提示词')
-  await click('↶')
+  await [...window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '撤销').onclick()
   assert.deepEqual(state.boards[0].nodes, original)
   await click('创建副本')
   assert.equal(state.boards[0].nodes.length, 4)
   assert.equal(state.boards[0].edges.length, 2)
   assert.notEqual(state.boards[0].edges[1].from, 'text')
-  await click('↶')
+  await [...window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '撤销').onclick()
   assert.deepEqual(state.boards[0].nodes, original)
   assert.equal(state.boards[0].edges.length, 1)
   window.document.querySelector('.studio-text').dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }))
@@ -134,16 +202,16 @@ test('拖动取消与无移动点击不写布局，文字组词中的 Esc 不退
   await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'text', type: 'text', x: 0, y: 0 } }] })
   const stage = window.document.querySelector('.studio-stage'), original = structuredClone(state.boards[0])
   const pointer = (type, target, x, y) => target.dispatchEvent(new window.PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: x, clientY: y }))
-  pointer('pointerdown', window.document.querySelector('.studio-card-head'), 40, 40)
+  pointer('pointerdown', window.document.querySelector('.node-element>div.relative'), 40, 40)
   pointer('pointermove', stage, 120, 160)
   assert.notEqual(tools.get('studio_read')().board.nodes[0].x, 0)
   pointer('pointercancel', stage, 120, 160)
   assert.deepEqual(tools.get('studio_read')().board, original)
   assert.deepEqual(state.boards[0], original)
-  pointer('pointerdown', window.document.querySelector('.studio-card-head'), 40, 40)
+  pointer('pointerdown', window.document.querySelector('.node-element>div.relative'), 40, 40)
   pointer('pointerup', stage, 40, 40)
   assert.deepEqual(state.boards[0], original, '单击标题只选择卡片，不写坐标和撤销步骤')
-  const input = window.document.querySelector('textarea'); input.focus()
+  const input = await openEditor(window); input.focus()
   const composingEscape = new window.KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
   input.dispatchEvent(composingEscape)
   assert.equal(window.document.activeElement, input)
@@ -162,17 +230,17 @@ test('用户与 Agent 共用画布操作、自动保存、撤销和版本冲突�
       { type: 'connect', id: 'edge', from: 'text', to: 'generator' },
     ] })
     assert.equal(window.document.querySelectorAll('.studio-card').length, 2)
-    assert.equal(window.document.querySelectorAll('.studio-wires path').length, 1)
+    assert.equal(window.document.querySelectorAll('.studio-wires path[data-edge]').length, 1)
     assert.equal(generated.length, 0)
     await assert.rejects(tools.get('studio_edit')({ revision: 0, operations: [{ type: 'remove', ids: ['text'] }] }), /重新/)
-    const input = window.document.querySelector('textarea')
-    input.onfocus(); input.value = '用户编辑后的内容'; input.oninput()
+    const input = await openEditor(window)
+    input.focus(); typeInput(window, input, '用户编辑后的内容')
     current = tools.get('studio_read')()
     assert.equal(current.dirty, true)
     await assert.rejects(tools.get('studio_generate')({ revision: current.board.revision, nodeId: 'generator' }), /重新/)
-    await input.onblur()
+    await settleBlur(input)
     assert.equal(state.boards[0].nodes.find(n => n.id === 'text').text, '用户编辑后的内容')
-    const undo = [...window.document.querySelectorAll('button')].find(b => b.textContent === '↶')
+    const undo = [...window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '撤销')
     await undo.onclick()
     assert.equal(state.boards[0].nodes.find(n => n.id === 'text').text, '参考要求')
     current = tools.get('studio_read')()
@@ -191,14 +259,14 @@ test('同步其他页面编辑后撤销或重做，不覆盖对方的文字', as
   await edit([{ type: 'update', id: 'text', patch: { text: '本页编辑' } }])
   state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: 'text', patch: { text: '外部编辑' } }, {}).board
   await tools.get('studio_jobs')()
-  await [...window.document.querySelectorAll('button')].find(b => b.textContent === '↶').onclick()
+  await [...window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '撤销').onclick()
   assert.equal(state.boards[0].nodes[0].text, '外部编辑')
   assert.match(toasts.at(-1), /冲突|其他页面/)
   await edit([{ type: 'update', id: 'text', patch: { text: '再次本页编辑' } }])
-  await [...window.document.querySelectorAll('button')].find(b => b.textContent === '↶').onclick()
+  await [...window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '撤销').onclick()
   state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: 'text', patch: { text: '外部最新编辑' } }, {}).board
   await tools.get('studio_jobs')()
-  await [...window.document.querySelectorAll('button')].find(b => b.textContent === '↷').onclick()
+  await [...window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === '重做').onclick()
   assert.equal(state.boards[0].nodes[0].text, '外部最新编辑')
   assert.match(toasts.at(-1), /冲突|其他页面/)
 })
@@ -210,7 +278,7 @@ test('Agent 导入后立即读取并添加图片，不依赖下一轮刷新', as
   assert.deepEqual(current.assets[asset.id], asset)
   await tools.get('studio_edit')({ revision: current.board.revision, operations: [{ type: 'add', node: { id: 'image', type: 'image', assetId: asset.id } }] })
   assert.equal(window.document.querySelector('.studio-image img').getAttribute('src'), `/api/studio/images/${asset.id}.webp`)
-  assert.match(window.document.querySelector('.studio-image-foot').textContent, /8 × 6/)
+  assert.match(window.document.querySelector('.studio-image').textContent, /8 x 6/)
 })
 
 test('画板名称编辑阻止 Agent 写入，保留草稿并自动保存，不被后台结果重绘覆盖', async t => {
@@ -253,14 +321,14 @@ test('另一页面同时重命名时保留本页名称草稿，停止应用前�
 test('提示词停顿自动保存后继续输入，点击生成使用最新内容而不误报冲突', async t => {
   const { window, state, tools, generated, toasts } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'generator', type: 'generator' } }] })
-  const input = window.document.querySelector('textarea')
-  input.focus(); input.value = '鳄'; input.oninput()
+  const input = await openEditor(window, 'generator')
+  input.focus(); typeInput(window, input, '鳄')
   await waitUntil(() => !tools.get('studio_read')().dirty)
   assert.equal(state.boards[0].nodes[0].prompt, '鳄')
   assert.equal(window.document.querySelector('textarea'), input, '保存不能打断输入或更换正在使用的输入框')
-  input.value = '鳄鱼'; input.oninput()
-  await input.onblur()
-  await [...window.document.querySelectorAll('button')].find(b => b.textContent === '✦ 生成图片').onclick()
+  typeInput(window, input, '鳄鱼')
+  await settleBlur(input)
+  runButton(window).click(); await new Promise(resolve => setTimeout(resolve, 20))
   assert.deepEqual(toasts, [])
   assert.equal(generated.length, 1)
   assert.equal(generated[0].nodes[0].prompt, '鳄鱼')
@@ -271,14 +339,14 @@ test('提示词停顿自动保存后继续输入，点击生成使用最新内�
 test('自动保存后其他页面修改同一提示词，仍阻止覆盖并保留本页草稿', async t => {
   const { window, state, tools, generated, toasts } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'generator', type: 'generator' } }] })
-  const input = window.document.querySelector('textarea')
-  input.focus(); input.value = '鳄'; input.oninput()
+  const input = await openEditor(window, 'generator')
+  input.focus(); typeInput(window, input, '鳄')
   await waitUntil(() => !tools.get('studio_read')().dirty)
   state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: 'generator', patch: { prompt: '另一页面的内容' } }, {}).board
   await tools.get('studio_jobs')()
   assert.equal(window.document.querySelector('textarea'), input)
-  input.value = '鳄鱼'; input.oninput()
-  await [...window.document.querySelectorAll('button')].find(b => b.textContent === '✦ 生成图片').onclick()
+  typeInput(window, input, '鳄鱼')
+  runButton(window).click(); await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(generated.length, 0)
   assert.equal(state.boards[0].nodes[0].prompt, '另一页面的内容')
   assert.match(toasts.at(-1), /其他页面修改/)
@@ -293,7 +361,7 @@ test('图片预览支持缩小放大、拖动平移、滚轮缩放与适应窗�
   const viewer = window.document.querySelector('.studio-viewer')
   assert.equal(viewer.open, false)
   const click = async (text, scope = viewer) => { await [...scope.querySelectorAll('button')].find(b => b.textContent === text).onclick() }
-  await [...window.document.querySelectorAll('.studio-image-foot button')].find(b => b.textContent === '预览').onclick()
+  window.document.querySelector('.studio-image img').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }))
   assert.equal(viewer.open, true, '预览按钮必须打开预览弹层')
   const stage = viewer.querySelector('.studio-viewer-stage'), image = stage.querySelector('img'), label = viewer.querySelector('.studio-viewer-zoom')
   assert.equal(image.getAttribute('src'), `/api/studio/images/${asset.id}.png`)
@@ -334,10 +402,11 @@ test('图片预览支持缩小放大、拖动平移、滚轮缩放与适应窗�
 for (const saved of [true, false]) test(`提示词${saved ? '已保存' : '仍待保存'}时，按下再松开生成按钮只需一次点击`, async t => {
   const { window, tools, generated, toasts } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'generator', type: 'generator' } }] })
-  const input = window.document.querySelector('textarea')
-  input.focus(); input.value = '人类'; input.oninput()
+  const input = await openEditor(window, 'generator')
+  input.focus(); typeInput(window, input, '人类')
   if (saved) await waitUntil(() => !tools.get('studio_read')().dirty)
-  const run = [...window.document.querySelectorAll('button')].find(b => b.textContent === '✦ 生成图片')
+  await waitUntil(() => !runButton(window).disabled)
+  const run = runButton(window)
   // A real pointer click moves focus on press, then dispatches click on release.
   // Allow blur/autosave to settle between these two events, as with a held click.
   const focusOnPress = run.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }))
@@ -351,4 +420,62 @@ for (const saved of [true, false]) test(`提示词${saved ? '已保存' : '仍�
   assert.equal(generated[0].nodes[0].prompt, '人类')
   assert.equal(tools.get('studio_read')().dirty, false)
   assert.deepEqual(toasts, [])
+})
+
+
+test('上游卡片四角缩放可取消、一次撤销；缩放期间 Agent 不可写入', async t => {
+  const { window, tools, state, ctx } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'text', type: 'text', x: 0, y: 0, text: '尺寸测试' } }] })
+  const stage = ctx.canvasUI.stage, before = structuredClone(state.boards[0]), pointer = (type, target, x, y) => target.dispatchEvent(new window.PointerEvent(type, { bubbles:true, cancelable:true, button:0, pointerId:11, clientX:x, clientY:y }))
+  pointer('pointerdown', window.document.querySelector('[data-resize="bottom-right"]'), 340, 240)
+  pointer('pointermove', stage, 460, 300)
+  assert.equal(ctx.canvasSession.board().nodes[0].width, 460)
+  await assert.rejects(tools.get('studio_edit')({ revision: before.revision, operations:[{type:'update',id:'text',patch:{text:'不应写入'}}] }), /重新/)
+  pointer('pointercancel', stage, 460, 300)
+  assert.deepEqual(ctx.canvasSession.board(), before)
+  assert.deepEqual(state.boards[0], before)
+  pointer('pointerdown', window.document.querySelector('[data-resize="top-left"]'), 0, 0)
+  pointer('pointermove', stage, -100, -60)
+  pointer('pointerup', stage, -100, -60)
+  await waitUntil(() => state.boards[0].nodes[0].width === 440)
+  assert.equal(state.boards[0].nodes[0].x, -100)
+  assert.equal(state.boards[0].nodes[0].height, 300)
+  await window.document.querySelector('[aria-label="撤销"]').onclick()
+  assert.deepEqual(state.boards[0].nodes, before.nodes, '恢复未指定宽高的旧节点，不制造额外字段')
+  await window.document.querySelector('[aria-label="重做"]').onclick()
+  assert.equal(state.boards[0].nodes[0].width, 440)
+})
+
+test('卡片外标题双击修改会保存，刷新和文字编辑保留同一个 React 卡片', async t => {
+  const { window, tools, state, ctx } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'text', type: 'text', title: '原名称' } }] })
+  const card = window.document.querySelector('.studio-text')
+  ctx.canvasUI.select(['text'])
+  card.querySelector('button[title]').dispatchEvent(new window.MouseEvent('dblclick', { bubbles:true }))
+  await waitUntil(() => card.querySelector('input'))
+  const input = card.querySelector('input'); typeInput(window, input, '更新名称')
+  await settleBlur(input)
+  await waitUntil(() => state.boards[0].nodes[0].title === '更新名称')
+  assert.equal(window.document.querySelector('.studio-text'), card)
+  assert.equal(ctx.canvasSession.editing, false)
+  const textarea = await openEditor(window)
+  typeInput(window, textarea, '第二轮内容'); await settleBlur(textarea)
+  assert.equal(state.boards[0].nodes[0].text, '第二轮内容')
+  assert.equal(window.document.querySelector('.studio-text'), card)
+})
+
+test('按下卡片主体时保留浏览器双击事件，真正移动后才捕获指针', async t => {
+  const { window, tools, ctx } = await setup(t)
+  await tools.get('studio_edit')({revision:0,operations:[{type:'add',node:{id:'text',type:'text',x:0,y:0}}]})
+  let captures=0
+  ctx.canvasUI.stage.setPointerCapture=()=>{captures++}
+  const body=window.document.querySelector('.studio-text .node-element>div.relative')
+  const press=new window.PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerId:12,clientX:30,clientY:30})
+  body.dispatchEvent(press)
+  assert.equal(press.defaultPrevented,false,'原生双击需要保留兼容鼠标事件')
+  assert.equal(captures,0,'提前捕获会把 click/dblclick 改为发送到画布')
+  window.dispatchEvent(new window.PointerEvent('pointermove',{bubbles:true,pointerId:12,clientX:70,clientY:80}))
+  assert.equal(captures,1)
+  ctx.canvasUI.stage.dispatchEvent(new window.PointerEvent('pointercancel',{pointerId:12}))
+  assert.equal(ctx.canvasSession.board().nodes[0].x,0)
 })

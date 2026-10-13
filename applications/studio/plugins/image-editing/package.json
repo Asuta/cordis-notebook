@@ -1,0 +1,56 @@
+{
+  "name": "@cordis-studio/image-editing",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cordis-notebook/host": "workspace:*",
+    "@cordis-studio/canvas": "workspace:*",
+    "@cordis-studio/canvas-ui": "workspace:*",
+    "antd": "^6.4.2",
+    "lucide-react": "^1.16.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.3"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "image-editing",
+    "name": "图片编辑",
+    "description": "移植 infinite-canvas 的裁剪、切分界面，结果保存为独立素材和卡片",
+    "defaultEnabled": true,
+    "order": 35,
+    "requires": {
+      "server": [],
+      "client": [
+        "canvasUI",
+        "canvasSession"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "tailwind",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ]
+  }
+}
