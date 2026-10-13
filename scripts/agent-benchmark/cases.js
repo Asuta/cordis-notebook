@@ -11,6 +11,11 @@ export const cases = [
     checks: ['empty-selection', 'copy-current', 'success-feedback', 'switch-note', 'disable', 'reenable-once', 'page-errors'],
   },
   {
+    id: 'date-action', appId: 'notebook', pluginId: 'insert-date', name: '插入当前日期',
+    prompt: '请给笔记应用开发一个「插入当前日期」插件，ID insert-date。在当前笔记工具栏添加可访问名称为“插入当前日期”的操作。点击把当天本地日期（YYYY-MM-DD）追加到正文末尾：原文非空时先追加一个换行，空正文直接写日期；每次点击都追加一次，保留原文。支持普通笔记的 content 和 Markdown 的 markdown 源码，自动保存，切换笔记和刷新后保留。无选择、忙碌、不可编辑或其他格式时禁用，停用后入口消失，再启用只出现一个。范围保持简单，不添加设置或依赖。自行验证并启用，让我看到效果。',
+    checks: ['empty-selection', 'append-plain', 'repeat-click', 'append-markdown', 'empty-body', 'switch-note', 'reload', 'disable', 'reenable-once', 'page-errors'],
+  },
+  {
     id: 'editor', appId: 'notebook', pluginId: 'simple-page', name: '新格式编辑器',
     prompt: '请给笔记应用开发一个「便签页面」插件，ID simple-page。新增 simple-page 笔记格式，使用 body 字段保存纯文本，编辑区用一个可访问名称为“便签正文”的 textarea 编辑正文。新建菜单显示“便签页面”；要能创建、自动保存、切换笔记并在刷新后恢复，空正文也能保存，停用再启用不重复注册。格式定义和编辑器都放在这个插件内。范围保持简单，不添加设置或额外依赖。自行验证并启用，让我看到效果。',
     checks: ['create-format', 'autosave', 'switch-note', 'reload', 'empty-body', 'disable', 'reenable-once', 'page-errors'],

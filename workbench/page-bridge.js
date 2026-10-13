@@ -32,22 +32,29 @@ export function createPageBridge({ application, notify, apps, timeoutMs = 20000,
     })
   }
   /** @param {Task} task */
+  function syncReload(task) {
+    if (application.mode !== 'development') return
+    if ((task.reloads ?? application.reloads) !== application.reloads) {
+      task.awaitingRebind = true; task.expectedReloadToken = application.reloadToken; task.rebindStartedAt = Date.now()
+    }
+    task.reloads = application.reloads
+  }
+  /** @param {Task} task */
   async function rebindPage(task) {
     if (application.mode === 'development') {
       await application.settle({ delay: 0 })
-      if ((task.reloads ?? application.reloads) !== application.reloads) {
-        task.awaitingRebind = true; task.expectedReloadToken = application.reloadToken; task.rebindStartedAt = undefined
-      }
-      task.reloads = application.reloads
+      syncReload(task)
     }
     if (task.awaitingRebind && task.clientId) {
-      task.rebindStartedAt ??= Date.now()
-      const startedAt = Date.now(), deadline = task.rebindStartedAt + rebindTimeoutMs
+      const startedAt = Date.now()
       while (!task.cancelled) {
+        // A later reload supersedes the document we were waiting for.
+        syncReload(task)
+        const rebindStartedAt = task.rebindStartedAt ??= Date.now()
         const page = clients.get(task.clientId)
         const fresh = page && Date.now() - page.seen <= 10000
         const acknowledged = fresh && (task.expectedReloadToken ? page.reloadToken === task.expectedReloadToken : page.pageId !== task.pageId)
-        task.rebind = { waitedMs: Date.now() - startedAt, elapsedMs: Date.now() - task.rebindStartedAt,
+        task.rebind = { waitedMs: Date.now() - startedAt, elapsedMs: Date.now() - rebindStartedAt,
           expectedReloadToken: task.expectedReloadToken, actualReloadToken: page?.reloadToken, pageId: page?.pageId,
           status: acknowledged ? 'ready' : 'waiting' }
         if (fresh && page.appId !== task.appId) break // Caller rejects a switched application.
@@ -55,7 +62,7 @@ export function createPageBridge({ application, notify, apps, timeoutMs = 20000,
           task.session = page.session; task.pageId = page.pageId; task.awaitingRebind = false; task.rebindStartedAt = undefined
           break
         }
-        const remaining = deadline - Date.now()
+        const remaining = rebindStartedAt + rebindTimeoutMs - Date.now()
         if (remaining <= 0) throw operationError('PAGE_REBIND_PENDING', '页面尚未确认本次刷新；请检查页面连接和开发日志。再次查询不会重置等待时限。' + JSON.stringify(task.rebind))
         await new Promise(resolve => setTimeout(resolve, Math.min(50, remaining)))
       }

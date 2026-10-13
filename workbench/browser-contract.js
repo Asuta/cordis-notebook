@@ -20,7 +20,7 @@ const variants = [
     expected: text(), label, timeoutMs }),
   ...['value', 'placeholder'].map(assertion => object({ action: Type.Literal('assert'), target,
     assertion: Type.Literal(assertion), expected: Type.String({ maxLength: 2000 }), label, timeoutMs })),
-  object({ action: Type.Literal('assert'), target, assertion: Type.Literal('visible'), expected: Type.Boolean(), label, timeoutMs }),
+  ...['visible', 'disabled'].map(assertion => object({ action: Type.Literal('assert'), target, assertion: Type.Literal(assertion), expected: Type.Boolean(), label, timeoutMs })),
 ]
 export const browserSchemas = {
   browser_report: object({}),
@@ -47,7 +47,7 @@ export function validateBrowserInput(name, args) {
   if (name === 'browser_action') {
     schema = variants.find(item => item.properties.action.const === args?.action &&
       (args.action !== 'assert' || item.properties.assertion.const === (args.assertion ?? 'text')))
-    if (!schema) throw usageError('未知 action 或 assertion；断言类型为 text、value、placeholder、visible')
+    if (!schema) throw usageError('未知 action 或 assertion；断言类型为 text、value、placeholder、visible、disabled')
   }
   if (!Value.Check(schema, args)) {
     const errors = [...Value.Errors(schema, args)].slice(0, 3).map(error => `${error.path || '/'}: ${error.message}`)

@@ -18,9 +18,10 @@ export async function assertTarget(input, target, checks) {
         const rect = element.getBoundingClientRect()
         const visible = style.visibility !== 'hidden' && style.visibility !== 'collapse' && !!(rect.width && rect.height)
         const supported = kind === 'value' ? /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)
-          : kind === 'placeholder' ? /^(INPUT|TEXTAREA)$/.test(element.tagName) : true
+          : kind === 'placeholder' ? /^(INPUT|TEXTAREA)$/.test(element.tagName)
+          : kind === 'disabled' ? /^(BUTTON|INPUT|TEXTAREA|SELECT|OPTION|OPTGROUP|FIELDSET)$/.test(element.tagName) || /^(button|menuitem|menuitemcheckbox|menuitemradio|checkbox|radio|textbox|combobox|slider|spinbutton|switch|tab|treeitem)$/.test(element.getAttribute('role') || '') : true
         return { count: 1, visible, supported, rect: { width: rect.width, height: rect.height }, display: style.display, visibility: style.visibility,
-          actual: kind === 'visible' ? visible : kind === 'value' ? element.value
+          actual: kind === 'visible' ? visible : kind === 'disabled' ? element.matches(':disabled') || element.closest('[aria-disabled="true"], [aria-disabled="false"]')?.getAttribute('aria-disabled') === 'true' : kind === 'value' ? element.value
           : kind === 'placeholder' ? element.getAttribute('placeholder') : element.innerText || '' }
       }, assertion)
       check.matchCount = sample.count
@@ -32,7 +33,7 @@ export async function assertTarget(input, target, checks) {
         diagnostics: { target: input.target, matchCount: sample.count, candidates: sample.candidates } })
       if (sample.supported === false) {
         usage = true
-        throw usageError(`${assertion} 断言需要对应的输入控件；普通文字请用 text`)
+        throw usageError(`${assertion} 断言需要对应的交互控件；普通文字请用 text`)
       }
       const actual = assertion === 'visible' ? sample.visible : sample.actual
       check.actual = typeof actual === 'string' ? actual.slice(0, 3000) : actual ?? null

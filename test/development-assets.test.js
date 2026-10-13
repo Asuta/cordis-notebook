@@ -81,6 +81,7 @@ test('应用编辑器骨架构建后在真实隔离浏览器中通过公共场�
   const root = await mkdtemp(resolve('editor-template-test-')), app = join(root, 'applications/notebook')
   let v
   t.after(async () => {
+    if (v?.report?.status === 'failed') t.diagnostic(JSON.stringify(v.report.errors))
     await v?.close()
     assert.ok(root.startsWith(resolve('editor-template-test-')))
     await rm(root, { recursive: true, force: true })

@@ -1,0 +1,12 @@
+{
+  "parameters": {
+    "actionLabel": { "default": "笔记操作", "description": "按钮和更多笔记操作菜单中显示的可访问名称" },
+    "mode": { "default": "read", "pattern": "^(read|edit)$", "description": "read 为只读操作；edit 为修改笔记，自动遵守 busy/editable 并提供 update(patch)" }
+  },
+  "files": {
+    "package.json": "development/note-action/package.json.txt",
+    "client.js": "development/note-action/client.js.txt",
+    "action.js": "development/note-action/action.js.txt",
+    "README.md": "development/note-action/README.md.txt"
+  }
+}

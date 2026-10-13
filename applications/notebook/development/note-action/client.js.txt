@@ -1,0 +1,38 @@
+import { label, mode, supports, run } from './action.js'
+
+// A save can change metadata without changing the input to the action.
+const contentKey = ({ revision, updatedAt, ...fields }) => JSON.stringify(fields)
+
+export default function (ctx, sdk) {
+  const model = ctx.notebook
+  let running = false, disposed = false
+  const allowed = note => !disposed && !running && !model.busy && !!note &&
+    (mode !== 'edit' || model.editable) && supports(note)
+  const notify = message => { if (!disposed) sdk.toast(message) }
+  const button = sdk.button('toolbar', label, async () => {
+    const note = model.current()
+    if (!allowed(note)) return
+    let expectedContent = contentKey(note)
+    running = true
+    render()
+    try {
+      await run({ note, notify, update: async patch => {
+        const current = model.current()
+        if (disposed || mode !== 'edit' || model.busy || !model.editable || current?.id !== note.id)
+          throw Error('笔记状态已变化，未执行修改')
+        if (contentKey(current) !== expectedContent)
+          throw Error('笔记内容已变化，未执行修改，请重新运行操作')
+        model.edit(patch)
+        // Track our own edit before yielding; edits during flush must still conflict.
+        expectedContent = contentKey(model.current())
+        await model.flush()
+      } })
+    } catch (error) { notify(error?.message || '操作失败') }
+    finally { running = false; if (!disposed) render() }
+  })
+  button.setAttribute('aria-label', label)
+  button.dataset.menuLabel = label
+  function render() { button.disabled = !allowed(model.current()) }
+  model.observe(ctx, render)
+  ctx.effect(() => () => { disposed = true })
+}

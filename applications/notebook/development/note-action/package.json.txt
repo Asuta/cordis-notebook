@@ -1,0 +1,9 @@
+{
+  "name": "@cordis-{{appId}}/{{id}}", "version": "1.0.0", "private": true, "type": "module", "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1, "id": {{id:json}}, "name": {{name:json}}, "description": {{description:json}}, "defaultEnabled": false,
+    "client": "client.js", "requires": { "client": ["notebook", "shell"], "server": [] },
+    "provides": { "client": [], "server": [] }, "public": ["client.js"],
+    "build": [{ "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }]
+  }
+}

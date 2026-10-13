@@ -46,6 +46,13 @@
       "task": "note-editor",
       "file": "development/note-editor/template.json",
       "description": "可运行的文本编辑格式，已接双端注册、宿主、自动保存、样式和基础测试；parameters.field/editorLabel 按用户要求填写"
+    },
+    {
+      "id": "note-action",
+      "focus": "ui",
+      "task": "note-action",
+      "file": "development/note-action/template.json",
+      "description": "笔记操作的完整接入：工具栏菜单、选择/禁用状态、异步防重入和释放；只在 action.js 写业务，parameters.actionLabel/mode 来自需求"
     }
   ],
   "tasks": [
@@ -103,9 +110,13 @@
         "patterns": [
           "sdk.button('toolbar', label, handler) 同时管理挂载和监听释放；设置 aria-label，读取当前笔记决定禁用状态。",
           "修改当前笔记使用 notebook.edit，再按需要 flush；busy 或不可编辑时禁止修改。不要查找其他插件内部 DOM。",
-          "工具栏会读取 button.dataset.menuLabel 作为溢出菜单文字；sdk.button 没有 order 参数。"
+          "工具栏会读取 button.dataset.menuLabel 作为溢出菜单文字；sdk.button 没有 order 参数。真实 UI 入口是“更多笔记操作”菜单中的 menuitem，按 actionLabel 唯一定位。",
+          "优先用 recommendedScaffold 的 note-action 骨架；parameters.actionLabel 是按钮名称，mode 为 read 或 edit。仅修改 action.js 的 run/supports；update(patch) 已接 notebook.edit/flush 并阻止异步操作写到新选中的笔记。",
+          "先 browser_open/browser_plugin，再运行 note-action-lifecycle 公共场景，要求空实例；formatName 默认普通笔记，可选插件支持的格式。它只检查公共生命周期，结束返回当前标题和控件。随后补业务效果断言（剪贴板、正文保存等），再 browser_finish，不把公共场景当成业务通过。"
         ]
-      }
+      },
+      "scaffold": "note-action",
+      "verification": ["note-action-lifecycle"]
     },
     {
       "id": "note-editor",
@@ -258,6 +269,10 @@
     "note-editor-lifecycle": {
       "file": "development/note-editor/lifecycle.json",
       "description": "文本编辑格式的创建、自动保存、切换、刷新、清空保存、停用/启用、再次编辑和唯一控件；真实 UI 独立实例"
+    },
+    "note-action-lifecycle": {
+      "file": "development/note-action/lifecycle.json",
+      "description": "操作插件的无选择禁用、创建/切换后的可用性、停用移除、重新启用唯一入口和刷新；不点击业务动作、不代替业务效果验证"
     }
   }
 }

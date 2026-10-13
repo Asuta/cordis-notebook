@@ -44,3 +44,44 @@ test('后续刷新有自己的等待期限，切换应用不自动改绑，取�
   task.cancelled = true
   await assert.rejects(bridge.rebindPage(task), /停止/)
 })
+
+test('等待中的连续刷新跟进最新批次，忽略旧确认并给新批次完整期限', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 })
+  const { application, bridge, task, ready } = fixture(t)
+  ready()
+  const pending = bridge.rebindPage(task)
+  const completion = assert.doesNotReject(pending)
+  await Promise.resolve()
+  t.mock.timers.tick(40)
+  application.reloads++; application.reloadToken = 'generation-2'
+  ready({ pageId: 'old-page', reloadToken: 'generation-1' })
+  t.mock.timers.tick(10); await Promise.resolve()
+  const waiting = { ...task.rebind }
+  t.mock.timers.tick(10); await Promise.resolve()
+  ready({ pageId: 'latest-page', session: 'latest-session', reloadToken: 'generation-2' })
+  t.mock.timers.tick(40); await completion
+  assert.equal(waiting.status, 'waiting')
+  assert.equal(waiting.expectedReloadToken, 'generation-2')
+  assert.equal(task.pageId, 'latest-page'); assert.equal(task.session, 'latest-session')
+  assert.equal(task.reloads, 2); assert.equal(task.awaitingRebind, false)
+  assert.equal(task.rebind.elapsedMs, 50)
+})
+
+test('等待中新批次也会超时，同批次再次查询不延长期限', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 })
+  const { application, bridge, task, ready } = fixture(t)
+  ready()
+  const completion = assert.rejects(bridge.rebindPage(task), { code: 'PAGE_REBIND_PENDING' })
+  await Promise.resolve()
+  t.mock.timers.tick(40)
+  application.reloads++; application.reloadToken = 'generation-2'
+  t.mock.timers.tick(10); await Promise.resolve()
+  t.mock.timers.tick(50); await Promise.resolve()
+  t.mock.timers.tick(10); await completion
+  assert.equal(task.rebind.expectedReloadToken, 'generation-2')
+  assert.equal(task.rebind.elapsedMs, 60)
+  const started = task.rebindStartedAt
+  await assert.rejects(bridge.rebindPage(task), { code: 'PAGE_REBIND_PENDING' })
+  assert.equal(task.rebindStartedAt, started)
+  assert.equal(task.rebind.waitedMs, 0)
+})

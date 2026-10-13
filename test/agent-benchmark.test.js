@@ -75,7 +75,7 @@ test('重新启用验收等待界面重建结束，持续缺失、重复或隐�
   await assert.rejects(waitForUniqueVisible(page.locator('button[')), /InvalidSelectorError|not a valid selector|Unexpected token/i)
 })
 
-test('固定验收接受五类参考实现，并拒绝错误业务结果；隔离范围检查发现框架改动', { skip: !integration, timeout: 240000 }, async t => {
+test('固定验收接受六类参考实现，并拒绝错误业务结果；隔离范围检查发现框架改动', { skip: !integration, timeout: 240000 }, async t => {
   const directory = await mkdtemp(resolve('work/benchmark-judge-test-')), project = join(directory, 'project')
   t.after(() => rm(directory, { recursive: true, force: true }))
   const frozen = await snapshot(resolve('.'), cases.map(item => `applications/${item.appId}/plugins/${item.pluginId}/`))
@@ -93,6 +93,12 @@ test('固定验收接受五类参考实现，并拒绝错误业务结果；隔�
   const failed = await acceptPlugin({ project, directory: join(directory, 'broken'), task })
   assert.equal(failed.status, 'failed'); assert.equal(failed.checks.find(c => c.id === 'empty-data').status, 'failed')
   assert.ok(failed.checks.some(c => c.status === 'blocked'))
+  const dateTask = selectCases(['date-action'])[0]
+  await referencePlugin(project, dateTask, true)
+  assert.equal((await command(['scripts/build.js', 'notebook'], { root: project })).exitCode, 0)
+  const wrongDate = await acceptPlugin({ project, directory: join(directory, 'wrong-date'), task: dateTask })
+  assert.equal(wrongDate.status, 'failed')
+  assert.equal(wrongDate.checks.find(c => c.id === 'append-plain').status, 'failed', '固定日期或错误日期不能通过业务验收')
   await writeFile(join(project, 'agent/ARCHITECTURE.md'), 'unexpected change')
   assert.ok((await changedOutsidePlugin(project, frozen, task)).includes('agent/ARCHITECTURE.md'))
 })
