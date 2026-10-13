@@ -104,6 +104,15 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
+  applications/notebook/plugins/block-agent-tools:
+    dependencies:
+      '@cordis-notebook/host':
+        specifier: workspace:*
+        version: link:../../../../packages/host
+      cordis:
+        specifier: 4.0.0-rc.10
+        version: 4.0.0-rc.10
+
   applications/notebook/plugins/block-editor:
     dependencies:
       '@tiptap/core':

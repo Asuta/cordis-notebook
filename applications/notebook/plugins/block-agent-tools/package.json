@@ -1,0 +1,10 @@
+{
+  "name": "@cordis-notebook/block-agent-tools", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "@cordis-notebook/host": "workspace:*", "cordis": "4.0.0-rc.10" },
+  "cordis": {
+    "schemaVersion": 1, "id": "block-agent-tools", "name": "块页面 Agent 工具", "description": "按块 ID 读取、插入、修改、删除、移动与嵌套，校验版本后批量保存。",
+    "defaultEnabled": true, "order": 31, "client": "client.js",
+    "requires": { "server": [], "client": ["notebook", "blockDocument"] }, "provides": { "server": [], "client": [] },
+    "public": ["client.js"], "build": [{ "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }]
+  }
+}

@@ -25,8 +25,8 @@ export default function (ctx, sdk) {
     if (typeof title === 'string') model.edit({ title })
     await model.flush(); return { note: model.current() }
   })
-  register('notebook_update', '修改已打开笔记。必须传入 notebook_read 返回的 revision；只改选区时请使用 replace_selection。', {
-    ...object({ id: string, revision: string, patch: { type: 'object', description: '笔记格式支持的字段，例如 title、content、markdown、blocks。' } }), required: ['id', 'revision', 'patch'],
+  register('notebook_update', '修改已打开笔记。必须传入 notebook_read 返回的 revision；块页面局部结构修改优先 notebook_blocks_read/notebook_blocks_edit，只改选区时请使用 replace_selection。', {
+    ...object({ id: string, revision: string, patch: { type: 'object', description: 'title 等通用字段；普通笔记正文 content，Markdown 源码 markdown，自由页面 blocks/page/version，块页面 document:{version:1,blocks:[...]}。后三种格式的 content 是派生纯文本，不能用于修改正文。' } }), required: ['id', 'revision', 'patch'],
   }, async args => {
     if (model.busy || !model.editable) throw Error('编辑器当前不可修改')
     const before = model.current(), serialized = JSON.stringify(before)
