@@ -26,6 +26,9 @@ async function fixture(t) {
   return { dir, app, browser, page, url, errors }
 }
 async function create(page, label, title) {
+  // The shell can render before all plugins finish loading, especially after
+  // a cold Vite optimization/reload. Wait for the host's actual ready signal.
+  await page.locator('html[data-cordis-ready="true"]').waitFor({ timeout: 60000 })
   await page.getByRole('button', { name: '新建笔记', exact: true }).click()
   const response = page.waitForResponse(response => response.url().endsWith('/api/notes') && response.request().method() === 'POST')
   await page.getByRole('menuitem', { name: label, exact: true }).click()
