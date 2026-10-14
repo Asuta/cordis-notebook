@@ -21,6 +21,14 @@ async function fixture(t) {
   return { app, url, request }
 }
 
+test('应用只注册五种现有格式，旧块页面的格式、编辑器和工具已移除', async t => {
+  const { app } = await fixture(t)
+  assert.deepEqual(app.ctx.noteFormats.list().map(format => format.type).sort(), ['blocknote', 'database', 'freeform', 'markdown', 'plain'])
+  for (const id of ['format-block', 'block-editor', 'block-agent-tools']) assert.equal(app.manager.records.has(id), false)
+  await assert.rejects(app.ctx.notes.create({ type: 'block' }), { status: 409 })
+  assert.deepEqual(app.ctx.notes.list(), [])
+})
+
 test('新增块和行内公式通过 Agent 原子操作、搜索正文、格式校验；恶意属性拒绝', () => {
   const doc = { version: 1, blocks: [blocks.create('paragraph', '原文', 'p')] }
   const result = applyOperations(blocks, doc, [

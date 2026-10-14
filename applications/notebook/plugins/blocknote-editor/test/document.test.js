@@ -3,9 +3,6 @@ import assert from 'node:assert/strict'
 import { defaultBlockSpecs } from '@blocknote/core'
 import { blockNoteDocument as service, blockTypes } from '../../format-blocknote/document.js'
 import { applyOperations } from '../../blocknote-agent-tools/operations.js'
-import { createBlockDocument } from '../../format-block/document.js'
-import { documentService } from '../../rich-text/document.js'
-import { convertLegacy } from '../migration.js'
 
 const doc = (...blocks) => ({ version: 1, blocks })
 const text = value => [{ type: 'text', text: value, styles: {} }]
@@ -101,22 +98,4 @@ test('原子操作按 ID 移动子树、修改状态与正文，错误批次不�
   const empty = applyOperations(service, doc(a), [{ op: 'remove', blockId: 'a' }]).document
   assert.equal(empty.blocks.length, 1)
   assert.equal(service.text(empty), '')
-})
-
-test('旧块复制保留富文本、嵌套、待办和原始文档，降级明确提示', () => {
-  const legacy = createBlockDocument(documentService)
-  const a = legacy.create('heading', '标题', 'a'); a.body.elements[0].level = 3
-  const b = legacy.create('todo', '任务', 'b'); b.checked = true
-  b.body.elements[0].runs[0].format = { bold: true, color: '#123456', superscript: true }
-  a.children.push(b)
-  const c = legacy.create('callout', '提醒', 'c')
-  const input = doc(a, c), before = structuredClone(input), converted = convertLegacy(input)
-  const copy = service.normalize(converted.document)
-  assert.deepEqual(input, before)
-  assert.equal(copy.blocks[0].props.level, 3)
-  assert.equal(copy.blocks[0].children[0].props.checked, true)
-  assert.equal(copy.blocks[0].children[0].content[0].styles.bold, true)
-  assert.equal(copy.blocks[1].type, 'quote')
-  assert.equal(service.text(copy), '标题\n任务\n提醒')
-  assert.equal(converted.warnings.length, 2)
 })

@@ -15,7 +15,7 @@ pnpm start
 
 打开 http://127.0.0.1:3210/ 。首次默认打开笔记，以后恢复上次选择；关闭当前应用后重启也保持关闭。多个标签页跟随同一个全局选择，切换应用会刷新页面；应用内部启停插件仍即时生效。
 
-- [笔记应用](applications/notebook/README.md)：普通笔记、Markdown、自由页面、块页面、图片、搜索、主题、配置和 Agent 工具。
+- [笔记应用](applications/notebook/README.md)：普通笔记、Markdown、自由页面、BlockNote 页面、数据库、图片、搜索、主题、配置和 Agent 工具。
 - [画图应用](applications/drawing/README.md)：2 个独立插件，基础画笔、撤销、自动保存和 PNG 导出，验证完全不同的应用组合。
 - [灵感画布](applications/studio/README.md)：6 个插件，提供无限画布、可扩展卡片、图片生成、Pixel 接口和 Agent 操作。
 

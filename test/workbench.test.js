@@ -16,7 +16,7 @@ async function fixture(t, { realApp = false } = {}) {
   await writeFile(workerFile, `process.send({type:'ready'}); process.on('message', m => {
     if(m.type === 'run') { process.send({type:'assistant', text:'完成：'+m.task.prompt}); process.send({type:'done'}); }
   })`)
-  await writeFile(join(dir, 'config.json'), JSON.stringify({ apiKey: 'fixture-private-key', model: 'fixture' }))
+  await writeFile(join(dir, 'config.json'), JSON.stringify({ apiKey: 'fixture-private-key', model: 'deepseek-v4-pro' }))
   const wb = await createWorkbench({ root: resolve('.'), port: 0, appPort: await freePort(), dataDir: dir, appDataDir: join(dir, 'data'), autoStart: false, workerFile })
   t.after(async () => { await wb.close(); await rm(dir, { recursive: true, force: true }) })
   const url = 'http://127.0.0.1:' + wb.server.address().port
@@ -100,11 +100,13 @@ test('有浏览器事件连接时，受管理重启正常释放 HTTP 服务并�
   controller.abort()
 })
 
-test('模型与压缩配置校验，图片上传、历史引用保护和不静默降级', async t => {
+test('仅支持 Flash，旧配置归一、压缩校验、图片上传与历史引用保护', async t => {
   const { request, url, dir } = await fixture(t)
   const config = (await request('config')).body
   assert.equal(config.compaction.threshold, 128000)
-  assert.deepEqual(config.models.map(model => [model.id, model.images]), [['deepseek-v4-pro', false], ['deepseek-flash', true]])
+  assert.equal(config.model, 'deepseek-flash')
+  assert.deepEqual(config.models.map(model => [model.id, model.images]), [['deepseek-flash', true]])
+  assert.equal((await request('config', { model: 'deepseek-v4-pro' })).status, 400)
   assert.equal((await request('config', { reasoningEffort: 'medium' })).status, 400)
   assert.equal((await request('config', { compaction: { threshold: 20000 } })).status, 400)
   assert.equal((await request('config', { model: 'deepseek-flash', reasoningEffort: 'max', compaction: { threshold: 96000, keepRecentTokens: 10000 } })).status, 200)
@@ -118,15 +120,16 @@ test('模型与压缩配置校验，图片上传、历史引用保护和不静�
   const preview = await fetch(url + '/api/images/' + images[0].id)
   assert.equal(preview.headers.get('content-type'), 'image/png'); assert.deepEqual(Buffer.from(await preview.arrayBuffer()), png)
   const input = { appId: 'notebook', prompt: '比较图片', images: images.map(image => image.id) }
-  assert.equal((await request('run', { ...input, model: 'deepseek-v4-pro' })).status, 409)
+  assert.equal((await request('run', { ...input, model: 'deepseek-v4-pro' })).status, 400)
   assert.equal((await request('run', { ...input, images: ['../config.json'] })).status, 400)
   const run = await request('run', input); assert.equal(run.status, 200)
   const state = await until(async () => { const value = (await request('state')).body; return !value.activeThreadId && value })
   const thread = state.threads[0]
+  assert.equal(thread.turns[0].model, 'deepseek-flash')
   assert.equal(thread.messages[0].images.length, 2); assert.equal(thread.turns[0].effort, 'max')
   assert.equal(thread.turns[0].events[0].kind, 'text'); assert.equal(thread.turns[0].status, 'done')
   assert.equal((await request('images/remove', { id: images[0].id })).status, 409)
-  assert.equal((await request('run', { appId: 'notebook', threadId: run.body.id, prompt: '继续', model: 'deepseek-v4-pro' })).status, 409)
+  assert.equal((await request('run', { appId: 'notebook', threadId: run.body.id, prompt: '继续', model: 'deepseek-v4-pro' })).status, 400)
 })
 
 test('执行过程持久化、相同工具调用分别记录、日志密钥脱敏', async t => {

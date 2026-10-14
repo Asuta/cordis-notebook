@@ -42,6 +42,24 @@ async function fixture(t) {
   return { window, $, type, send, finish, upload, calls, pending, removed, preferences }
 }
 
+test('输入区和设置页只有 Flash，图片直接发送并保留思考强度', async t => {
+  const { $, type, send, finish, upload, pending } = await fixture(t)
+  for (const id of ['model', 'compose-model']) {
+    assert.deepEqual([...$(id).options].map(option => option.value), ['deepseek-flash'])
+    assert.equal($(id).value, 'deepseek-flash')
+  }
+  assert.equal($('vision-hint'), null)
+  assert.equal($('switch-flash'), null)
+  $('compose-effort').value = 'max'
+  await upload(); type('检查这张图片')
+  assert.equal($('send').disabled, false)
+  const sending = send()
+  assert.equal(pending[0].data.model, 'deepseek-flash')
+  assert.equal(pending[0].data.reasoningEffort, 'max')
+  assert.equal(pending[0].data.images.length, 1)
+  finish(); await sending
+})
+
 test('等待验收偏好保存时切换应用，仍发送原应用的消息和开关快照', async t => {
   const { $, type, send, finish, preferences, pending } = await fixture(t)
   $('threads').value = 'history'; $('threads').onchange()

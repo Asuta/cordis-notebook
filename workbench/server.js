@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { ApplicationProcess } from './processes.js'
 import { CommandSessions } from './command-sessions.js'
-import { MODELS, modelInfo, normalizeConfig, validateSettings } from './config.js'
+import { MODELS, normalizeConfig, validateSettings } from './config.js'
 import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
 import { discoverApplications } from '../server/application-discovery.js'
 import { writeSnapshot } from './persistence.js'
@@ -145,7 +145,6 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     let taskConfig
     try { taskConfig = validateSettings({ model: input.model || config.model, reasoningEffort: input.reasoningEffort || config.reasoningEffort, thinking: input.thinking ?? config.thinking }, config) } catch (error) { throw fail(400, error.message) }
     const images = await imageStore.select(input.images)
-    if (!modelInfo(taskConfig.model).images && (images.length || item?.hasImages)) throw fail(409, '当前模型不支持此对话的图片，请明确切换到 Flash，或新建纯文字对话')
     if (active || closing) throw fail(409, '已有任务执行中，请等待或先停止')
     if (!item) { item = { id: randomUUID(), appId: input.appId, title: input.prompt.trim().slice(0, 35) || '图片对话', messages: [], turns: [], revision: 0 }; conversations.push(item) }
     if (mode === 'chat' && input.browserVerificationEnabled !== undefined) item.browserVerificationEnabled = input.browserVerificationEnabled

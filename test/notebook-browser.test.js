@@ -119,15 +119,14 @@ test('产品浏览器：BlockNote 导入导出、页面关系、引用改名跳�
   assert.deepEqual(errors, [])
 })
 
-test('产品浏览器：五种笔记格式输入、保存和刷新保留原始内容', { skip: !enabled, timeout: 90000 }, async t => {
+test('产品浏览器：四种正文格式输入、保存和刷新保留原始内容', { skip: !enabled, timeout: 90000 }, async t => {
   const { page, app, errors } = await fixture(t)
-  for (const [type, label] of [['plain', '普通笔记'], ['markdown', 'Markdown 笔记'], ['freeform', '自由页面'], ['block', '块页面'], ['blocknote', 'BlockNote 页面']]) {
+  for (const [type, label] of [['plain', '普通笔记'], ['markdown', 'Markdown 笔记'], ['freeform', '自由页面'], ['blocknote', 'BlockNote 页面']]) {
     const text = type === 'markdown' ? '# 标题\n\n第一段\n\n第二段' : type + ' 正文保持'
     await create(page, label, label + '回归')
     if (type === 'plain') await page.getByRole('textbox', { name: '笔记正文' }).fill(text)
     if (type === 'markdown') await page.getByRole('textbox', { name: 'Markdown 源码' }).fill(text)
     if (type === 'freeform') { await page.getByRole('button', { name: '新建容器', exact: true }).click(); await page.locator('.free-page [contenteditable=true]').fill(text) }
-    if (type === 'block') { await page.locator('.block-editor [contenteditable=true]').click(); await page.keyboard.insertText(text) }
     if (type === 'blocknote') { await page.getByLabel('BlockNote 正文', { exact: true }).click(); await page.keyboard.insertText(text) }
     await page.keyboard.press('Control+s')
     await until(() => app.ctx.notes.list().some(n => n.type === type && n.content.includes('正文保持') || n.type === 'markdown' && n.markdown === text), label + '写入')
@@ -137,7 +136,6 @@ test('产品浏览器：五种笔记格式输入、保存和刷新保留原始�
     if (type === 'plain') assert.equal(await page.getByRole('textbox', { name: '笔记正文' }).inputValue(), text)
     if (type === 'markdown') assert.equal(await page.getByRole('textbox', { name: 'Markdown 源码' }).inputValue(), text)
     if (type === 'freeform') assert.equal(await page.locator('.free-page [contenteditable=true]').innerText(), text)
-    if (type === 'block') assert.match(await page.locator('.block-editor [contenteditable=true]').innerText(), /block 正文保持/)
     if (type === 'blocknote') assert.match(await page.getByLabel('BlockNote 正文', { exact: true }).innerText(), /blocknote 正文保持/)
     assert.deepEqual(app.ctx.notes.list().find(n => n.id === saved.id), saved)
   }
@@ -216,20 +214,20 @@ test('产品浏览器：BlockNote 原生 Agent 修改、表格、选区替换、
   assert.deepEqual(errors, [])
 })
 
-test('产品浏览器：旧块页面复制到 BlockNote，保留原件并能继续编辑', { skip: !enabled, timeout: 45000 }, async t => {
+test('产品浏览器：Markdown 复制到 BlockNote，保留原件并能继续编辑', { skip: !enabled, timeout: 45000 }, async t => {
   const { page, app, errors } = await fixture(t)
-  await create(page, '块页面', '旧页面')
-  await page.locator('.block-editor [contenteditable=true]').click(); await page.keyboard.insertText('旧页面正文')
+  await create(page, 'Markdown 笔记', 'Markdown 原件')
+  await page.getByRole('textbox', { name: 'Markdown 源码' }).fill('# Markdown 标题\n\nMarkdown 正文')
   await page.keyboard.press('Control+s')
-  await until(() => app.ctx.notes.list()[0]?.content.includes('旧页面正文'), '原件保存')
+  await until(() => app.ctx.notes.list()[0]?.content.includes('Markdown 正文'), '原件保存')
   const original = structuredClone(app.ctx.notes.list()[0])
   await page.getByRole('button', { name: '更多笔记操作', exact: true }).click()
   await page.getByRole('menuitem', { name: '复制为 BlockNote 页面', exact: true }).click()
   await page.getByLabel('BlockNote 正文', { exact: true }).waitFor()
-  await until(() => app.ctx.notes.list().some(n => n.type === 'blocknote' && n.content.includes('旧页面正文')), '副本保存')
+  await until(() => app.ctx.notes.list().some(n => n.type === 'blocknote' && n.content.includes('Markdown 正文')), '副本保存')
   assert.deepEqual(app.ctx.notes.list().find(n => n.id === original.id), original)
-  assert.equal(app.ctx.notes.list().find(n => n.type === 'blocknote').title, '旧页面（BlockNote 副本）')
-  assert.match(await page.getByLabel('BlockNote 正文', { exact: true }).innerText(), /旧页面正文/)
+  assert.equal(app.ctx.notes.list().find(n => n.type === 'blocknote').title, 'Markdown 原件（BlockNote 副本）')
+  assert.match(await page.getByLabel('BlockNote 正文', { exact: true }).innerText(), /Markdown 正文/)
   assert.deepEqual(errors, [])
 })
 
@@ -310,33 +308,6 @@ test('产品浏览器：两页冲突有提示、刷新保留草稿、另存副�
   await until(() => app.ctx.notes.list().length === 2, '副本保存')
   assert.ok(app.ctx.notes.list().some(n => n.title === '两页冲突' && n.content === 'A 页新正文'))
   assert.ok(app.ctx.notes.list().some(n => n.title === 'B 页草稿（副本）' && n.content === '原正文'))
-  assert.deepEqual(errors, [])
-})
-
-test('产品浏览器：块页面图片上传、HTML 粘贴和撤销后保存刷新', { skip: !enabled, timeout: 60000 }, async t => {
-  const { page, app, errors } = await fixture(t)
-  await create(page, '块页面', '图片粘贴回归')
-  const editor = page.locator('.block-editor [contenteditable=true]')
-  await editor.click(); await page.keyboard.insertText('图片父块')
-  // Exercise a real browser ClipboardEvent with a local image payload.
-  await editor.evaluate(element => {
-    const clipboard = new DataTransfer(), bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jK1sAAAAASUVORK5CYII='), c => c.charCodeAt(0))
-    clipboard.items.add(new File([bytes], 'pixel.png', { type: 'image/png' }))
-    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: clipboard }))
-  })
-  const image = editor.locator('img'); await image.waitFor()
-  const source = await image.getAttribute('src')
-  assert.match(source, /^\/api\/note-assets\//)
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-  await editor.press('Control+a'); await editor.press('Control+c')
-  await editor.locator('p').first().click(); await page.keyboard.press('End'); await page.keyboard.insertText('粘贴位置'); await page.keyboard.press('Control+v')
-  await until(async () => await editor.locator('img').count() === 2, 'HTML 图片粘贴')
-  await page.keyboard.press('Control+z'); await until(async () => await editor.locator('img').count() === 1, '撤销')
-  await page.keyboard.press('Control+Shift+z'); await until(async () => await editor.locator('img').count() === 2, '重做')
-  await page.keyboard.press('Control+s')
-  await until(() => (JSON.stringify(app.ctx.notes.list()[0]?.document).match(/"kind":"image"/g) || []).length === 2, '图片落盘')
-  await page.reload(); await page.locator('.block-editor [contenteditable=true] img').first().waitFor()
-  assert.equal(await page.locator('.block-editor [contenteditable=true] img').count(), 2)
   assert.deepEqual(errors, [])
 })
 

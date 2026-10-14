@@ -78,7 +78,7 @@ export function updateTurn(element, turn, { messages = [], commands = [], onTerm
   element.dataset.status = turn.status
   const tools = turn.events.filter(event => event.kind === 'tool').length
   label.textContent = `${turn.status === 'done' ? '用时' : statusNames[turn.status] || turn.status} ${duration(turn.startedAt, turn.endedAt)}${tools ? ` · ${tools} 次工具调用` : ''}`
-  meta.textContent = `${turn.model?.includes('flash') ? 'Flash' : 'Pro'} · ${turn.effort === 'off' ? '思考关闭' : (turn.effort || 'high').toUpperCase()}`
+  meta.textContent = `${turn.model === 'deepseek-flash' ? 'Flash' : turn.model || '模型未记录'} · ${turn.effort === 'off' ? '思考关闭' : (turn.effort || 'high').toUpperCase()}`
   const final = finalAnswer(turn, messages)
   let visible = final
   if (turn.status === 'running') {

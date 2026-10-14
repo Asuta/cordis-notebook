@@ -1,17 +1,22 @@
 // Official /models metadata, verified 2026-09-27. Keep the actual window separate
 // from the user's earlier compaction threshold and our per-response output budget.
 export const MODELS = [
-  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', images: false, contextWindow: 1048576 },
   { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash', images: true, contextWindow: 1048576 },
 ]
 export const OUTPUT_TOKENS = 16384
 export const DEFAULT_COMPACTION = { enabled: true, threshold: 128000, keepRecentTokens: 20000 }
-export const modelInfo = id => MODELS.find(model => model.id === id) || { id, name: id, images: false, contextWindow: 1048576 }
+export function modelInfo(id) {
+  const model = MODELS.find(model => model.id === id)
+  if (!model) throw Error('不支持的模型选项')
+  return model
+}
 export function normalizeConfig(input = {}) {
-  return { baseUrl: 'https://api.deepseek.com/v1', model: MODELS[0].id, thinking: true, reasoningEffort: 'high', ...input,
+  // Persisted settings may name a removed model; all new tasks use Flash.
+  return { baseUrl: 'https://api.deepseek.com/v1', thinking: true, reasoningEffort: 'high', ...input, model: MODELS[0].id,
     compaction: { ...DEFAULT_COMPACTION, ...input.compaction } }
 }
 export function validateSettings(input, previous) {
+  if (input.model !== undefined) modelInfo(input.model)
   const next = normalizeConfig({ ...previous, ...input, compaction: { ...previous.compaction, ...input.compaction } })
   if (!['low', 'high', 'max'].includes(next.reasoningEffort)) throw Error('推理强度只能选择 Low、High 或 Max')
   const { threshold, keepRecentTokens, enabled } = next.compaction

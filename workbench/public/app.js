@@ -105,15 +105,10 @@ function render() {
   renderThreads(); renderComposer()
   sessionStorage.setItem('agent-thread', threadId); sessionStorage.setItem('agent-app', appId)
 }
-function needsVision() { return (images.length || current()?.hasImages) && !config?.models?.find(m => m.id === $('compose-model').value)?.images }
 function renderComposer() {
   $('browser-verification').checked = browserChoice()
   $('browser-verification').disabled = submitting
-  const vision = needsVision()
-  $('vision-hint').hidden = !vision
-  $('vision-hint').querySelector('span').textContent = current()?.hasImages ? '此对话含图片历史，需使用 Flash。' : 'Pro 不支持图片。'
-  $('send').disabled = !!state?.activeThreadId || uploading > 0 || submitting || !!vision
-  $('switch-flash').disabled = !!state?.activeThreadId || uploading > 0 || submitting
+  $('send').disabled = !!state?.activeThreadId || uploading > 0 || submitting
   $('composer-hint').textContent = uploading ? `正在上传 ${uploading} 张图片…` : 'Enter 发送 · Shift + Enter 换行'
   $('upload-status').hidden = !uploading
   $('upload-status').textContent = uploading ? `正在上传 ${uploading} 张图片…` : ''
@@ -252,7 +247,6 @@ $('browser-verification').onchange = () => {
 async function send(mode = 'chat') {
   if (state.activeThreadId || uploading || submitting) return
   const prompt = $('prompt').value.trim(); if (mode === 'chat' && !prompt && !images.length) return
-  if (needsVision()) { toast('请点击「切换 Flash 并发送」，或选择 Flash 模型后操作。'); return }
   const submitted = { appId, threadId, generation: draftGeneration, prompt: $('prompt').value, revision: promptRevision,
     browserVerificationEnabled: browserChoice(),
     images: new Set(mode === 'chat' ? images.map(image => image.id) : []), attachments: new Set(mode === 'chat' ? attachments.map(item => item.id) : []) }
@@ -286,7 +280,6 @@ $('composer').onsubmit = safe(async event => { event.preventDefault(); await sen
 $('prompt').addEventListener('input', () => { promptRevision++; resizePrompt() })
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit() } }
 $('compose-model').onchange = renderComposer
-$('switch-flash').onclick = safe(async () => { $('compose-model').value = 'deepseek-flash'; renderComposer(); await send() })
 $('attach-image').onclick = () => $('image-input').click()
 $('image-input').onchange = () => { void uploadImages($('image-input').files); $('image-input').value = '' }
 $('composer').addEventListener('paste', event => {
@@ -303,7 +296,7 @@ $('stop').onclick = safe(() => api('interrupt', {}))
 $('compact').onclick = safe(() => send('compact'))
 $('start-app').onclick = safe(async () => { await api('application/start', {}); if (!standalone) frame.src = state.appUrl; await refresh() })
 function setModelOptions() {
-  for (const id of ['model', 'compose-model']) $(id).replaceChildren(...config.models.map(model => { const option = new Option(id === 'compose-model' ? (model.id.includes('flash') ? 'Flash · 识图' : 'Pro · 文字') : model.name + (model.images ? ' · 识图' : ' · 文字'), model.id); option.title = model.name; return option }))
+  for (const id of ['model', 'compose-model']) $(id).replaceChildren(...config.models.map(model => { const option = new Option(id === 'compose-model' ? 'Flash · 识图' : model.name + ' · 识图', model.id); option.title = model.name; return option }))
   $('compose-model').value = config.model; $('compose-effort').value = config.thinking ? config.reasoningEffort : 'off'
 }
 $('settings-open').onclick = safe(async () => {

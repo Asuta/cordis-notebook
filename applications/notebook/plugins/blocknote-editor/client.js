@@ -1,5 +1,4 @@
 import { mountBlockNote } from './view.jsx'
-import { convertLegacy } from './migration.js'
 import { createSchema } from './schema.jsx'
 import { createIO } from './io.js'
 export default function(ctx, sdk) {
@@ -15,7 +14,7 @@ export default function(ctx, sdk) {
   sdk.mount('toolbar', copy)
   let copying = false
   const refresh = () => {
-    copy.hidden = !['block', 'markdown'].includes(ctx.notebook.current()?.type)
+    copy.hidden = ctx.notebook.current()?.type !== 'markdown'
     copy.disabled = copying || ctx.notebook.busy || !ctx.notebook.editable || ctx.notebook.conflict
   }
   ctx.notebook.observe(ctx, refresh)
@@ -24,11 +23,11 @@ export default function(ctx, sdk) {
     copying = true; refresh()
     try {
       const original = ctx.notebook.current()
-      const { document, warnings } = original.type === 'markdown' ? { document: io.parse('markdown', original.markdown), warnings: ['Markdown 按可表示的块结构复制'] } : convertLegacy(original.document)
+      const document = io.parse('markdown', original.markdown)
       ctx.blockNoteDocument.normalize(document)
       await ctx.notebook.create('blocknote', { title: (original.title || '无标题笔记').slice(0, 180) + '（BlockNote 副本）', document, parentId: original.parentId ?? null })
       if (sdk.signal.aborted) return
-      sdk.toast(warnings.length ? '已创建副本，原笔记保留。' + warnings.join('；') : '已创建 BlockNote 副本，原笔记保留。')
+      sdk.toast('已创建副本，原笔记保留。Markdown 按可表示的块结构复制')
     } catch (error) { sdk.toast(error.message) }
     finally { copying = false; refresh() }
   })

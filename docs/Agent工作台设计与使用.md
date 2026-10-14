@@ -19,7 +19,7 @@ pnpm workbench
 
 发布前验收使用 `pnpm workbench:production`：先完整构建，应用运行 `server/server.js` 读取各插件 dist；修改后需要 `workspace_build` 和 `workspace_restart`。开发缓存按工作台实际监听端口和应用端口分目录，同一实例重启复用缓存；多个工作台以及普通 `pnpm dev` 可使用各自缓存，但仍需不同端口和数据目录。
 
-第一次在聊天设置中填写 API 密钥。默认基础地址 `https://api.deepseek.com/v1`，模型 `deepseek-v4-pro`，推理强度 High。也接受粘贴完整 `/chat/completions` 地址，保存时规范化为基础地址。密钥只在工作台后端传给模型请求，不返回前端。环境变量 `DEEPSEEK_API_KEY` 可作为初始值，本地配置优先；不自动读取 .env。
+第一次在聊天设置中填写 API 密钥。默认基础地址 `https://api.deepseek.com/v1`，模型固定为 `deepseek-flash`，推理强度 High。也接受粘贴完整 `/chat/completions` 地址，保存时规范化为基础地址。密钥只在工作台后端传给模型请求，不返回前端。环境变量 `DEEPSEEK_API_KEY` 可作为初始值，本地配置优先；不自动读取 .env。
 
 默认目录 `.workbench/` 被 Git 忽略，含 `config.json`（明文密钥）、`conversations/`（每个会话独立的历史与时间线；旧 `conversations.json` 自动迁移并保留备份）、`attachments/`（原始图片与元数据）和 `pi/sessions/`（Pi 对话与工具结果，含发给模型的图片）。备份时按私有资料处理；不要提交或分享这些文件。完全信任模式下，文件工具和命令具有当前账户权限，提示词中的约定不是密钥隔离沙箱。
 
@@ -58,7 +58,6 @@ pnpm workbench
 
 | 选项 | API 模型 ID | 输入能力 |
 | --- | --- | --- |
-| DeepSeek V4 Pro | `deepseek-v4-pro` | 文字 |
 | DeepSeek V4.1 Flash | `deepseek-flash` | 文字、图片 |
 
 两者均可选 Low / High / Max，也可关闭思考。输入框下的选择作用于下一次任务；设置页保存启动时的默认值。Pi 使用 `thinkingLevelMap` 显式声明档位，发送 DeepSeek 的 `thinking` 与 `reasoning_effort`，避免 SDK 把 Max 降回 High。模型真实窗口为 1,048,576 tokens，本工作台单次输出预算为 16,384 tokens。
@@ -67,7 +66,7 @@ pnpm workbench
 
 应用限制：每条最多 10 张，单张 8 MB，合计 20 MB；支持 PNG、JPEG、WebP、GIF，最长边 8192 像素，最多 4000 万像素。后端解码校验实际文件格式，不信任文件扩展名；图片不经过业务应用，不嵌入 UI 历史 JSON。历史图片仍可点击查看，删除待发送附件不会删除历史引用。
 
-Pro 遇到当前附件或图片会话时会阻止发送，并提供明确的「切换 Flash 并发送」按钮；不会暗中换模型或丢弃图片。含图片的对话继续使用 Flash，纯文字 Pro 任务可另开对话。发送前还会检查已有上下文及图片的大小，接近请求体限制时提示压缩或新建对话。当前不会自动截取业务画布，也没有图像生成功能。
+工作台只提供 Flash，默认配置与新任务均使用它；已有配置中的其他模型值在加载时归一为 Flash，设置和执行接口拒绝显式传入其他模型。文字和图片对话使用相同模型，无需切换。发送前还会检查已有上下文及图片的大小，接近请求体限制时提示压缩或新建对话。当前不会自动截取业务画布，也没有图像生成功能。
 
 ## 上下文压缩
 

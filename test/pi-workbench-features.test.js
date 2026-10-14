@@ -46,9 +46,10 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
     await new Promise(resolve => {
       resolveRun = resolve
       worker.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'),
-        config: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'deepseek-flash', thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, compaction: options.compaction || { enabled: false, threshold: 128000, keepRecentTokens: 1000 } },
+        config: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: options.model || 'deepseek-flash', thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, compaction: options.compaction || { enabled: false, threshold: 128000, keepRecentTokens: 1000 } },
         task: { appId: 'notebook', browserVerificationEnabled: true, prompt: '继续分析' + '测试文字'.repeat(1500), sessionFile, images: options.images || [], mode: options.mode || 'chat' } })
     })
+    assert.ok(requests.slice(requestStart).every(request => request.model === 'deepseek-flash'))
     const result = events.slice(start)
     assert.deepEqual(result.filter(e => e.type === 'error'), [], stderr)
     const timings = result.filter(e => e.type === 'trace' && e.event.kind === 'model' && e.event.status === 'done').map(e => e.event.timing)
@@ -62,7 +63,7 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
     sessionFile = result.find(e => e.type === 'session')?.file || sessionFile
     return { events: result, requests: requests.slice(requestStart) }
   }
-  const low = await run('low', { images })
+  const low = await run('low', { images, model: 'deepseek-v4-pro' })
   assert.equal(low.requests[0].reasoning_effort, 'low')
   assert.equal(low.requests[0].thinking.type, 'enabled')
   const user = low.requests[0].messages.findLast(m => m.role === 'user')

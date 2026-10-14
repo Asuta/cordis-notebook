@@ -129,8 +129,6 @@ async function run(input) {
     })
     if (cancelled) return
     usage()
-    const historicalImages = session.messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image'))
-    if (!model.images && (historicalImages || task.images?.length)) throw Error('当前模型不支持图片。请切换到 DeepSeek V4.1 Flash，或新建不含图片的对话。')
     if (task.mode === 'compact') { await session.compact(); usage(); return }
     const store = new AttachmentStore(input.dataDir || join(agentDir, '..'))
     const images = await Promise.all((task.images || []).map(async image => ({ type: 'image', mimeType: image.mimeType, data: (await store.bytes(image.id)).toString('base64') })))
