@@ -1,0 +1,55 @@
+{
+  "name": "@cordis-notebook/format-database",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "format-database",
+    "name": "数据库页面格式",
+    "description": "数据库页面格式",
+    "requires": {
+      "server": [
+        "noteFormats"
+      ],
+      "client": [
+        "noteFormats"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 10,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js"
+    ],
+    "styles": [],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Table",
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "minify": true
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ],
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    }
+  }
+}

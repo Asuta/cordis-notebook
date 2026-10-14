@@ -2,6 +2,7 @@ import { Service } from 'cordis'
 import { mkdir, writeFile, readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
+import { createFiles, decodeFile, filePattern } from './files.js'
 const types = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
 function decode(data, expected) {
   if (typeof data !== 'string' || data.length > 1400000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw Object.assign(Error('图片不能超过 1 MB'), { status: 400 })
@@ -19,6 +20,7 @@ export const noteAssets = {
   inject: ['http'],
   apply(ctx, config, runtime) {
     const dir = runtime.dataDir
+    const files = createFiles(ctx, dir)
     // New writes belong to this plugin. Keep old URLs readable without moving files
     // or asking the current note storage implementation for a filesystem path.
     const directories = [...new Set([
@@ -45,8 +47,9 @@ export const noteAssets = {
       return { src }
     }
     Object.assign(new Service(ctx, 'noteAssets'), { directory: dir,
-      validate: (data, src) => decode(data, src).src,
-      read: async src => ({ src, data: (await read(src)).bytes.toString('base64') }), write,
+      validate: (data, src) => filePattern.test(src) ? decodeFile(data, filePattern.exec(src)[2], src).src : decode(data, src).src,
+      read: async src => ({ src, data: (await (filePattern.test(src) ? files.read(src) : read(src))).bytes.toString('base64') }),
+      write: (data, src) => filePattern.test(src) ? files.write(data, filePattern.exec(src)[2], src) : write(data, src),
     })
     ctx.http.route(ctx, 'POST', /^\/api\/note-assets$/, async ({ req }) => write((await ctx.http.body(req)).data))
     ctx.http.route(ctx, 'GET', /^\/api\/note-assets\/([a-f0-9]{64}\.(png|jpg|gif|webp))$/, async ({ res, match }) => {

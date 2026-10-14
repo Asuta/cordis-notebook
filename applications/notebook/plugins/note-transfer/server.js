@@ -7,6 +7,7 @@ const references = value => assetReferences(value, source => {
   while (stack.length) {
     const token = stack.pop()
     if (token.type === 'image') images.push(token.attrGet('src'))
+    if (token.type === 'link_open') images.push(token.attrGet('href'))
     if (token.children) stack.push(...token.children)
   }
   return images

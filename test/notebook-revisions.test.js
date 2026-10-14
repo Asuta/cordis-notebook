@@ -44,6 +44,23 @@ async function fixture(t) {
   return { root, notes, first, api, page, backups, errors, serverFormat }
 }
 
+test('跨记录属性修改遵守保存校验，保留当前选择并发布成功事件', async t => {
+  const f = await fixture(t), page = await f.page('cross-record'), model = page.model
+  const selected = model.selected
+  const row = await model.create('plain', { title: '待编辑记录' }, { select: false })
+  assert.equal(model.selected, selected)
+  const saved = []
+  page.root.on('notebook/saved', note => saved.push(note.id))
+  const off = page.root.on('notebook/before-save', note => note.id === row.id ? '测试拒绝' : undefined)
+  await assert.rejects(model.updateNote(row.id, { properties: { status: 'done' } }, row.revision), /测试拒绝/)
+  assert.equal(f.notes.list().find(note => note.id === row.id).properties, undefined)
+  off()
+  await model.updateNote(row.id, { properties: { status: 'done' } }, row.revision)
+  assert.equal(model.selected, selected)
+  assert.equal(f.notes.list().find(note => note.id === row.id).properties.status, 'done')
+  assert.ok(saved.includes(row.id))
+})
+
 test('HTTP 强制服务端版本，旧页面及并发写入不能静默覆盖正文，旧文件可升级', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-revision-')), file = join(dir, 'notes.json')
   let app

@@ -1,16 +1,92 @@
 {
-  "name": "@cordis-notebook/blocknote-editor", "version": "1.0.0", "private": true, "type": "module",
-  "dependencies": { "@blocknote/core": "0.55.0", "@blocknote/react": "0.55.0", "@blocknote/ariakit": "0.55.0", "@cordis-notebook/ui": "workspace:*", "@cordis-notebook/host": "workspace:*", "@cordis-notebook/notes": "workspace:*" },
-  "exports": { "./client": { "types": "./types/client.d.ts" } },
+  "name": "@cordis-notebook/blocknote-editor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@blocknote/ariakit": "0.55.0",
+    "@blocknote/core": "0.55.0",
+    "@blocknote/react": "0.55.0",
+    "@cordis-notebook/host": "workspace:*",
+    "@cordis-notebook/notes": "workspace:*",
+    "@cordis-notebook/ui": "workspace:*",
+    "katex": "0.16.22"
+  },
+  "exports": {
+    "./client": {
+      "types": "./types/client.d.ts"
+    }
+  },
   "cordis": {
-    "capabilities": [{ "service": "blockNoteIO", "side": "client", "description": "BlockNote 原生文档与 Markdown、HTML、JSON 转换", "contracts": ["types/client.d.ts"], "examples": ["io.js"], "lifecycle": ["Markdown/HTML 有损；parse 返回的数据需经 notebook.create/edit 保存。服务停用后不可继续调用。"] }],
-    "schemaVersion": 1, "id": "blocknote-editor", "name": "BlockNote 编辑器", "description": "BlockNote 原生块编辑体验，支持菜单、拖拽、表格、图片和选区改写。",
-    "requires": { "server": [], "client": ["ui", "notebook", "editorHost", "blockNoteDocument", "noteAssets", "shell"] },
-    "provides": { "server": [], "client": ["blockNoteIO"] }, "order": 20, "defaultEnabled": true, "client": "client.js",
-    "public": ["client.js", "style.css"], "styles": ["style.css"], "category": { "id": "features", "label": "功能" }, "icon": "Blocks",
+    "capabilities": [
+      {
+        "service": "blockNoteIO",
+        "side": "client",
+        "description": "BlockNote 原生文档与 Markdown、HTML、JSON 转换",
+        "contracts": [
+          "types/client.d.ts"
+        ],
+        "examples": [
+          "io.js"
+        ],
+        "lifecycle": [
+          "Markdown/HTML 有损；parse 返回的数据需经 notebook.create/edit 保存。服务停用后不可继续调用。"
+        ]
+      }
+    ],
+    "schemaVersion": 1,
+    "id": "blocknote-editor",
+    "name": "BlockNote 编辑器",
+    "description": "BlockNote 原生块编辑体验，支持菜单、拖拽、表格、图片和选区改写。",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "editorHost",
+        "blockNoteDocument",
+        "noteAssets",
+        "shell"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": [
+        "blockNoteIO"
+      ]
+    },
+    "order": 20,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Blocks",
     "build": [
-      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser", "minify": true, "jsx": { "factory": "h", "fragment": "Fragment" } },
-      { "type": "tailwind", "input": "style.css", "output": "style.css" }
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "minify": true,
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        }
+      },
+      {
+        "type": "tailwind",
+        "input": "style.css",
+        "output": "style.css"
+      }
     ]
   }
 }

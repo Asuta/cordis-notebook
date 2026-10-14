@@ -288,7 +288,14 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
   try {
     vite = await createServer({
       configFile: false, root, publicDir: false, appType: 'custom', cacheDir,
-      optimizeDeps: { entries: entries.filter(e => e.manifest.client).map(e => resolve(e.sourceRoot, e.package.cordis.build.find(t => t.output === e.manifest.client).input)) },
+      // Vite treats entries as glob patterns. Windows backslashes prevent the
+      // initial crawl, causing late optimizer reloads while plugins are mounting.
+      optimizeDeps: {
+        entries: entries.filter(e => e.manifest.client).map(e => normalizePath(resolve(e.sourceRoot, e.package.cordis.build.find(t => t.output === e.manifest.client).input))),
+        // Match pluginSources' classic JSX transform. The scanner otherwise
+        // invents react/jsx-runtime imports and violates the ui service boundary.
+        rolldownOptions: { transform: { jsx: { runtime: 'classic' } } },
+      },
       server: { host: '127.0.0.1', port, strictPort: true, cors: false,
         watch: { ignored: isIgnoredWatchPath },
         fs: { strict: true, allow: [root, applicationsDir], deny: ['**/.env*', '**/.git/**', '**/data/**', '**/*.pem', '**/*.key'] },

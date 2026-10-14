@@ -75,7 +75,8 @@ test('页面工具跟随插件释放，停止准备持有编辑器直到取消�
 test('笔记工具读取草稿，拒绝旧 revision 和异步校验期间的用户修改', async () => {
   const tools = new Map(), note = { id: 'n', type: 'plain', title: '测试', content: '未保存草稿' }
   const model = { selected: 'n', notes: [note], busy: false, editable: true, dirty: true, current: () => structuredClone(note), edit: patch => Object.assign(note, patch), flush: async () => {} }
-  agentTools({ notebook: model }, { agent: { register(def, execute) { tools.set(def.name, execute) } } })
+  let blocked = false
+  agentTools({ notebook: model, serial: async () => blocked ? '公式仍在编辑' : undefined }, { agent: { register(def, execute) { tools.set(def.name, execute) } } })
   const read = await tools.get('notebook_read')({}); assert.equal(read.note.content, '未保存草稿')
   note.content = '用户继续输入'
   await assert.rejects(tools.get('notebook_update')({ id: 'n', revision: read.revision, patch: { content: '覆盖' } }), /笔记已变化/)
@@ -83,6 +84,9 @@ test('笔记工具读取草稿，拒绝旧 revision 和异步校验期间的用�
   const fresh = await revision(note), updating = tools.get('notebook_update')({ id: 'n', revision: fresh, patch: { content: '覆盖' } })
   note.content = '校验时编辑'; await assert.rejects(updating, /笔记已变化/)
   await tools.get('notebook_update')({ id: 'n', revision: await revision(note), patch: { content: '成功修改' } })
+  assert.equal(note.content, '成功修改')
+  blocked = true
+  await assert.rejects(tools.get('notebook_update')({ id: 'n', revision: await revision(note), patch: { content: '不应覆盖' } }), /公式仍在编辑/)
   assert.equal(note.content, '成功修改')
   model.busy = true; await assert.rejects(tools.get('notebook_update')({}), /不可修改/)
 })

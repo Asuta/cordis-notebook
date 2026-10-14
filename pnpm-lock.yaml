@@ -177,6 +177,11 @@ importers:
       '@cordis-notebook/ui':
         specifier: workspace:*
         version: link:../ui
+      katex:
+        specifier: 0.16.22
+        version: 0.16.22
+
+  applications/notebook/plugins/database-editor: {}
 
   applications/notebook/plugins/editor:
     dependencies:
@@ -223,6 +228,8 @@ importers:
       cordis:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
+
+  applications/notebook/plugins/format-database: {}
 
   applications/notebook/plugins/format-freeform:
     dependencies:
@@ -323,6 +330,8 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+
+  applications/notebook/plugins/note-recovery: {}
 
   applications/notebook/plugins/note-relations: {}
 
@@ -2376,6 +2385,10 @@ packages:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
 
+  commander@8.3.0:
+    resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
+    engines: {node: '>= 12'}
+
   cordis@4.0.0-rc.10:
     resolution: {integrity: sha512-xG90nPNQxR272cC4lR/m5LHevegIJvdddQBlKdEAdGz3n+zgH5lsgkg8o9fc2P3T/f+pO5D7FN1HZvkNBiABnw==}
     hasBin: true
@@ -2578,6 +2591,10 @@ packages:
 
   jws@4.0.1:
     resolution: {integrity: sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==}
+
+  katex@0.16.22:
+    resolution: {integrity: sha512-XCHRdUw4lf3SKBaJe4EvgqIuWwkPSo9XoeO8GjQW94Bp7TWv9hNhzZjZ+OH9yf1UmLygb7DIT5GSFQiyt16zYg==}
+    hasBin: true
 
   lib0@1.0.0-rc.22:
     resolution: {integrity: sha512-KNefJloRQIsWncTF2tIcRqQXSQ7bDRYHwVSUhf1lY2P65Rej4WWFnen6L8L+odJQIo1ZNJGVVjK2WzqB9a+B/g==}
@@ -4820,6 +4837,8 @@ snapshots:
 
   clsx@2.1.1: {}
 
+  commander@8.3.0: {}
+
   cordis@4.0.0-rc.10:
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -5035,6 +5054,10 @@ snapshots:
     dependencies:
       jwa: 2.0.1
       safe-buffer: 5.2.1
+
+  katex@0.16.22:
+    dependencies:
+      commander: 8.3.0
 
   lib0@1.0.0-rc.22: {}
 

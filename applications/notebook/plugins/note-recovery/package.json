@@ -1,0 +1,66 @@
+{
+  "name": "@cordis-notebook/note-recovery",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "note-recovery",
+    "name": "历史与回收站",
+    "description": "预览、恢复历史版本和已删除页面。",
+    "requires": {
+      "server": [
+        "notes",
+        "http"
+      ],
+      "client": [
+        "ui",
+        "shell",
+        "notebook"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 26,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "History",
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "minify": true
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ]
+  }
+}

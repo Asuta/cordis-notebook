@@ -6,22 +6,22 @@ export default function(ctx, sdk) {
   const el = sdk.el, dialog = el('dialog', { class: 'note-transfer-dialog', 'aria-labelledby': 'note-transfer-heading' })
   const title = el('input', { id: 'transfer-title', maxlength: '200', placeholder: '留空使用文件名或“导入笔记”' })
   const format = el('select', { id: 'transfer-format' })
-  for (const [value, label] of [['markdown', 'Markdown'], ['html', 'HTML'], ['json', 'JSON / 图片备份']]) format.append(el('option', { value }, label))
+  for (const [value, label] of [['markdown', 'Markdown'], ['html', 'HTML'], ['json', 'JSON / 资源备份']]) format.append(el('option', { value }, label))
   const source = el('textarea', { id: 'transfer-source', rows: '7', placeholder: '粘贴内容，或选择文件' })
   const file = el('input', { id: 'transfer-file', type: 'file', accept: '.md,.markdown,.html,.htm,.json' })
   const status = el('p', { role: 'status', class: 'transfer-status' })
   const close = el('button', { type: 'button' }, '关闭')
   const submit = el('button', { type: 'button' }, '导入为新笔记')
-  const backup = el('button', { type: 'button' }, '备份全部笔记（含图片）')
+  const backup = el('button', { type: 'button' }, '备份全部笔记（含附件）')
   const markdown = el('button', { type: 'button' }, '导出当前页面 Markdown')
   const html = el('button', { type: 'button' }, '导出当前页面 HTML')
   const label = (text, input) => { const wrap = el('label', { for: input.id }, text); wrap.append(input); return wrap }
   const row = (...nodes) => { const wrap = el('div', { class: 'transfer-actions' }); wrap.append(...nodes); return wrap }
   dialog.append(el('h2', { id: 'note-transfer-heading' }, '导入与备份'),
-    el('p', {}, '导入会创建新副本。Markdown / HTML 转换可能简化样式，导出的媒体保留原地址；完整恢复请选择包含图片的 JSON 备份。'),
+    el('p', {}, '导入会创建新副本。Markdown / HTML 转换可能简化样式，导出的媒体保留原地址；完整恢复请选择包含附件的 JSON 备份。'),
     label('选择文件', file), label('导入格式', format), label('新笔记标题', title), label('导入内容', source),
     row(submit), el('hr'), row(markdown, html), row(backup),
-    el('p', {}, '完整备份包含所有已保存笔记、页面关系和本地图片，最多 32 MB。外部图片和音视频仍使用原链接。'), status, row(close))
+    el('p', {}, '备份包含当前笔记、页面关系、属性和本地图片/附件，最多 32 MB；不含历史版本和回收站。外部资源保留原链接。'), status, row(close))
   sdk.mount('panels', dialog)
   const button = sdk.button('toolbar', '导入与备份', () => {
     setTimeout(() => { if (!disposed && !dialog.open) dialog.showModal() }, 0)
@@ -77,10 +77,10 @@ export default function(ctx, sdk) {
     try { await run(async () => { const result = await importContent({ format: format.value, content: source.value, title: title.value }); if (!disposed) { status.textContent = `已导入 ${result.count} 篇新笔记，原笔记保留。`; source.value = ''; file.value = ''; ctx.shell.showEditor?.() } }) } catch { /* shown */ }
   })
   for (const [button, kind, mime] of [[markdown, 'markdown', 'text/markdown;charset=utf-8'], [html, 'html', 'text/html;charset=utf-8']]) sdk.listen(button, 'click', async () => {
-    try { await run(async () => { const note = model.current(), text = io.export(note, kind); download(text, (note.title || '笔记') + (kind === 'markdown' ? '.md' : '.html'), mime); status.textContent = '已导出。部分样式、嵌套和页面引用可能简化；完整结构请使用图片备份。' }) } catch { /* shown */ }
+    try { await run(async () => { const note = model.current(), text = io.export(note, kind); download(text, (note.title || '笔记') + (kind === 'markdown' ? '.md' : '.html'), mime); status.textContent = '已导出。部分样式、嵌套和页面引用可能简化；完整结构请使用资源备份。' }) } catch { /* shown */ }
   })
   sdk.listen(backup, 'click', async () => {
-    try { await run(async () => { await model.flush(); if (disposed) return; const data = await sdk.request('/api/notebook-backup'); if (disposed) return; download(JSON.stringify(data), '笔记备份-' + new Date().toISOString().slice(0, 10) + '.json', 'application/json'); status.textContent = `已备份 ${data.notes.length} 篇笔记和 ${data.assets.length} 张本地图片。` }) } catch { /* shown */ }
+    try { await run(async () => { await model.flush(); if (disposed) return; const data = await sdk.request('/api/notebook-backup'); if (disposed) return; download(JSON.stringify(data), '笔记备份-' + new Date().toISOString().slice(0, 10) + '.json', 'application/json'); status.textContent = `已备份 ${data.notes.length} 篇笔记和 ${data.assets.length} 个本地资源。` }) } catch { /* shown */ }
   })
   const object = properties => ({ type: 'object', properties, additionalProperties: false })
   sdk.agent.register({ name: 'notebook_import_document', description: '将 Markdown、HTML 或原生 BlockNote JSON 导入为新笔记；也可恢复 cordis-note / cordis-notebook-backup JSON 为新副本，不覆盖已有笔记。可提供 title/parentId；备份自身的标题与层级优先。Markdown/HTML 可能简化样式。', inputSchema: { ...object({ format: { enum: ['markdown', 'html', 'json'], type: 'string' }, content: { type: 'string' }, title: { type: 'string' }, parentId: { type: ['string', 'null'] } }), required: ['format', 'content'] } }, args => run(() => importContent(args)))

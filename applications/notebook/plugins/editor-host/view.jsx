@@ -97,7 +97,7 @@ export function mountEditorHost(ctx, sdk, root, content, views, headings) {
             <DialogHeader>
               <DialogTitle>删除这篇笔记？</DialogTitle>
               <DialogDescription>
-                “{note?.title || '无标题笔记'}”删除后无法恢复，可以先导出备份。
+                “{note?.title || '无标题笔记'}”将移入回收站，可通过“历史与回收站”恢复。子页面会移到上一级。
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

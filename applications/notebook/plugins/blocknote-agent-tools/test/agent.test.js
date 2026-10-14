@@ -50,6 +50,52 @@ async function fixture(t) {
   }
 }
 
+test('Agent 新建标题遵守保存校验，拒绝后保留草稿并可重试', async t => {
+  const f = await fixture(t), parentId = f.root.notebook.selected
+  for (const type of ['plain', 'blocknote']) {
+    const title = type + '待校验标题', checked = []
+    const off = f.root.on('notebook/before-save', note => {
+      checked.push(note)
+      return note.title === title ? '标题未通过保存校验' : undefined
+    })
+    await assert.rejects(f.bridge.call('notebook_create', { type, title, parentId }), /标题未通过保存校验/)
+    const draft = f.root.notebook.current()
+    assert.equal(checked.length, 1)
+    assert.equal(checked[0].id, draft.id)
+    assert.equal(draft.title, title)
+    assert.equal(draft.parentId, parentId)
+    assert.equal(f.root.notebook.dirty, true)
+    assert.equal(JSON.parse(f.backups.get('test')).title, title)
+    assert.equal(f.notes.list().find(note => note.id === draft.id).title, '')
+    off()
+    await f.root.notebook.flush()
+    assert.equal(f.notes.list().find(note => note.id === draft.id).title, title)
+    assert.equal(f.root.notebook.dirty, false)
+    assert.equal(f.backups.size, 0)
+  }
+  const checked = []
+  f.root.on('notebook/before-save', note => { checked.push(note.title) })
+  const created = await f.bridge.call('notebook_create', { title: '允许保存的标题', parentId })
+  assert.deepEqual(checked, ['允许保存的标题'])
+  assert.equal(f.notes.list().find(note => note.id === created.note.id).title, '允许保存的标题')
+  assert.equal(created.note.parentId, parentId)
+})
+
+test('含公式的链接在 Agent 编辑和 JSON 恢复前被拒绝，不污染原笔记', async t => {
+  const f = await fixture(t), before = f.root.notebook.current(), writes = f.writes
+  const document = structuredClone(before.document)
+  document.blocks[0].content = [{ type: 'link', href: 'https://example.com', content: [{ type: 'math', props: { expression: 'x+y' } }] }]
+  await assert.rejects(f.edit(await f.read(), [{ op: 'update', blockId: 'a', patch: { content: document.blocks[0].content } }]), /链接内部只支持文字片段/)
+  await assert.rejects(f.bridge.call('notebook_update', { id: before.id, revision: await revision(before), patch: { document } }), /链接内部只支持文字片段/)
+  await assert.rejects(f.notes.update(before.id, { document }, before.revision), /链接内部只支持文字片段/)
+  await assert.rejects(f.notes.importMany([{ ...before, document }]), /链接内部只支持文字片段/)
+  assert.deepEqual(f.root.notebook.current(), before)
+  assert.deepEqual(f.notes.list().find(note => note.id === before.id), before)
+  assert.equal(f.root.notebook.dirty, false)
+  assert.equal(f.backups.size, 0)
+  assert.equal(f.writes, writes)
+})
+
 test('真实笔记模型和桥接：读取草稿、兼容通用 revision、单次保存并派生正文', async t => {
   const f = await fixture(t), read = await f.read({ includeContent: true }), beforeWrites = f.writes
   const result = await f.edit(read, [

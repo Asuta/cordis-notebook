@@ -1,22 +1,23 @@
 // Versioned envelope around BlockNote's public block JSON. Both processes use
 // this validator; editor/DOM implementation code is never needed by storage.
-export const blockTypes = ['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'toggleListItem', 'quote', 'codeBlock', 'divider', 'table', 'image', 'video', 'audio', 'file']
+export const blockTypes = ['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'toggleListItem', 'quote', 'codeBlock', 'divider', 'table', 'image', 'video', 'audio', 'file', 'callout', 'equation', 'tableOfContents']
 const record = value => value && typeof value === 'object' && !Array.isArray(value)
 const idPattern = /^[\w:-]{1,100}$/
 const styles = new Set(['bold', 'italic', 'underline', 'strike', 'code', 'textColor', 'backgroundColor'])
 const common = ['textColor', 'backgroundColor', 'textAlignment']
 const propsByType = {
+  callout: ['tone'], equation: ['expression'],
   heading: ['level', 'isToggleable'], numberedListItem: ['start'], checkListItem: ['checked'],
   codeBlock: ['language'], image: ['name', 'url', 'caption', 'showPreview', 'previewWidth'],
   video: ['name', 'url', 'caption', 'showPreview', 'previewWidth'], audio: ['name', 'url', 'caption', 'showPreview'], file: ['name', 'url', 'caption'],
 }
-const baseProps = { codeBlock: [], divider: [], table: ['textColor'], quote: ['textColor', 'backgroundColor'],
+const baseProps = { equation: [], tableOfContents: [], codeBlock: [], divider: [], table: ['textColor'], quote: ['textColor', 'backgroundColor'],
   image: ['textAlignment', 'backgroundColor'], video: ['textAlignment', 'backgroundColor'], audio: ['backgroundColor'], file: ['backgroundColor'] }
 function object(value, allowed, label) {
   if (!record(value) || Object.keys(value).some(key => !allowed.includes(key))) throw Error(label + '无效或包含未知字段')
 }
 function url(value, media = false) {
-  if (typeof value !== 'string' || value.length > 4096 || (value && !/^(https?:\/\/|\/api\/note-assets\/)/i.test(value) && (media || !/^(mailto:|#)/i.test(value)))) throw Error('链接地址无效')
+  if (typeof value !== 'string' || value.length > 4096 || (value && !/^(https?:\/\/|\/api\/note-(?:assets|files)\/)/i.test(value) && (media || !/^(mailto:|#)/i.test(value)))) throw Error('链接地址无效')
   return value
 }
 export function normalizeDocument(input) {
@@ -34,13 +35,20 @@ export function normalizeDocument(input) {
     }
     return { ...value }
   }
-  const inline = (items, links = true) => {
+  const inline = (items, textOnly = false) => {
     if (!Array.isArray(items) || items.length > 10000) throw Error('行内正文无效')
     return items.map(item => {
       if (++count > 20000) throw Error('文档节点过多')
       if (item?.type === 'text') { object(item, ['type', 'text', 'styles'], '文字片段'); return { type: 'text', text: text(item.text), styles: readStyles(item.styles || {}) } }
-      if (item?.type === 'link' && links) { object(item, ['type', 'href', 'content'], '链接'); return { type: 'link', href: url(item.href), content: inline(item.content, false) } }
-      if (item?.type === 'pageLink' && links) {
+      // BlockNote links contain StyledText only, never custom inline nodes.
+      if (textOnly) throw Error('链接内部只支持文字片段')
+      if (item?.type === 'math') {
+        object(item, ['type', 'props'], '行内公式'); object(item.props, ['expression'], '公式属性')
+        if (typeof item.props.expression !== 'string' || item.props.expression.length > 4096) throw Error('公式最多 4096 字符')
+        return { type: 'math', props: { expression: text(item.props.expression) } }
+      }
+      if (item?.type === 'link') { object(item, ['type', 'href', 'content'], '链接'); return { type: 'link', href: url(item.href), content: inline(item.content, true) } }
+      if (item?.type === 'pageLink') {
         object(item, ['type', 'props'], '页面引用'); object(item.props, ['noteId', 'title'], '页面引用属性')
         if (typeof item.props.noteId !== 'string' || !idPattern.test(item.props.noteId) || typeof item.props.title !== 'string' || item.props.title.length > 200) throw Error('页面引用无效')
         return { type: 'pageLink', props: { noteId: item.props.noteId, title: text(item.props.title) } }
@@ -107,11 +115,12 @@ export function normalizeDocument(input) {
         else if (['level', 'start', 'previewWidth'].includes(key)) { if (!Number.isFinite(value) || value < 0 || value > 100000 || key === 'level' && ![1, 2, 3, 4, 5, 6].includes(value)) throw Error('块数值属性无效') }
         else if (typeof value !== 'string' || value.length > 4096) throw Error('块文字属性无效')
         if (key === 'url') url(value, true)
+        if (key === 'tone' && !['info', 'warning', 'success'].includes(value)) throw Error('提示框类型无效')
         if (key === 'textAlignment' && !['left', 'center', 'right', 'justify'].includes(value)) throw Error('对齐方式无效')
       }
       const result = { id: block.id, type: block.type, props: { ...props }, children: walk(block.children || [], depth + 1) }
       if (block.type === 'table') result.content = table(block.content)
-      else if (['image', 'video', 'audio', 'file', 'divider'].includes(block.type)) {
+      else if (['image', 'video', 'audio', 'file', 'divider', 'equation', 'tableOfContents'].includes(block.type)) {
         if (block.content !== undefined) throw Error('此块不接受文字正文')
       } else {
         result.content = inline(block.content || [])
@@ -128,14 +137,15 @@ export const createBlock = (type = 'paragraph', text = '', id = crypto.randomUUI
   const block = { id, type, props: {}, children: [] }
   if (type === 'table') block.content = { type: 'tableContent', rows: Array.from({ length: 3 }, () => ({ cells: [[], [], []] })) }
   else if (['image', 'video', 'audio', 'file'].includes(type)) block.props.url = text
-  else if (type !== 'divider') block.content = [{ type: 'text', text, styles: {} }]
+  else if (type === 'equation') block.props.expression = text
+  else if (!['divider', 'tableOfContents'].includes(type)) block.content = [{ type: 'text', text, styles: {} }]
   return normalizeDocument({ version: 1, blocks: [block] }).blocks[0]
 }
 export function documentText(document) {
-  const inline = items => items.map(item => item.type === 'link' ? inline(item.content) : item.type === 'pageLink' ? item.props.title || '页面引用' : item.text).join('')
+  const inline = items => items.map(item => item.type === 'link' ? inline(item.content) : item.type === 'pageLink' ? item.props.title || '页面引用' : item.type === 'math' ? item.props.expression : item.text).join('')
   const walk = blocks => blocks.flatMap(block => [
     block.type === 'table' ? block.content.rows.map(row => row.cells.map(cell => inline(Array.isArray(cell) ? cell : cell.content)).join('\t')).join('\n')
-      : Array.isArray(block.content) ? inline(block.content) : block.props.caption || block.props.name || '',
+      : Array.isArray(block.content) ? inline(block.content) : block.props.expression || block.props.caption || block.props.name || '',
     ...walk(block.children),
   ])
   return walk(document.blocks).join('\n')

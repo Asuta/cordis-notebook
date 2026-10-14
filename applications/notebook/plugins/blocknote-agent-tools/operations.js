@@ -37,7 +37,7 @@ function patchBlock(service, block, patch) {
     if ('content' in next && !('text' in patch) && !('content' in patch)) throw Error('改变为文字或表格类型时请明确提供新正文')
   }
   if ('text' in patch) {
-    if (typeof patch.text !== 'string' || ['table', 'image', 'video', 'audio', 'file', 'divider'].includes(next.type)) throw Error('text 仅用于文字块；媒体使用 props.url，表格使用 content')
+    if (typeof patch.text !== 'string' || ['table', 'image', 'video', 'audio', 'file', 'divider', 'equation', 'tableOfContents'].includes(next.type)) throw Error('text 仅用于文字块；公式使用 props.expression，媒体使用 props.url，表格使用 content')
     next.content = [{ type: 'text', text: patch.text, styles: {} }]
   }
   if ('content' in patch) next.content = structuredClone(patch.content)

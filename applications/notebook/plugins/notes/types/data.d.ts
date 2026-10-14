@@ -10,6 +10,7 @@ export interface Note {
   readonly pinned: boolean
   /** null/absent means a root page. Parent removal promotes direct children. */
   readonly parentId?: string | null
+  readonly properties?: { readonly status: 'todo' | 'doing' | 'done'; readonly tags: readonly string[]; readonly date: string | null }
   readonly createdAt: string
   readonly updatedAt: string
   /** 手动排序序号，越小越靠前；未排序的笔记按更新时间排列。 */

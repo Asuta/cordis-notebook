@@ -1,0 +1,59 @@
+{
+  "name": "@cordis-notebook/database-editor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "database-editor",
+    "name": "数据库表格与看板",
+    "description": "数据库表格与看板",
+    "requires": {
+      "server": [],
+      "client": [
+        "ui",
+        "notebook",
+        "editorHost",
+        "noteFormats",
+        "shell"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "order": 20,
+    "defaultEnabled": true,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Table",
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser",
+        "minify": true,
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        }
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ]
+  }
+}

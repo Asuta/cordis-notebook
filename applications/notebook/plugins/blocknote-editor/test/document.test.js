@@ -11,8 +11,8 @@ const doc = (...blocks) => ({ version: 1, blocks })
 const text = value => [{ type: 'text', text: value, styles: {} }]
 
 test('存储校验覆盖已安装的 BlockNote 原生 schema，默认属性往返保留', () => {
-  assert.deepEqual([...blockTypes].sort(), Object.keys(defaultBlockSpecs).sort())
-  for (const type of blockTypes) {
+  assert.deepEqual(blockTypes.filter(type => !['callout', 'equation', 'tableOfContents'].includes(type)).sort(), Object.keys(defaultBlockSpecs).sort())
+  for (const type of Object.keys(defaultBlockSpecs)) {
     const block = service.create(type, '', type)
     block.props = Object.fromEntries(Object.entries(defaultBlockSpecs[type].config.propSchema).filter(([, spec]) => spec.default !== undefined).map(([key, spec]) => [key, spec.default]))
     assert.deepEqual(service.normalize(doc(block)), doc(block))
@@ -41,6 +41,27 @@ test('拒绝会被编辑器静默丢弃的数据、重复 ID、不安全链接�
     doc({ ...a, type: 'codeBlock', content: [{ type: 'text', text: 'x', styles: { bold: true } }] }),
     doc({ ...a, content: text('x'.repeat(200001)) }),
   ]) assert.throws(() => service.normalize(invalid))
+})
+
+test('链接只接受文字片段，链接外的公式与页面引用仍可往返', () => {
+  const formula = { type: 'math', props: { expression: 'x+y' } }
+  const reference = { type: 'pageLink', props: { noteId: 'other', title: '另一页' } }
+  const link = { type: 'link', href: 'https://example.com', content: [{ type: 'text', text: '正常链接', styles: { bold: true } }] }
+  const paragraph = service.create('paragraph', '', 'p'), table = service.create('table', '', 'table')
+  paragraph.content = [link, formula, reference]
+  table.content.rows[0].cells[0] = [formula, link]
+  table.content.rows[0].cells[1] = { type: 'tableCell', props: {}, content: [formula, link] }
+  const valid = doc(paragraph, table)
+  assert.deepEqual(service.normalize(valid), valid)
+  for (const nested of [formula, reference, link]) {
+    for (const location of ['paragraph', 'cell', 'styledCell']) {
+      const invalid = structuredClone(valid), badLink = { ...link, content: [nested] }
+      if (location === 'paragraph') invalid.blocks[0].content = [badLink]
+      else if (location === 'cell') invalid.blocks[1].content.rows[0].cells[0] = [badLink]
+      else invalid.blocks[1].content.rows[0].cells[1].content = [badLink]
+      assert.throws(() => service.normalize(invalid), /链接内部只支持文字片段/)
+    }
+  }
 })
 
 test('纵向合并保留可重载的行结构，整行覆盖、跨表格或超出列数会被拒绝', () => {

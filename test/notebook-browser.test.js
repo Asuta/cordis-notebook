@@ -100,7 +100,7 @@ test('产品浏览器：BlockNote 导入导出、页面关系、引用改名跳�
   await frame.getByRole('menuitem', { name: '导入与备份', exact: true }).click()
   const transfer = frame.getByRole('dialog', { name: '导入与备份' })
   const downloadPromise = page.waitForEvent('download')
-  await transfer.getByRole('button', { name: '备份全部笔记（含图片）' }).click()
+  await transfer.getByRole('button', { name: '备份全部笔记（含附件）' }).click()
   const download = await downloadPromise, backup = JSON.parse(await readFile(await download.path(), 'utf8')), originalIds = app.ctx.notes.list().map(note => note.id)
   await transfer.getByLabel('选择文件').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) })
   await until(async () => (await transfer.getByRole('status').innerText()).includes('文件已读取'), '读取备份文件')

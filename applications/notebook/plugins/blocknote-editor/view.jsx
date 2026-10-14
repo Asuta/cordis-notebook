@@ -1,6 +1,6 @@
-import { docToBlocks } from '@blocknote/core'
+import { docToBlocks, filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core'
 import { zh } from '@blocknote/core/locales'
-import { useCreateBlockNote, SuggestionMenuController } from '@blocknote/react'
+import { useCreateBlockNote, SuggestionMenuController, getDefaultReactSlashMenuItems } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/ariakit'
 
 export function mountBlockNote(ctx, sdk, root, schema) {
@@ -25,7 +25,7 @@ export function mountBlockNote(ctx, sdk, root, schema) {
       uploadFile: async file => {
         if (!editable() || editor !== instance || noteId !== id) throw Error('当前不可上传')
         try {
-          const url = await ctx.noteAssets.upload(file)
+          const url = await ctx.noteAssets.uploadAttachment(file)
           if (!editable() || editor !== instance || noteId !== id) throw Error('页面已切换，图片不会插入其他笔记')
           return url
         } catch (error) { sdk.toast(error.message); throw error }
@@ -58,7 +58,14 @@ export function mountBlockNote(ctx, sdk, root, schema) {
       })
       return () => { offBefore(); offChange(); if (editor === instance) editor = null }
     }, [instance])
-    return <BlockNoteView editor={instance} editable={!readonly} theme="light" className="cordis-blocknote">
+    return <BlockNoteView editor={instance} editable={!readonly} theme="light" className="cordis-blocknote" slashMenu={false}>
+      <SuggestionMenuController triggerCharacter="/" getItems={async query => filterSuggestionItems([
+        ...getDefaultReactSlashMenuItems(instance),
+        ...[['callout', '提示框', 'callout'], ['equation', '公式', 'math equation'], ['tableOfContents', '目录', 'toc contents']].map(([type, title, alias]) => ({
+          title, group: '页面组件', aliases: [title, ...alias.split(' ')], onItemClick: () => { if (editable()) insertOrUpdateBlockForSlashMenu(instance, { type }) },
+        })),
+        { title: '行内公式', group: '页面组件', aliases: ['inline math', '行内公式'], onItemClick: () => { if (editable()) instance.insertInlineContent([{ type: 'math', props: { expression: '' } }, ' ']) } },
+      ], query)} />
       <SuggestionMenuController triggerCharacter="@" getItems={async query => model.notes
         .filter(note => note.id !== id && (note.title || '无标题笔记').toLowerCase().includes(query.toLowerCase())).slice(0, 30)
         .map(note => ({ title: note.title || '无标题笔记', subtext: '引用笔记页面', group: '页面',
@@ -97,6 +104,8 @@ export function mountBlockNote(ctx, sdk, root, schema) {
     if (selection.empty || !selection.$from.sameParent(selection.$to) || !selection.$from.parent.isTextblock) return null
     const text = state.doc.textBetween(selection.from, selection.to, '\n'), snapshot = JSON.stringify(instance.document), bookmark = selection.getBookmark()
     return { text, noteId: id, label: model.current().title || 'BlockNote 选区', formats: ['text'], apply: async text => {
+      const rejection = await ctx.serial('notebook/before-action')
+      if (rejection !== undefined && rejection !== null && rejection !== false) throw Error(String(rejection))
       if (typeof text !== 'string' || !editable() || instance !== editor || noteId !== id || snapshot !== JSON.stringify(instance.document)) throw Error('笔记或选区已变化，请重新添加选区')
       const state = instance.prosemirrorView.state
       const transaction = state.tr.setSelection(bookmark.resolve(state.doc)).insertText(text)

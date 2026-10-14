@@ -1,5 +1,5 @@
 export const maxBackupBytes = 32 * 1024 * 1024
-const assetPattern = /^\/api\/note-assets\/[a-f0-9]{64}\.(png|jpg|gif|webp)$/
+const assetPattern = /^\/api\/note-(?:assets\/[a-f0-9]{64}\.(?:png|jpg|gif|webp)|files\/[a-f0-9]{64}\.(?:pdf|mp4|webm|mp3|ogg|wav|bin))$/
 export function assetReferences(value, markdownImages = () => []) {
   const refs = new Set(), stack = [value]
   let count = 0
@@ -8,11 +8,11 @@ export function assetReferences(value, markdownImages = () => []) {
     if (!value || typeof value !== 'object') continue
     if (++count > 2000000) throw Object.assign(Error('备份结构过大'), { status: 400 })
     for (const [key, item] of Object.entries(value)) {
-      if (['src', 'url'].includes(key) && typeof item === 'string' && item.startsWith('/api/note-assets/')) {
+      if (['src', 'url', 'href'].includes(key) && typeof item === 'string' && /^\/api\/note-(assets|files)\//.test(item)) {
         if (!assetPattern.test(item)) throw Object.assign(Error('笔记包含无效的本地图片地址'), { status: 400 })
         refs.add(item)
       } else if (key === 'markdown' && typeof item === 'string') {
-        for (const src of markdownImages(item)) if (src.startsWith('/api/note-assets/')) {
+        for (const src of markdownImages(item)) if (/^\/api\/note-(assets|files)\//.test(src)) {
           if (!assetPattern.test(src)) throw Object.assign(Error('笔记包含无效的本地图片地址'), { status: 400 })
           refs.add(src)
         }

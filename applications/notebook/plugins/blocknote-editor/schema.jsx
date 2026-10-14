@@ -1,5 +1,6 @@
-import { BlockNoteSchema, defaultInlineContentSpecs } from '@blocknote/core'
+import { BlockNoteSchema, defaultInlineContentSpecs, defaultBlockSpecs } from '@blocknote/core'
 import { createReactInlineContentSpec } from '@blocknote/react'
+import { extraSpecs } from './extra-blocks.jsx'
 
 export function createSchema(ctx, sdk) {
   const { h, useObserve } = ctx.ui
@@ -18,5 +19,6 @@ export function createSchema(ctx, sdk) {
     toExternalHTML: ({ inlineContent }) => <span data-page-reference={inlineContent.props.noteId}>{inlineContent.props.title || '页面引用'}</span>,
     parse: element => element.hasAttribute('data-page-reference') ? { noteId: element.getAttribute('data-page-reference'), title: element.textContent.slice(0, 200) } : undefined,
   })
-  return BlockNoteSchema.create({ inlineContentSpecs: { ...defaultInlineContentSpecs, pageLink: PageLink } })
+  const extra = extraSpecs(ctx, sdk)
+  return BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, ...extra.blocks }, inlineContentSpecs: { ...defaultInlineContentSpecs, pageLink: PageLink, ...extra.inline } })
 }

@@ -25,7 +25,7 @@ test('业务事件声明分发模式，源码调用与契约一致', async () =>
   const declarations = (await Promise.all(paths.map(path => readFile(path, 'utf8')))).join('\n')
   const modes = new Map([...declarations.matchAll(/@mode\s+(\w+)\s*\*\/\s*'([^']+)'/g)].map(([, mode, event]) => [event, mode]))
   const events = [...declarations.matchAll(/'((?:notebook|plugins)\/[^']+)'\s*\(/g)].map(([, event]) => event)
-  assert.equal(events.length, 5)
+  assert.deepEqual(events.sort(), ['notebook/before-action', 'notebook/before-save', 'notebook/changed', 'notebook/saved', 'plugins/before-stop', 'plugins/remote-stop'].sort())
   assert.deepEqual([...modes.keys()].sort(), events.sort())
   for (const mode of modes.values()) assert.ok(['parallel', 'serial'].includes(mode))
   const files = await readdir('client', { recursive: true })

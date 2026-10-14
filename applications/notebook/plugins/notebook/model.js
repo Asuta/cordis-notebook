@@ -65,7 +65,11 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
       if (this.busy || stopped) return Promise.resolve()
       actionBusy = true; this.notify('busy')
       const task = (async () => {
-        try { await this.flush(); if (!stopped) return await action() }
+        try {
+          const rejection = await ctx.serial('notebook/before-action')
+          if (rejection !== undefined && rejection !== null && rejection !== false) throw Error(String(rejection))
+          await this.flush(); if (!stopped) return await action()
+        }
         finally { actionBusy = false; await retryDraft(); this.notify('selection') }
       })()
       activeAction = task.catch(() => {})
@@ -73,12 +77,32 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
     },
     choose(id) { return this.perform(async () => { this.selected = id; revision++ }) },
     reorder(ids) { return this.perform(async () => { const notes = await ctx.notesApi.request('/order', 'PUT', { ids }); if (stopped) return; this.notes = notes }) },
-    create(type = 'plain', fields = {}) { return this.perform(async () => { const note = await ctx.notesApi.request('', 'POST', { type, fields }); if (stopped) return; this.notes.unshift(note); invalidate(); this.selected = note.id; revision++; return copy(note) }) },
+    create(type = 'plain', fields = {}, { select = true } = {}) { return this.perform(async () => { const note = await ctx.notesApi.request('', 'POST', { type, fields }); if (stopped) return; this.notes.unshift(note); invalidate(); if (select) this.selected = note.id; revision++; return copy(note) }) },
+    updateNote(id, patch, expectedRevision) { return this.perform(async () => {
+      const original = this.notes.find(note => note.id === id)
+      if (!original || original.revision !== expectedRevision) throw Error('页面或版本已变化，请刷新后重试')
+      const next = ctx.noteFormats.update(original, patch)
+      const rejection = await ctx.serial('notebook/before-save', ctx.noteFormats.snapshot(next))
+      if (rejection !== undefined && rejection !== null && rejection !== false) throw Error(String(rejection))
+      if (stopped) return
+      const saved = await ctx.notesApi.request('/' + id, 'PATCH', { ...patch, revision: expectedRevision })
+      if (stopped) return saved
+      this.notes = this.notes.map(note => note.id === id ? saved : note); invalidate(); revision++
+      publish('notebook/saved', copy(saved)); return copy(saved)
+    }) },
     importNotes(action) { return this.perform(async () => {
       const created = await action()
       if (stopped) return created
       this.notes = [...created, ...this.notes]; invalidate(); this.selected = created[0]?.id || this.selected; revision++
       return created.map(copy)
+    }) },
+    restoreNote(action) { return this.perform(async () => {
+      const restored = await action(this.current())
+      if (stopped) return restored
+      this.notes = [restored, ...this.notes.filter(note => note.id !== restored.id)]
+      invalidate(); this.selected = restored.id; revision++
+      this.status = '✓ 已恢复并保存，原有版本保留在历史记录中'
+      return copy(restored)
     }) },
     remove() { if (!this.current()) return Promise.resolve(); return this.perform(async () => { const note = this.current(); const result = await ctx.notesApi.request('/' + note.id, 'DELETE', { revision: note.revision ?? 0 }); if (stopped) return; const reparented = new Map((result.reparented || []).map(note => [note.id, note])); this.notes = this.notes.filter(n => n.id !== note.id).map(n => reparented.get(n.id) || n); this.selected = this.notes[0]?.id || null }) },
     saveCopy() {

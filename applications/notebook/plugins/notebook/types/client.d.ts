@@ -28,10 +28,13 @@ export interface NotebookService {
   registerFilter(owner: Context, key: string, predicate: NoteFilter): FilterRegistration
   choose(id: string): Promise<void>
   reorder(ids: string[]): Promise<void>
-  create(type?: string, fields?: NotePatch): Promise<Note | undefined>
+  create(type?: string, fields?: NotePatch, options?: {select?: boolean}): Promise<Note | undefined>
+  updateNote(id: string, patch: NotePatch, expectedRevision: number): Promise<Note | undefined>
   /** Flush and hold edits while an importer atomically appends new notes. */
   importNotes(action: () => Promise<Note[]>): Promise<Note[] | undefined>
   remove(): Promise<void>
+  /** Flush and hold editing while restoring a durable note from history or trash. */
+  restoreNote(action: (current: Note | undefined) => Promise<Note>): Promise<Note | undefined>
   edit(patch: NotePatch): void
   flush(): Promise<void>
   saveCopy(): Promise<void>
@@ -40,6 +43,8 @@ export interface NotebookService {
 import type {} from '@cordis-notebook/host'
 declare module '@cordis-notebook/host' { interface ClientServices { notebook: NotebookService } }
 declare module 'cordis' { interface Events {
+    /** @mode serial */
+    'notebook/before-action'(): Validation | Promise<Validation>
     /** @mode parallel */
     'notebook/changed'(event: NotebookChange): void | Promise<void>
     /** Return a message or throw to reject. No recursive flush() here.

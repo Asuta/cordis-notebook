@@ -1,7 +1,8 @@
 import { noteType, snapshotNote } from './note.js'
+import { normalizeProperties } from './properties.js'
 
 const fail = (status, message) => Object.assign(new Error(message), { status })
-const reserved = new Set(['id', 'type', 'title', 'pinned', 'parentId', 'order', 'createdAt', 'updatedAt', 'revision', '__proto__', 'constructor', 'prototype'])
+const reserved = new Set(['id', 'type', 'title', 'pinned', 'parentId', 'properties', 'order', 'createdAt', 'updatedAt', 'revision', '__proto__', 'constructor', 'prototype'])
 // Both processes use the same contract, but each owns its registrations independently.
 export function createFormatRegistry(ctx) {
   const formats = new Map(), listeners = new Set()
@@ -58,18 +59,19 @@ export function createFormatRegistry(ctx) {
       if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw fail(400, '笔记格式错误')
       const format = requireFormat(noteType(note))
       if ('type' in patch && patch.type !== noteType(note)) throw fail(400, '暂不支持转换笔记格式')
-      const allowed = new Set(['title', 'pinned', 'parentId', 'content', 'type', ...format.fields])
+      const allowed = new Set(['title', 'pinned', 'parentId', 'properties', 'content', 'type', ...format.fields])
       if (Object.keys(patch).some(key => !allowed.has(key))) throw fail(400, '笔记包含此格式不支持的字段')
       if ('title' in patch && (typeof patch.title !== 'string' || patch.title.length > 200)) throw fail(400, '笔记标题过长或格式错误')
       if ('pinned' in patch && typeof patch.pinned !== 'boolean') throw fail(400, '置顶格式错误')
       if ('parentId' in patch && patch.parentId !== null && (typeof patch.parentId !== 'string' || !/^[\w:-]{1,100}$/.test(patch.parentId))) throw fail(400, '父页面 ID 无效')
       const data = payload(format, { ...note, ...patch }), result = normalize(format, data)
+      if ('properties' in patch) { try { result.properties = normalizeProperties(patch.properties, note.properties) } catch (error) { throw fail(400, error.message) } }
       if ('content' in patch && !format.fields.includes('content') && patch.content !== result.content) throw fail(400, '派生正文必须与格式数据一致')
       return { ...note, ...result, ...('title' in patch ? { title: patch.title } : {}), ...('pinned' in patch ? { pinned: patch.pinned } : {}), ...('parentId' in patch ? { parentId: patch.parentId } : {}) }
     },
     patch(note) {
       const format = requireFormat(noteType(note))
-      return structuredClone({ title: note.title, pinned: note.pinned, ...(note.parentId !== undefined ? { parentId: note.parentId } : {}), ...payload(format, note) })
+      return structuredClone({ title: note.title, pinned: note.pinned, ...(note.parentId !== undefined ? { parentId: note.parentId } : {}), ...(note.properties !== undefined ? { properties: note.properties } : {}), ...payload(format, note) })
     },
   }
 }
