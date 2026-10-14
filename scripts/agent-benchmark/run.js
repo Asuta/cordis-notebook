@@ -92,7 +92,7 @@ export async function runBenchmark(config, { root = resolve('.'), onProgress = c
           if (config.page === 'headless') { browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); await page.goto(url) }
           const binding = await until(() => { if (signal?.aborted) throw Error('评测已取消'); return [...wb.clients.entries()].find(([, value]) => value.appId === task.appId && Date.now() - value.seen < 10000) }, '评测工作台页面连接：' + url, 180000)
           const clientId = binding[0]
-          let prompt = task.prompt + '\n本次只允许修改该新插件目录，不修改已有插件或框架；不要安装依赖、提交或推送。完成实现和自测后结束回复，评测程序会独立验收并反馈。'
+          let prompt = task.prompt + '\n本次只允许修改该新插件目录，不修改已有插件或框架；不要安装依赖、提交或推送。只使用当前项目的开发资料，不读取或执行项目外的评测脚本、参考实现或其他轮次产物。完成实现和自测后结束回复，评测程序会独立验收并反馈。'
           start = Date.now(); deadline = start + config.timeoutSeconds * 1000
           timer = setTimeout(abort, config.timeoutSeconds * 1000)
           trial.status = 'running'; trial.startedAt = start

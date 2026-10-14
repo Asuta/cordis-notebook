@@ -20,6 +20,13 @@ export async function referencePlugin(project, task, broken = false) {
   } else if (task.id === 'action') {
     m.requires.client = ['notebook', 'shell']
     files['client.js'] = `export default function(ctx,sdk){const button=sdk.button('toolbar','复制标题',async()=>{await navigator.clipboard.writeText(ctx.notebook.current().title);sdk.toast('标题已复制')});button.setAttribute('aria-label','复制标题');ctx.notebook.observe(ctx,()=>button.disabled=!ctx.notebook.current())}`
+  } else if (task.id === 'date-action') {
+    m.requires.client = ['notebook', 'shell']
+    files['client.js'] = `export default function(ctx,sdk){const model=ctx.notebook, field=n=>n?.type==='plain'?'content':n?.type==='markdown'?'markdown':null;
+      const button=sdk.button('toolbar','插入当前日期',async()=>{const note=model.current(),key=field(note);if(!key||model.busy||!model.editable)return;
+        const now=new Date(),date=${broken ? "'1999-01-01'" : "[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-')"};
+        model.edit({[key]:note[key]+(note[key]?'\\n':'')+date});await model.flush()});button.setAttribute('aria-label','插入当前日期');
+      model.observe(ctx,()=>button.disabled=!field(model.current())||model.busy||!model.editable)}`
   } else if (task.id === 'editor') {
     m.requires.client = ['notebook', 'noteFormats', 'editorHost']; m.requires.server = ['noteFormats']
     files['format.js'] = `export const format={type:'simple-page',label:'便签页面',icon:'FileText',editor:'simple-page',fields:['body'],defaults:()=>({body:''}),normalize(data){if(typeof data.body!=='string')throw Error('body 必须为文本');return {body:data.body}},toText:data=>data.body}`

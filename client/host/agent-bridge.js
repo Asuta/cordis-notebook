@@ -2,8 +2,11 @@ import { errorDetail } from '../../shared/errors.js'
 /** Application-neutral, lifecycle-owned tools. The workbench owns the Agent process. */
 export function createAgentBridge({ application, session, stopping, enablePlugin, window, document }) {
   const tools = new Map(), attachments = new Map(), pageId = crypto.randomUUID()
+  // Read once from the document, never from a later server status: an old page
+  // must not acknowledge a reload merely because it fetched fresh metadata.
+  const reloadToken = document.querySelector('meta[name="cordis-reload-token"]')?.content
   let peer, origin, menu, releaseReload
-  const send = message => { if (peer) peer.postMessage({ channel: 'cordis-agent', pageId, appId: application?.id, session, ...message }, origin) }
+  const send = message => { if (peer) peer.postMessage({ channel: 'cordis-agent', pageId, appId: application?.id, session, reloadToken, ...message }, origin) }
   const describe = () => [...tools.values()].map(({ definition }) => definition)
   const register = (owner, definition, execute) => {
     if (!/^[a-z][a-z0-9_]{1,63}$/.test(definition.name) || tools.has(definition.name) || definition.name === 'workspace_enable_plugin') throw Error('Agent 工具名称无效或重复')

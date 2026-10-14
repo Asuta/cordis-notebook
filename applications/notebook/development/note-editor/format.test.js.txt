@@ -1,0 +1,12 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { format, field } from '../format.js'
+
+test('正文保留空文本、空行和换行，拒绝非法字段值', () => {
+  assert.deepEqual(format.defaults(), { [field]: '' })
+  for (const text of ['', '第一行\n\n第二行', '  ']) {
+    const value = format.normalize({ [field]: text, unrelated: '不应保留' })
+    assert.deepEqual(value, { [field]: text }); assert.equal(format.toText(value), text)
+  }
+  for (const value of [null, undefined, 1, {}]) assert.throws(() => format.normalize({ [field]: value }), /文本/)
+})

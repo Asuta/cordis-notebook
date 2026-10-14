@@ -1,49 +1,278 @@
 {
-  "templates": [{ "id": "notebook-footer", "focus": "ui", "description": "笔记页脚挂载与当前笔记订阅；requires.client 为 notebook、shell", "presentation": {
-    "styles": { "note": "footer 已提供 11px 字号和弱化文字色，span 继承即可；需要强调时使用主题变量，class 使用插件 id 前缀。", "tokens": ["--theme-text", "--theme-muted", "--theme-accent", "--theme-border"], "example": ".plugin-<plugin-id> { font: inherit; color: var(--theme-muted); white-space: nowrap; }" },
-    "icons": { "note": "纯统计 span 无需图标或 React。若确需 React 图标，额外声明 requires.client:[ui]，用 ctx.ui.h(ctx.ui.Icon, {name:'Plus', size:14})，并用 ctx.ui.mount(ctx, node, content) 管理释放。", "names": ["Plus", "Search", "Pin"] },
-    "ordering": { "note": "sdk.mount('footer', node) 没有 order 参数；footer 为 flex，gap 14px，按挂载顺序追加。不要把 cordis.order 当成 footer 插槽排序 API。" },
-    "references": [{ "file": "plugins/layout/style.css", "start": 77, "end": 91 }, { "file": "plugins/ui/types/client.d.ts", "start": 1, "end": 13 }]
-  } }],
-  "tasks": [{
-    "id": "note-content", "focus": "ui", "description": "读取当前笔记、字数/段落/阅读时长等统计展示；区分普通与 Markdown 源码；不用于新增编辑器",
-    "recipe": {
-      "services": { "client": ["notebook", "shell", "noteFormats"], "server": [] },
-      "contracts": ["plugins/notebook/types/client.d.ts", "plugins/layout/types/client.d.ts", "plugins/notes/types/data.d.ts", "plugins/note-formats/types/data.d.ts", "note-content.md"],
-      "examples": ["plugins/stats/client.js", "plugins/stats/package.json", "plugins/format-plain/format.js", "plugins/format-markdown/format.js"],
-      "patterns": ["ctx.notebook.observe(ctx, render) 立即调用并随 owner 释放；sdk.mount('footer', node) 由上下文释放。", "plain 原文为 content，markdown 原文为 markdown；派生 content 不保留源码空行。按空行计数应读取源码，空源码不能回退到派生文本。"]
+  "templates": [
+    {
+      "id": "notebook-footer",
+      "focus": "ui",
+      "description": "笔记页脚挂载与当前笔记订阅；requires.client 为 notebook、shell",
+      "presentation": {
+        "styles": {
+          "note": "footer 已提供 11px 字号和弱化文字色，span 继承即可；需要强调时使用主题变量，class 使用插件 id 前缀。",
+          "tokens": [
+            "--theme-text",
+            "--theme-muted",
+            "--theme-accent",
+            "--theme-border"
+          ],
+          "example": ".plugin-<plugin-id> { font: inherit; color: var(--theme-muted); white-space: nowrap; }"
+        },
+        "icons": {
+          "note": "纯统计 span 无需图标或 React。若确需 React 图标，额外声明 requires.client:[ui]，用 ctx.ui.h(ctx.ui.Icon, {name:'Plus', size:14})，并用 ctx.ui.mount(ctx, node, content) 管理释放。",
+          "names": [
+            "Plus",
+            "Search",
+            "Pin"
+          ]
+        },
+        "ordering": {
+          "note": "sdk.mount('footer', node) 没有 order 参数；footer 为 flex，gap 14px，按挂载顺序追加。不要把 cordis.order 当成 footer 插槽排序 API。"
+        },
+        "references": [
+          {
+            "file": "plugins/layout/style.css",
+            "start": 77,
+            "end": 91
+          },
+          {
+            "file": "plugins/ui/types/client.d.ts",
+            "start": 1,
+            "end": 13
+          }
+        ]
+      }
+    },
+    {
+      "id": "note-editor",
+      "focus": "ui",
+      "task": "note-editor",
+      "file": "development/note-editor/template.json",
+      "description": "可运行的文本编辑格式，已接双端注册、宿主、自动保存、样式和基础测试；parameters.field/editorLabel 按用户要求填写"
+    },
+    {
+      "id": "note-action",
+      "focus": "ui",
+      "task": "note-action",
+      "file": "development/note-action/template.json",
+      "description": "笔记操作的完整接入：工具栏菜单、选择/禁用状态、异步防重入和释放；只在 action.js 写业务，parameters.actionLabel/mode 来自需求"
     }
-  }, {
-    "id": "note-action", "focus": "ui", "description": "给现有笔记添加工具栏按钮或菜单动作，如置顶、复制标题、导出；不改变笔记格式或编辑器",
-    "recipe": {
-      "services": { "client": ["notebook", "shell"], "server": [] },
-      "contracts": ["plugins/notes/types/data.d.ts"],
-      "examples": ["plugins/pin/client.js", "plugins/pin/package.json"],
-      "patterns": ["sdk.button('toolbar', label, handler) 同时管理挂载和监听释放；设置 aria-label，读取当前笔记决定禁用状态。", "修改当前笔记使用 notebook.edit，再按需要 flush；busy 或不可编辑时禁止修改。不要查找其他插件内部 DOM。", "工具栏会读取 button.dataset.menuLabel 作为溢出菜单文字；sdk.button 没有 order 参数。"]
+  ],
+  "tasks": [
+    {
+      "id": "note-content",
+      "focus": "ui",
+      "description": "读取当前笔记、字数/段落/阅读时长等统计展示；区分普通与 Markdown 源码；不用于新增编辑器",
+      "recipe": {
+        "services": {
+          "client": [
+            "notebook",
+            "shell",
+            "noteFormats"
+          ],
+          "server": []
+        },
+        "contracts": [
+          "plugins/notebook/types/client.d.ts",
+          "plugins/layout/types/client.d.ts",
+          "plugins/notes/types/data.d.ts",
+          "plugins/note-formats/types/data.d.ts",
+          "note-content.md"
+        ],
+        "examples": [
+          "plugins/stats/client.js",
+          "plugins/stats/package.json",
+          "plugins/format-plain/format.js",
+          "plugins/format-markdown/format.js"
+        ],
+        "patterns": [
+          "ctx.notebook.observe(ctx, render) 立即调用并随 owner 释放；sdk.mount('footer', node) 由上下文释放。",
+          "plain 原文为 content，markdown 原文为 markdown；派生 content 不保留源码空行。按空行计数应读取源码，空源码不能回退到派生文本。"
+        ]
+      }
+    },
+    {
+      "id": "note-action",
+      "focus": "ui",
+      "description": "给现有笔记添加工具栏按钮或菜单动作，如置顶、复制标题、导出；不改变笔记格式或编辑器",
+      "recipe": {
+        "services": {
+          "client": [
+            "notebook",
+            "shell"
+          ],
+          "server": []
+        },
+        "contracts": [
+          "plugins/notes/types/data.d.ts"
+        ],
+        "examples": [
+          "plugins/pin/client.js",
+          "plugins/pin/package.json"
+        ],
+        "patterns": [
+          "sdk.button('toolbar', label, handler) 同时管理挂载和监听释放；设置 aria-label，读取当前笔记决定禁用状态。",
+          "修改当前笔记使用 notebook.edit，再按需要 flush；busy 或不可编辑时禁止修改。不要查找其他插件内部 DOM。",
+          "工具栏会读取 button.dataset.menuLabel 作为溢出菜单文字；sdk.button 没有 order 参数。真实 UI 入口是“更多笔记操作”菜单中的 menuitem，按 actionLabel 唯一定位。",
+          "优先用 recommendedScaffold 的 note-action 骨架；parameters.actionLabel 是按钮名称，mode 为 read 或 edit。仅修改 action.js 的 run/supports；update(patch) 已接 notebook.edit/flush 并阻止异步操作写到新选中的笔记。",
+          "先 browser_open/browser_plugin，再运行 note-action-lifecycle 公共场景，要求空实例；formatName 默认普通笔记，可选插件支持的格式。它只检查公共生命周期，结束返回当前标题和控件。随后补业务效果断言（剪贴板、正文保存等），再 browser_finish，不把公共场景当成业务通过。"
+        ]
+      },
+      "scaffold": "note-action",
+      "verification": ["note-action-lifecycle"]
+    },
+    {
+      "id": "note-editor",
+      "focus": "ui",
+      "description": "新增笔记格式或编辑器：格式定义及前后端注册、编辑区接入、草稿保存与恢复；不是页脚统计或普通按钮",
+      "recipe": {
+        "services": {
+          "client": [
+            "notebook",
+            "noteFormats",
+            "editorHost",
+            "ui"
+          ],
+          "server": [
+            "noteFormats"
+          ]
+        },
+        "contracts": [
+          "plugins/notes/types/data.d.ts",
+          "plugins/ui/types/client.d.ts",
+          "note-content.md"
+        ],
+        "examples": [
+          "plugins/format-plain/format.js",
+          "plugins/format-plain/client.js",
+          "plugins/format-plain/server.js",
+          "plugins/format-plain/package.json",
+          "plugins/editor/client.js",
+          "plugins/editor/view.jsx",
+          "plugins/editor/package.json"
+        ],
+        "patterns": [
+          "新增格式参考 format-plain：为 type/editor 使用新的标识，声明 fields/defaults/normalize/toText，前后端分别注册同一格式定义并声明两端依赖。只修改已有编辑器时不必另建格式。",
+          "editorHost.register(ctx, format.editor, node) 注册编辑区；不向 footer 挂载编辑器，不重复注册已有编辑器标识。React 示例使用 ui；原生 DOM 实现可以不依赖 ui。",
+          "编辑源码通过 notebook.edit，不直接改 current() 快照或写持久化文件；遵守 busy/editable、版本冲突和保存保护。切换笔记、重载恢复、空文档、非法格式、停用再启用均需验证。",
+          "新增文本编辑格式优先使用 recommendedScaffold 的 note-editor 骨架；双端入口、构建、保存与释放已接好，修改需求差异即可。复杂格式仍可参考 examples 自定义。"
+        ]
+      },
+      "scaffold": "note-editor",
+      "verification": [
+        "note-editor-lifecycle"
+      ]
     }
-  }, {
-    "id": "note-editor", "focus": "ui", "description": "新增笔记格式或编辑器：格式定义及前后端注册、编辑区接入、草稿保存与恢复；不是页脚统计或普通按钮",
-    "recipe": {
-      "services": { "client": ["notebook", "noteFormats", "editorHost", "ui"], "server": ["noteFormats"] },
-      "contracts": ["plugins/notes/types/data.d.ts", "plugins/ui/types/client.d.ts", "note-content.md"],
-      "examples": ["plugins/format-plain/format.js", "plugins/format-plain/client.js", "plugins/format-plain/server.js", "plugins/format-plain/package.json", "plugins/editor/client.js", "plugins/editor/view.jsx", "plugins/editor/package.json"],
-      "patterns": ["新增格式参考 format-plain：为 type/editor 使用新的标识，声明 fields/defaults/normalize/toText，前后端分别注册同一格式定义并声明两端依赖。只修改已有编辑器时不必另建格式。", "editorHost.register(ctx, format.editor, node) 注册编辑区；不向 footer 挂载编辑器，不重复注册已有编辑器标识。React 示例使用 ui；原生 DOM 实现可以不依赖 ui。", "编辑源码通过 notebook.edit，不直接改 current() 快照或写持久化文件；遵守 busy/editable、版本冲突和保存保护。切换笔记、重载恢复、空文档、非法格式、停用再启用均需验证。", "examples 给出实际格式与编辑器文件；根据需求保留必要功能，不复制示例里的无关选区、样式或依赖。通用 client 骨架只是起点，双端格式还需增加后端入口与构建声明，写齐后再发布清单。"]
-    }
-  }],
+  ],
   "recipes": {
     "ui": {
       "presentation": {
-        "styles": { "note": "原生 DOM 插件使用主题变量和插件自己的 class；不要硬编码配色或改共享主题。", "tokens": ["--theme-text", "--theme-muted", "--theme-surface", "--theme-panel", "--theme-border", "--theme-accent", "--theme-on-accent"] },
-        "icons": { "note": "React 图标需要 ui 服务：ctx.ui.h(ctx.ui.Icon, {name:'Plus', size:14})；使用 ctx.ui.mount(ctx, node, content) 管理释放，并声明 requires.client:[ui]。纯 DOM 小功能无需新增 React 依赖。", "names": ["Plus", "Search", "Pin"] },
-        "ordering": { "note": "sdk.mount 按挂载顺序追加，没有 order 参数；不要依赖其他插件的内部 DOM 调整位置。" },
-        "references": [{ "file": "plugins/ui/theme.css", "start": 1, "end": 17 }, { "file": "plugins/ui/types/client.d.ts", "start": 1, "end": 13 }]
+        "styles": {
+          "note": "原生 DOM 插件使用主题变量和插件自己的 class；不要硬编码配色或改共享主题。",
+          "tokens": [
+            "--theme-text",
+            "--theme-muted",
+            "--theme-surface",
+            "--theme-panel",
+            "--theme-border",
+            "--theme-accent",
+            "--theme-on-accent"
+          ]
+        },
+        "icons": {
+          "note": "React 图标需要 ui 服务：ctx.ui.h(ctx.ui.Icon, {name:'Plus', size:14})；使用 ctx.ui.mount(ctx, node, content) 管理释放，并声明 requires.client:[ui]。纯 DOM 小功能无需新增 React 依赖。",
+          "names": [
+            "Plus",
+            "Search",
+            "Pin"
+          ]
+        },
+        "ordering": {
+          "note": "sdk.mount 按挂载顺序追加，没有 order 参数；不要依赖其他插件的内部 DOM 调整位置。"
+        },
+        "references": [
+          {
+            "file": "plugins/ui/theme.css",
+            "start": 1,
+            "end": 17
+          },
+          {
+            "file": "plugins/ui/types/client.d.ts",
+            "start": 1,
+            "end": 13
+          }
+        ]
       },
-      "services": { "client": ["notebook", "shell", "noteFormats"], "server": [] },
-      "contracts": ["plugins/notebook/types/client.d.ts", "plugins/layout/types/client.d.ts", "plugins/notes/types/data.d.ts", "plugins/note-formats/types/data.d.ts", "note-content.md"],
-      "examples": ["plugins/stats/client.js", "plugins/stats/package.json"],
-      "patterns": ["shell 由 layout 提供；sdk.mount('footer', node) 挂到页脚，布局还有 sidebar/toolbar/status/editor/panels。", "ctx.notebook.observe(ctx, render) 立即调用并随 owner 释放；sdk.mount 和 sdk.listen 也由上下文释放。", "note.content 不是所有格式的统一正文，先按 note.type 和格式契约选择；无需修改 notebook 或布局宿主。"]
+      "services": {
+        "client": [
+          "notebook",
+          "shell",
+          "noteFormats"
+        ],
+        "server": []
+      },
+      "contracts": [
+        "plugins/notebook/types/client.d.ts",
+        "plugins/layout/types/client.d.ts",
+        "plugins/notes/types/data.d.ts",
+        "plugins/note-formats/types/data.d.ts",
+        "note-content.md"
+      ],
+      "examples": [
+        "plugins/stats/client.js",
+        "plugins/stats/package.json"
+      ],
+      "patterns": [
+        "shell 由 layout 提供；sdk.mount('footer', node) 挂到页脚，布局还有 sidebar/toolbar/status/editor/panels。",
+        "ctx.notebook.observe(ctx, render) 立即调用并随 owner 释放；sdk.mount 和 sdk.listen 也由上下文释放。",
+        "note.content 不是所有格式的统一正文，先按 note.type 和格式契约选择；无需修改 notebook 或布局宿主。"
+      ]
     },
-    "backend": { "services": { "server": ["notes", "http"], "client": [] }, "contracts": ["plugins/notes/types/server.d.ts", "note-content.md"], "examples": ["plugins/notes-api/server.js", "plugins/notes-api/package.json"], "patterns": ["后端接口使用 ctx.http.route(ctx, method, pattern, handler)；声明 requires.server。持久化通过 notes 服务；外部 PATCH/DELETE 的 revision 必填，传给 notes.update/remove 的第三/第二参数，在写入队列内校验，过期返回 409。文件持久化使用 runtime.writeSnapshot，不跨插件导入宿主实现。"] },
-    "agent": { "services": { "client": ["notebook"], "server": [] }, "contracts": ["plugins/notebook/types/client.d.ts", "note-content.md"], "examples": ["plugins/agent-tools/client.js", "plugins/agent-tools/package.json"], "patterns": ["sdk.agent.register 注册工具，停用插件时自动释放；操作本页草稿并校验 revision，不能直接写 notes.json。"] }
+    "backend": {
+      "services": {
+        "server": [
+          "notes",
+          "http"
+        ],
+        "client": []
+      },
+      "contracts": [
+        "plugins/notes/types/server.d.ts",
+        "note-content.md"
+      ],
+      "examples": [
+        "plugins/notes-api/server.js",
+        "plugins/notes-api/package.json"
+      ],
+      "patterns": [
+        "后端接口使用 ctx.http.route(ctx, method, pattern, handler)；声明 requires.server。持久化通过 notes 服务；外部 PATCH/DELETE 的 revision 必填，传给 notes.update/remove 的第三/第二参数，在写入队列内校验，过期返回 409。文件持久化使用 runtime.writeSnapshot，不跨插件导入宿主实现。"
+      ]
+    },
+    "agent": {
+      "services": {
+        "client": [
+          "notebook"
+        ],
+        "server": []
+      },
+      "contracts": [
+        "plugins/notebook/types/client.d.ts",
+        "note-content.md"
+      ],
+      "examples": [
+        "plugins/agent-tools/client.js",
+        "plugins/agent-tools/package.json"
+      ],
+      "patterns": [
+        "sdk.agent.register 注册工具，停用插件时自动释放；操作本页草稿并校验 revision，不能直接写 notes.json。"
+      ]
+    }
+  },
+  "verification": {
+    "note-editor-lifecycle": {
+      "file": "development/note-editor/lifecycle.json",
+      "description": "文本编辑格式的创建、自动保存、切换、刷新、清空保存、停用/启用、再次编辑和唯一控件；真实 UI 独立实例"
+    },
+    "note-action-lifecycle": {
+      "file": "development/note-action/lifecycle.json",
+      "description": "操作插件的无选择禁用、创建/切换后的可用性、停用移除、重新启用唯一入口和刷新；不点击业务动作、不代替业务效果验证"
+    }
   }
 }

@@ -8,7 +8,8 @@ import { discoverApplications } from '../server/application-discovery.js'
 import { developmentInfo, developmentNavigation } from '../workbench/development-tools.js'
 
 test('维护文档中的插件清单与当前 manifest 一致', async () => {
-  assert.equal(await readFile('docs/应用插件清单.md', 'utf8'), await pluginInventory(), '清单已变化，请运行 pnpm docs:inventory')
+  const actual = (await readFile('docs/应用插件清单.md', 'utf8')).replace(/\r\n/g, '\n')
+  assert.equal(actual, await pluginInventory(), '清单已变化，请运行 pnpm docs:inventory')
 })
 test('每个应用的所有开发任务和模板都能解析真实文件、源码选段和服务', async () => {
   for (const app of await discoverApplications(resolve('applications'))) {

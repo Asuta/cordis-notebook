@@ -3,8 +3,38 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
-import { until, command } from './fixture.js'
+import { until, command, sleep } from './fixture.js'
 import { selectCases } from './cases.js'
+
+// A runtime reload may briefly replace the toolbar after it first becomes visible.
+// Read count and visibility together, then require a settled result instead of
+// combining waitFor() and count() from two different DOM states.
+export async function waitForUniqueVisible(target, { timeout = 8000, stableMs = 200 } = {}) {
+  const deadline = performance.now() + timeout
+  let stableSince, last
+  while (performance.now() < deadline) {
+    try {
+      last = await target.evaluateAll(elements => ({
+        count: elements.length,
+        visible: elements.filter(element => {
+          const rect = element.getBoundingClientRect(), style = getComputedStyle(element)
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && !['hidden', 'collapse'].includes(style.visibility)
+        }).length,
+      }))
+    } catch (error) {
+      // Navigation is transient; selector errors and closed pages must still fail.
+      if (!/Execution context was destroyed|Cannot find context with specified id/i.test(error.message)) throw error
+      last = { navigating: true }
+    }
+    const now = performance.now()
+    if (last.count === 1 && last.visible === 1) {
+      stableSince ??= now
+      if (now <= deadline && now - stableSince >= stableMs) return
+    } else stableSince = undefined
+    await sleep(Math.max(0, Math.min(50, deadline - now)))
+  }
+  throw Error(`等待唯一可见目标稳定 ${stableMs}ms 超时（${timeout}ms）：${JSON.stringify(last)}`)
+}
 
 // These fixed checks run outside the Agent's project and survive all repair turns.
 export async function acceptPlugin({ project, directory, task, signal }) {
@@ -39,8 +69,10 @@ async function inspectPlugin({ project, directory, task, signal }) {
     setupStage = 'browser-launch'
     browser = await chromium.launch({ headless: true })
     setupStage = 'plugin-runtime'
-    const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, permissions: ['clipboard-read', 'clipboard-write'] })
+    const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, permissions: ['clipboard-read', 'clipboard-write'], ...(task.id === 'date-action' ? { timezoneId: 'Asia/Shanghai' } : {}) })
     page = await context.newPage(); page.setDefaultTimeout(8000)
+    // Exercise a different date from the development run without pausing timers.
+    if (task.id === 'date-action') await page.clock.setFixedTime(new Date('2027-03-05T04:00:00Z'))
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(origin)
     await page.locator('html[data-cordis-ready="true"]').waitFor()
@@ -57,6 +89,8 @@ async function inspectPlugin({ project, directory, task, signal }) {
     const notes = () => request('/api/notes')
     const clickNote = title => page.getByText(title, { exact: true }).click()
     const summary = () => request('/api/plugins/note-summary/summary')
+    const isNoteAction = ['action', 'date-action'].includes(task.id)
+    const noteAction = page.getByRole('menuitem', { name: task.id === 'date-action' ? '插入当前日期' : '复制标题', exact: true })
     const count = page.getByTestId('paragraph-count'), copy = page.getByRole('menuitem', { name: '复制标题', exact: true }), editor = page.getByRole('textbox', { name: '便签正文', exact: true })
     const openActions = () => page.getByRole('button', { name: '更多笔记操作', exact: true }).click()
     const copyTitle = async () => { await openActions(); await copy.click(); return page.evaluate(() => navigator.clipboard.readText()) }
@@ -72,6 +106,28 @@ async function inspectPlugin({ project, directory, task, signal }) {
       await check('copy-current', async () => { await create('普通笔记', '复制目标一'); assert.equal(await copyTitle(), '复制目标一') })
       await check('success-feedback', () => page.getByText('标题已复制', { exact: true }).waitFor())
       await check('switch-note', async () => { await create('Markdown 笔记', '复制目标二'); assert.equal(await copyTitle(), '复制目标二'); await clickNote('复制目标一'); assert.equal(await copyTitle(), '复制目标一') })
+    } else if (task.id === 'date-action') {
+      const date = '2027-03-05', plain = '已有第一行\n\n原有结尾', markdown = '# 原有标题\n\n**保留源码**'
+      const insert = async () => { await openActions(); await noteAction.click() }
+      const saved = async (title, field, expected) => until(async () => (await notes()).some(n => n.title === title && n[field] === expected), '日期写入正确字段并持久化：' + title)
+      await check('empty-selection', async () => { await openActions(); await noteAction.waitFor(); assert.ok(await noteAction.isDisabled()); await page.keyboard.press('Escape') })
+      await check('append-plain', async () => {
+        await create('普通笔记', '日期普通笔记'); await page.getByRole('textbox', { name: '笔记正文', exact: true }).fill(plain)
+        await insert(); await saved('日期普通笔记', 'content', plain + '\n' + date)
+      })
+      await check('repeat-click', async () => { await insert(); await saved('日期普通笔记', 'content', plain + '\n' + date + '\n' + date) })
+      await check('append-markdown', async () => {
+        await create('Markdown 笔记', '日期 Markdown'); await page.getByRole('textbox', { name: 'Markdown 源码', exact: true }).fill(markdown)
+        await insert(); await saved('日期 Markdown', 'markdown', markdown + '\n' + date)
+      })
+      await check('empty-body', async () => { await create('普通笔记', '日期空正文'); await insert(); await saved('日期空正文', 'content', date) })
+      await check('switch-note', async () => {
+        await clickNote('日期普通笔记'); await until(async () => await page.getByRole('textbox', { name: '笔记正文', exact: true }).inputValue() === plain + '\n' + date + '\n' + date, '切回后原文与两次日期保留')
+      })
+      await check('reload', async () => {
+        await page.reload(); const body = page.getByRole('textbox', { name: '笔记正文', exact: true }); await body.waitFor()
+        assert.equal(await body.inputValue(), plain + '\n' + date + '\n' + date)
+      })
     } else if (task.id === 'editor') {
       await check('create-format', async () => { await create('便签页面', '评测便签'); await editor.waitFor() })
       await check('autosave', async () => { await editor.fill('第一行\n第二行'); await until(async () => (await notes()).some(n => n.type === 'simple-page' && n.body === '第一行\n第二行'), 'body 自动保存') })
@@ -93,22 +149,22 @@ async function inspectPlugin({ project, directory, task, signal }) {
       await check('delete-note', async () => { await request('/api/notes/' + second.id, { revision: second.revision }, 'DELETE'); assert.deepEqual(await summary(), { total: 1, pinned: 1, byType: { plain: 1 } }) })
       await check('read-only', async () => { const before = await notes(); await summary(); await summary(); assert.deepEqual(await notes(), before) })
     } else throw Error('没有固定验收实现：' + task.id)
-    const target = task.id === 'content' ? count : task.id === 'action' ? copy : task.id === 'canvas' ? action : null
+    const target = task.id === 'content' ? count : isNoteAction ? noteAction : task.id === 'canvas' ? action : null
     await check('disable', async () => {
       await toggle(false)
-      if (task.id === 'action') await openActions()
+      if (isNoteAction) await openActions()
       if (target) await until(async () => await target.count() === 0, '停用后移除 UI')
       else if (task.id === 'backend') assert.equal((await fetch(origin + '/api/plugins/note-summary/summary', { signal })).status, 404)
       else { await page.getByRole('button', { name: '新建笔记', exact: true }).click(); assert.equal(await page.getByRole('menuitem', { name: '便签页面', exact: true }).count(), 0); await page.keyboard.press('Escape') }
-      if (task.id === 'action') await page.keyboard.press('Escape')
+      if (isNoteAction) await page.keyboard.press('Escape')
     })
     await check('reenable-once', async () => {
       await toggle(true)
-      if (task.id === 'action') await openActions()
-      if (target) { await target.waitFor(); assert.equal(await target.count(), 1) }
+      if (isNoteAction) await openActions()
+      if (target) await waitForUniqueVisible(target)
       else if (task.id === 'backend') assert.deepEqual(await summary(), { total: 1, pinned: 1, byType: { plain: 1 } })
-      else { await create('便签页面', '重新启用的便签'); await editor.waitFor(); assert.equal(await editor.count(), 1); await editor.fill('恢复后可编辑'); await until(async () => (await notes()).some(n => n.body === '恢复后可编辑'), '重新启用后保存') }
-      if (task.id === 'action') await page.keyboard.press('Escape')
+      else { await create('便签页面', '重新启用的便签'); await waitForUniqueVisible(editor); await editor.fill('恢复后可编辑'); await until(async () => (await notes()).some(n => n.body === '恢复后可编辑'), '重新启用后保存') }
+      if (isNoteAction) await page.keyboard.press('Escape')
     })
     // Page errors are checked even after an earlier assertion failed.
     checks.push({ id: 'page-errors', status: errors.length ? 'failed' : 'passed', errors })

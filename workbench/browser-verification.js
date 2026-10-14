@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { writeSnapshot } from './persistence.js'
 import { usageError, validateBrowserInput } from './browser-contract.js'
+import { loadBrowserScenario } from './browser-scenarios.js'
 
 /** A turn owns a sequence of isolated attempts; completed evidence is immutable. */
 export class BrowserVerification {
@@ -84,7 +85,11 @@ export class BrowserVerification {
     if (name === 'browser_report') { validateBrowserInput(name, args); return this.summary() }
     if (this.signal?.aborted) throw Error('浏览器验收已停止')
     if (this.closed && name !== 'browser_retest') throw Error('浏览器验收已停止；修复后用 browser_retest 开启独立复测')
-    try { validateBrowserInput(name, args) }
+    let scenario
+    try {
+      validateBrowserInput(name, args)
+      if (name === 'browser_scenario') scenario = await loadBrowserScenario(this.root, this.appId, args.id, args.parameters)
+    }
     catch (error) {
       if (this.closed) throw error
       this.report.steps.push({ name, input: args, startedAt: Date.now(), endedAt: Date.now(), error: error.message, errorKind: 'usage' })
@@ -92,6 +97,8 @@ export class BrowserVerification {
     }
     if (name === 'browser_retest') return this.retest(args)
     if (name === 'browser_batch') return this.batch(args)
+    if (scenario) return { ...await this.batch(scenario), plannedCoverage: scenario.coverage,
+      scope: 'plannedCoverage 是计划范围；实际通过情况以 checks 和 ok 为准。业务差异仍需补充验证，失败不会被后续成功覆盖。' }
     if (name === 'browser_finish') {
       this.report.summary = args.summary.slice(0, 2000)
       if (this.report.startedAt) {
@@ -146,14 +153,14 @@ export class BrowserVerification {
       throw error
     }
   }
-  async batch({ steps }) {
+  async batch({ steps, metadata = {} }) {
     const batchId = randomUUID(), results = [], deadline = Date.now() + 60000
     for (const [index, input] of steps.entries()) {
       let failure
       try {
         const remaining = deadline - Date.now()
         if (remaining <= 0) throw Error('批量操作达到 60 秒时限')
-        const result = await this.perform('browser_action', input, { timeout: Math.min(20000, remaining), metadata: { batchId, batchIndex: index } })
+        const result = await this.perform('browser_action', input, { timeout: Math.min(20000, remaining), metadata: { ...metadata, batchId, batchIndex: index } })
         results.push(result)
         if (result.errors?.length) {
           failure = { error: '页面出现错误，批量操作已停止', errorKind: 'page', errors: result.errors }
@@ -163,7 +170,7 @@ export class BrowserVerification {
       } catch (error) {
         failure = { error: error.message, errorKind: error.kind || 'infrastructure', ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) }
         if (!this.report.steps.some(step => step.batchId === batchId && step.batchIndex === index)) {
-          this.report.steps.push({ name: 'browser_action', input, batchId, batchIndex: index, startedAt: Date.now(), endedAt: Date.now(), ...failure })
+          this.report.steps.push({ ...metadata, name: 'browser_action', input, batchId, batchIndex: index, startedAt: Date.now(), endedAt: Date.now(), ...failure })
           this.report.status = 'failed'
         }
       }

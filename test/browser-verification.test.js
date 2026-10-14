@@ -15,6 +15,7 @@ test('浏览器参数按操作和断言类型校验，拒绝缺失目标、混�
     { action: 'press', value: 'Escape' },
     { action: 'assert', target: { css: 'body' } },
     { action: 'assert', assertion: 'visible', target: { css: 'body' }, expected: 'true' },
+    { action: 'assert', assertion: 'disabled', target: { css: 'button' }, expected: 'true' },
     { action: 'assert', assertion: 'placeholder', target: { css: 'input' }, expected: false },
     { action: 'click', target: { css: 'button', text: '保存' } },
     { action: 'inspect', target: { css: 'body' }, script: 'document.body.remove()' },
@@ -31,6 +32,7 @@ test('浏览器参数按操作和断言类型校验，拒绝缺失目标、混�
     { action: 'assert', assertion: 'value', target: { label: '正文' }, expected: '' },
     { action: 'assert', assertion: 'placeholder', target: { label: '正文' }, expected: '请输入' },
     { action: 'assert', assertion: 'visible', target: { css: '#hidden' }, expected: false },
+    { action: 'assert', assertion: 'disabled', target: { role: 'menuitem', name: '操作' }, expected: true },
     { action: 'inspect', target: { role: 'button', name: '保存' } },
     { action: 'assert', target: { testId: 'counter' }, expected: '1', timeoutMs: 0 },
   ]) {

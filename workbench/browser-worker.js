@@ -115,6 +115,11 @@ async function plugin(input) {
 async function action(input) {
   checkPage()
   if (input.action === 'snapshot' || input.action === 'screenshot') return snapshot(input.action === 'screenshot', input.action === 'snapshot')
+  if (input.action === 'reload') {
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('html[data-cordis-ready="true"]').waitFor()
+    return snapshot(false)
+  }
   const result = { action: input.action, ok: true }
   if (input.action === 'scroll') { await page.mouse.wheel(0, input.direction === 'up' ? -600 : 600); return result }
   const target = locator(input.target)

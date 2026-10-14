@@ -45,6 +45,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
   const entries = [], allowed = new Set(), backendSources = new Set()
   let catalog, plugins, backend, backendPort, backendProxy, backendRPC, version = Date.now(), closing = false, timer, queue = Promise.resolve(), working = 0
   const pendingPlugins = new Set()
+  let reloadToken = randomUUID()
   const dependencyKeys = new Set(dependencyFiles.map(fileKey)), dependencyListeners = []
   const applicationRoot = resolve(applicationsDir)
   const hostRoots = ['client', 'public', 'server', 'shared', 'scripts'].map(directory => resolve(root, directory))
@@ -320,7 +321,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
             else if (event === 'update') emit({ type: 'css', paths: (payload.updates || []).map(update => update.path) })
             else if (event === 'cordis:plugins') emit({ type: 'plugins', targets: (data ?? payload.data)?.targets || {} })
             else if (event === 'cordis:catalog') emit({ type: 'plugins', targets: (data ?? payload.data)?.targets || {} })
-            else if (event === 'cordis:restart') emit({ type: 'reload' })
+            else if (event === 'cordis:restart') { reloadToken = randomUUID(); emit({ type: 'reload', reloadToken }) }
           }
           server.ws.send = (payload, ...args) => {
             if (payload?.type === 'full-reload') { schedule(resolve(root, 'public/index.html')); return }
@@ -341,7 +342,8 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
               if (pathname === '/__cordis/dev') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ version, plugins })); return }
               if (pathname === '/') {
                 const html = (await readFile(resolve(root, 'public/index.html'), 'utf8')).replace('src="/runtime.js"', `src="${urlFor(resolve(root, 'client/host/runtime.js'))}"`).replace('href="/style.css"', `href="${urlFor(resolve(root, 'public/style.css'))}"`)
-                res.setHeader('Content-Type', 'text/html'); res.end(await server.transformIndexHtml('/', html)); return
+                res.setHeader('Content-Type', 'text/html'); res.setHeader('Cache-Control', 'no-store')
+                res.end(await server.transformIndexHtml('/', html.replace('</head>', `<meta name="cordis-reload-token" content="${reloadToken}"></head>`))); return
               }
               if (pathname.startsWith('/builtin/')) {
                 const parts = pathname.split('/'), asset = parts.slice(3).join('/')

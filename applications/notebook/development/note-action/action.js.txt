@@ -1,0 +1,13 @@
+export const label = {{actionLabel:json}}
+export const mode = {{mode:json}}
+
+// Limit supported formats here when the operation edits a format-specific field.
+export function supports(note) { return true }
+
+// Replace this runnable example with the requested business logic.
+// note is the current note at click time. notify ignores a disposed owner.
+// await update(patch) checks selection and intervening content changes, edits
+// through notebook.edit, and flushes; only with mode='edit'. Do not mutate note.
+export async function run({ note, update, notify }) {
+  notify(note.title || '无标题笔记')
+}

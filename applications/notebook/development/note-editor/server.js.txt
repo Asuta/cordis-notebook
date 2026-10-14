@@ -1,0 +1,2 @@
+import { format } from './format.js'
+export default function (ctx) { ctx.noteFormats.register(ctx, format) }

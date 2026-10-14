@@ -1,0 +1,361 @@
+{
+  "parameters": {
+    "formatName": {
+      "description": "新建菜单中的格式名称"
+    },
+    "editorLabel": {
+      "description": "正文 textarea 的可访问名称"
+    },
+    "pluginId": {
+      "description": "插件 ID",
+      "pattern": "^[a-z][a-z0-9-]{1,49}$"
+    }
+  },
+  "coverage": [
+    "创建格式",
+    "自动保存后刷新",
+    "普通格式切换",
+    "清空后刷新",
+    "停用移除入口",
+    "重新启用唯一注册",
+    "重新启用后编辑保存"
+  ],
+  "steps": [
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "新建笔记"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "menuitem",
+        "name": "{{formatName}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "笔记标题"
+      },
+      "assertion": "value",
+      "expected": "",
+      "label": "已切换到新笔记"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "assertion": "visible",
+      "expected": true,
+      "label": "创建后有唯一正文控件"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "笔记标题"
+      },
+      "value": "{{firstTitle}}"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "value": "第一行\n第二行"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".save-status"
+      },
+      "expected": "已保存到本地",
+      "label": "自动保存完成"
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "assertion": "value",
+      "expected": "第一行\n第二行",
+      "label": "自动保存并刷新恢复"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "新建笔记"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "menuitem",
+        "name": "普通笔记"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "笔记标题"
+      },
+      "assertion": "value",
+      "expected": "",
+      "label": "已切换到新笔记"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "笔记标题"
+      },
+      "value": "{{secondTitle}}"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "笔记正文"
+      },
+      "value": "公共格式切换对照"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".save-status"
+      },
+      "expected": "已保存到本地",
+      "label": "自动保存完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "text": "{{firstTitle}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "assertion": "value",
+      "expected": "第一行\n第二行",
+      "label": "切换回自定义格式保留正文"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "value": ""
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".save-status"
+      },
+      "expected": "已保存到本地",
+      "label": "自动保存完成"
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "assertion": "value",
+      "expected": "",
+      "label": "空正文刷新后仍为空"
+    },
+    {
+      "action": "click",
+      "target": {
+        "text": "{{secondTitle}}"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "testId": "plugin-select-{{pluginId}}"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "testId": "plugin-toggle-{{pluginId}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "testId": "plugin-toggle-{{pluginId}}"
+      },
+      "assertion": "text",
+      "expected": "启用插件",
+      "label": "插件停用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "新建笔记"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "menuitem",
+        "name": "{{formatName}}"
+      },
+      "assertion": "visible",
+      "expected": false,
+      "label": "停用后新建菜单移除格式"
+    },
+    {
+      "action": "press",
+      "target": {
+        "role": "menuitem",
+        "name": "普通笔记"
+      },
+      "value": "Escape"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "testId": "plugin-select-{{pluginId}}"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "testId": "plugin-toggle-{{pluginId}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "testId": "plugin-toggle-{{pluginId}}"
+      },
+      "assertion": "text",
+      "expected": "停用插件",
+      "label": "重新启用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "新建笔记"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "menuitem",
+        "name": "{{formatName}}"
+      },
+      "assertion": "visible",
+      "expected": true,
+      "label": "重新启用只有一个格式入口"
+    },
+    {
+      "action": "press",
+      "target": {
+        "role": "menuitem",
+        "name": "{{formatName}}"
+      },
+      "value": "Escape"
+    },
+    {
+      "action": "click",
+      "target": {
+        "text": "{{firstTitle}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "assertion": "value",
+      "expected": "",
+      "label": "重新启用恢复空正文且只有一个编辑控件"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "value": "重新启用后编辑"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".save-status"
+      },
+      "expected": "已保存到本地",
+      "label": "自动保存完成"
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{editorLabel}}"
+      },
+      "assertion": "value",
+      "expected": "重新启用后编辑",
+      "label": "重新启用后可编辑和保存"
+    },
+    {
+      "action": "screenshot"
+    }
+  ]
+}

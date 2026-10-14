@@ -12,7 +12,7 @@ export function createToolExecutor({ root, dataDir, application, commands, owner
     if (name === 'workspace_operation_status') return operationStatus(task.appId, args, { status: () => application.status(), url: 'http://127.0.0.1:' + application.port, signal: task.controller?.signal })
     if (name.startsWith('browser_')) {
       if (!task.turn?.browserVerificationEnabled) throw Error('用户关闭了本轮浏览器验收，不能调用或绕过开关')
-      if (!['browser_open', 'browser_plugin', 'browser_action', 'browser_batch', 'browser_retest', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
+      if (!['browser_open', 'browser_plugin', 'browser_action', 'browser_batch', 'browser_scenario', 'browser_retest', 'browser_finish', 'browser_report'].includes(name)) throw Error('未知浏览器工具')
       if (!task.browser && name !== 'browser_open' && name !== 'browser_report') throw Error('请先 browser_open')
       task.browser ||= browserFactory({ root, appId: task.appId, dataDir, signal: task.controller?.signal,
         onChange(report) { task.turn.browserVerification = report; changed(task.thread) },
@@ -30,11 +30,12 @@ export function createToolExecutor({ root, dataDir, application, commands, owner
       await application.settle()
       const live = await rebindPage(task)
       if (live && (live.appId !== task.appId || live.pageId !== task.pageId || live.session !== task.session)) throw Error('应用或页面已经切换；请在当前应用重新发送任务')
-      return enablePlugin(task.appId, args, { status: () => application.status(), url: 'http://127.0.0.1:' + application.port, signal: task.controller?.signal,
+      const result = await enablePlugin(task.appId, args, { status: () => application.status(), url: 'http://127.0.0.1:' + application.port, signal: task.controller?.signal,
         page: live ? input => {
           if (task.session !== input.session) throw Error('绑定页面不是最新应用会话；请等待页面重新连接')
           return pageCall(task, 'workspace_enable_plugin', input)
         } : null })
+      return { ...result, ...(task.rebind ? { rebind: task.rebind } : {}) }
     }
     if (name === 'exec_command') return commands.start(ownerFor(task), args)
     if (name === 'write_stdin') return commands.read(ownerFor(task), args)
@@ -45,7 +46,7 @@ export function createToolExecutor({ root, dataDir, application, commands, owner
       await application.settle()
       const status = await application.status()
       if (status.development) status.development.events = status.development.events.filter(event => event.seq > (task.devSequence ?? 0))
-      return { ...status, appId: task.appId, root }
+      return { ...status, appId: task.appId, root, ...(task.rebind ? { rebind: task.rebind } : {}) }
     }
     if (name === 'workspace_build') return application.build(task.appId, ownerFor(task), args)
     if (name === 'workspace_test') return application.test(task.appId, ownerFor(task), args)
@@ -58,6 +59,7 @@ export function createToolExecutor({ root, dataDir, application, commands, owner
       try { await application.restart() }
       catch (error) { await pageCall(task, 'workspace_release_reload').catch(() => {}); throw error }
       task.awaitingRebind = true
+      task.expectedReloadToken = undefined; task.rebindStartedAt = undefined
       task.reloads = application.reloads
       notify({ type: 'reload-app' })
       return { restarted: true, mode: application.mode, message: '页面正在重新连接。请先 workspace_status 或 app_list_tools 确认后再操作数据。' }
