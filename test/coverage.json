@@ -1,9 +1,10 @@
 {
   "version": 1,
   "tests": [
+    {"file":"test/notebook-database.test.js","application":"notebook","plugins":["format-database","database-editor","note-templates","note-formats","notes","note-transfer","format-blocknote","blocknote-agent-tools"]},
     {"file":"test/notebook-recovery.test.js","application":"notebook","plugins":["notes","notebook","note-recovery","storage"]},
     {"file":"test/notebook-notion-features.test.js","application":"notebook","plugins":["notes","note-recovery","note-assets","note-transfer","format-blocknote","blocknote-editor","blocknote-agent-tools","note-formats","format-database","database-editor"]},
-    {"file":"test/notebook-notion-features-browser.test.js","application":"notebook","plugins":["note-recovery","notebook","note-assets","blocknote-editor","format-blocknote","blocknote-agent-tools","format-database","database-editor"]},
+    {"file":"test/notebook-notion-features-browser.test.js","application":"notebook","plugins":["note-recovery","notebook","note-assets","blocknote-editor","format-blocknote","blocknote-agent-tools","format-database","database-editor","note-templates"]},
     { "file": "test/studio-development.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"] },
     {"file": "test/studio-runtime.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
     {"file": "test/studio-client.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},

@@ -40,11 +40,11 @@ export function mountNoteList(ctx, sdk, root, filters) {
     const model = useObserve(ctx, ctx.notebook, { reasons: ['edit', 'selection', 'filters', 'busy'] })
     useObserve(ctx, ctx.noteFormats)
     const formats = ctx.noteFormats.list(),
-      notes = model.visible()
+      notes = model.visible(), regularNotes = model.notes.filter(note => !note.template)
     const [drag, setDrag] = React.useState(null)
     const [collapsed, setCollapsed] = React.useState(() => new Set())
-    const hierarchical = model.notes.some(note => note.parentId)
-    const rows = treeRows(notes, { collapsed, selected: model.selected, filtered: notes.length !== model.notes.length })
+    const hierarchical = regularNotes.some(note => note.parentId)
+    const rows = treeRows(notes, { collapsed, selected: model.selected, filtered: notes.length !== regularNotes.length })
     // 只在筛选条件变更且可见集合确实变化时重播入场动效：排序、编辑和启动时的
     // 过滤器注册都不触发，避免拖动过程中卡片闪烁。
     const list = React.useRef(null)
@@ -115,7 +115,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
         }
       }
     }, [compact])
-    const canReorder = !hierarchical && !model.busy && notes.length > 1 && notes.length === model.notes.length
+    const canReorder = !hierarchical && !model.busy && notes.length > 1 && notes.length === regularNotes.length
     const startDrag = (note) => (event) => {
       event.dataTransfer.setData('text/plain', note.id)
       event.dataTransfer.effectAllowed = 'move'
@@ -143,14 +143,14 @@ export function mountNoteList(ctx, sdk, root, filters) {
       setDrag(null)
       if (!id || id === note.id) return
       const ordered = model.visible().map((item) => item.id)
-      if (ordered.length !== model.notes.length || !ordered.includes(note.id)) return
+      if (ordered.length !== regularNotes.length || !ordered.includes(note.id)) return
       const from = ordered.indexOf(id)
       if (from < 0) return
       ordered.splice(from, 1)
       let to = ordered.indexOf(note.id)
       if (position === 'after') to += 1
       ordered.splice(to, 0, id)
-      model.reorder(ordered).catch((error) => sdk.toast(error.message))
+      model.reorder([...ordered, ...model.notes.filter(item => item.template).map(item => item.id)]).catch((error) => sdk.toast(error.message))
     }
     const endDrag = () => setDrag(null)
     return (
@@ -159,7 +159,7 @@ export function mountNoteList(ctx, sdk, root, filters) {
           <div>
             <span className="section-eyebrow">个人空间</span>
             <h2>
-              我的笔记 <span>{model.notes.length}</span>
+              我的笔记 <span>{regularNotes.length}</span>
             </h2>
           </div>
           <div className="heading-actions">
@@ -244,8 +244,8 @@ export function mountNoteList(ctx, sdk, root, filters) {
           {!notes.length && (
             <div className="no-results">
               <Icon name="BookOpen" size={26} />
-              <strong>{model.notes.length ? '没有找到笔记' : '从第一篇笔记开始'}</strong>
-              <p>{model.notes.length ? '试试其他关键词或切换筛选。' : '点击上方 ＋，选择一种记录方式。'}</p>
+              <strong>{regularNotes.length ? '没有找到笔记' : '从第一篇笔记开始'}</strong>
+              <p>{regularNotes.length ? '试试其他关键词或切换筛选。' : '点击上方 ＋，选择一种记录方式。'}</p>
             </div>
           )}
         </div>

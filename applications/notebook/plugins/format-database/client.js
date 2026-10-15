@@ -1,2 +1,3 @@
 import { databaseFormat } from './format.js'
-export default function(ctx) { ctx.noteFormats.register(ctx, databaseFormat) }
+import { databaseSchema } from './schema.js'
+export default function(ctx, sdk) { sdk.provide('databaseSchema', databaseSchema); ctx.noteFormats.register(ctx, databaseFormat) }

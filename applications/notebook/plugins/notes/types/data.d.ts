@@ -10,7 +10,9 @@ export interface Note {
   readonly pinned: boolean
   /** null/absent means a root page. Parent removal promotes direct children. */
   readonly parentId?: string | null
-  readonly properties?: { readonly status: 'todo' | 'doing' | 'done'; readonly tags: readonly string[]; readonly date: string | null }
+  readonly properties?: { readonly status: 'todo' | 'doing' | 'done'; readonly tags: readonly string[]; readonly date: string | null; readonly custom?: Readonly<Record<string, string | number | boolean | readonly string[] | null>> }
+  /** Templates share storage, history, and backup with notes but are listed in the template library. */
+  readonly template?: { readonly databaseId: string | null } | null
   readonly createdAt: string
   readonly updatedAt: string
   /** 手动排序序号，越小越靠前；未排序的笔记按更新时间排列。 */

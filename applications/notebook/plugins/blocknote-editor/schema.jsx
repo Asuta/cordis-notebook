@@ -1,6 +1,7 @@
 import { BlockNoteSchema, defaultInlineContentSpecs, defaultBlockSpecs } from '@blocknote/core'
 import { createReactInlineContentSpec } from '@blocknote/react'
 import { extraSpecs } from './extra-blocks.jsx'
+import { createDatabaseBlock } from './database-block.jsx'
 
 export function createSchema(ctx, sdk) {
   const { h, useObserve } = ctx.ui
@@ -20,5 +21,5 @@ export function createSchema(ctx, sdk) {
     parse: element => element.hasAttribute('data-page-reference') ? { noteId: element.getAttribute('data-page-reference'), title: element.textContent.slice(0, 200) } : undefined,
   })
   const extra = extraSpecs(ctx, sdk)
-  return BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, ...extra.blocks }, inlineContentSpecs: { ...defaultInlineContentSpecs, pageLink: PageLink, ...extra.inline } })
+  return BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, ...extra.blocks, databaseView: createDatabaseBlock(ctx, sdk) }, inlineContentSpecs: { ...defaultInlineContentSpecs, pageLink: PageLink, ...extra.inline } })
 }

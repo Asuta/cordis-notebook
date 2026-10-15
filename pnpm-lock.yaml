@@ -283,6 +283,8 @@ importers:
 
   applications/notebook/plugins/note-summary: {}
 
+  applications/notebook/plugins/note-templates: {}
+
   applications/notebook/plugins/note-transfer:
     dependencies:
       markdown-it:

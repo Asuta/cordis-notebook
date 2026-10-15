@@ -17,6 +17,8 @@ export interface NoteFormat {
   toText(data: Readonly<Record<string, unknown>>): string
   references?(data: Readonly<Record<string, unknown>>): readonly string[]
   remapReferences?(data: Readonly<Record<string, unknown>>, ids: Readonly<Record<string, string>>): Record<string, unknown>
+  /** Validate child records and database-scoped templates before an atomic write. */
+  validateChildren?(note: Note, children: readonly Pick<Note, 'id' | 'title' | 'type' | 'parentId' | 'properties' | 'template'>[]): void
 }
 export interface NoteFormats {
   typeOf(note?: { readonly type?: string }): string
@@ -30,5 +32,6 @@ export interface NoteFormats {
   patch(note: Note): NotePatch
   references(note: Note): string[]
   remapReferences(note: Note, ids: Readonly<Record<string, string>>): Note
+  validateCollection(notes: readonly Note[], previous?: readonly Note[]): void
 }
 export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T

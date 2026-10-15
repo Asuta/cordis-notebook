@@ -1,7 +1,7 @@
 import { applyOperations } from './operations.js'
 const object = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false })
 const string = { type: 'string' }
-const fields = { type: { ...string, description: '转换目标类型：文字/表格需同时提供新 text/content；image/video/audio/file/divider 不传正文，媒体地址放 props.url；equation 用 props.expression，tableOfContents 不传正文，callout 可用 text 和 props.tone。' }, text: { ...string, description: '替换文字正文为纯文本，清除原正文样式；与 content 互斥。' }, content: { description: 'BlockNote 原生行内内容数组，或 tableContent 表格对象；先用 includeContent:true 读取。' }, props: { type: 'object', description: '合并更新原生属性，例如标题 level、待办 checked、媒体 url/caption；公式 expression；提示框 tone(info/warning/success)。' } }
+const fields = { type: { ...string, description: '转换目标类型：文字/表格需同时提供新 text/content；image/video/audio/file/divider 不传正文，媒体地址放 props.url；equation 用 props.expression，tableOfContents 不传正文，callout 可用 text 和 props.tone；databaseView 用 props.databaseId/viewId 引用数据库，不传正文。' }, text: { ...string, description: '替换文字正文为纯文本，清除原正文样式；与 content 互斥。' }, content: { description: 'BlockNote 原生行内内容数组，或 tableContent 表格对象；先用 includeContent:true 读取。' }, props: { type: 'object', description: '合并更新原生属性，例如标题 level、待办 checked、媒体 url/caption；公式 expression；提示框 tone(info/warning/success)；databaseView 的 databaseId/viewId 来自 notebook_database_read。' } }
 const position = { targetId: string, placement: { type: 'string', enum: ['start', 'end', 'before', 'after', 'inside'] } }
 async function revision(note) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(note))))].map(b => b.toString(16).padStart(2, '0')).join('')

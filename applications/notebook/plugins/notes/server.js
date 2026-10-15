@@ -28,6 +28,7 @@ export class Notes extends Service {
       const archive = structuredClone(this.archive)
       const result = await action(next, archive)
       assertHierarchy(next)
+      this.ctx.noteFormats.validateCollection(next, this.items)
       recordVersions(this.items, next, archive)
       await this.ctx.storage.write({ format: 'cordis-notebook-store', version: 1, notes: next, ...archive })
       this.items = next; this.archive = archive
@@ -39,7 +40,10 @@ export class Notes extends Service {
   create(input = {}) {
     return this.mutate(items => {
       const now = new Date().toISOString()
-      const note = { ...this.ctx.noteFormats.create(input?.type), id: randomUUID(), createdAt: now, updatedAt: now, revision: 0 }
+      const id = input?.id ?? randomUUID()
+      if (typeof id !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id)) throw Object.assign(Error('新页面 ID 必须是 UUID'), { status: 400 })
+      if (items.some(note => note.id === id)) throw Object.assign(Error('页面 ID 已存在，请重新创建'), { status: 409 })
+      const note = { ...this.ctx.noteFormats.create(input?.type), id, createdAt: now, updatedAt: now, revision: 0 }
       if (input?.fields !== undefined) Object.assign(note, this.ctx.noteFormats.update(note, input.fields))
       items.push(note)
       return note
@@ -63,6 +67,7 @@ export class Notes extends Service {
           id: ids.get(original.id), createdAt: now, updatedAt: now, revision: 0 }
       })
       assertHierarchy(created)
+      this.ctx.noteFormats.validateCollection([...items, ...created], items)
       // Resources are written only after every note has passed validation. A
       // failed resource write leaves the note collection unchanged.
       await beforeSave(created)

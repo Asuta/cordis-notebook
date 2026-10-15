@@ -61,13 +61,13 @@ export function mountBlockNote(ctx, sdk, root, schema) {
     return <BlockNoteView editor={instance} editable={!readonly} theme="light" className="cordis-blocknote" slashMenu={false}>
       <SuggestionMenuController triggerCharacter="/" getItems={async query => filterSuggestionItems([
         ...getDefaultReactSlashMenuItems(instance),
-        ...[['callout', '提示框', 'callout'], ['equation', '公式', 'math equation'], ['tableOfContents', '目录', 'toc contents']].map(([type, title, alias]) => ({
+        ...[['callout', '提示框', 'callout'], ['equation', '公式', 'math equation'], ['tableOfContents', '目录', 'toc contents'], ['databaseView', '数据库视图', 'database table board 数据库 看板']].map(([type, title, alias]) => ({
           title, group: '页面组件', aliases: [title, ...alias.split(' ')], onItemClick: () => { if (editable()) insertOrUpdateBlockForSlashMenu(instance, { type }) },
         })),
         { title: '行内公式', group: '页面组件', aliases: ['inline math', '行内公式'], onItemClick: () => { if (editable()) instance.insertInlineContent([{ type: 'math', props: { expression: '' } }, ' ']) } },
       ], query)} />
       <SuggestionMenuController triggerCharacter="@" getItems={async query => model.notes
-        .filter(note => note.id !== id && (note.title || '无标题笔记').toLowerCase().includes(query.toLowerCase())).slice(0, 30)
+        .filter(note => !note.template && note.id !== id && (note.title || '无标题笔记').toLowerCase().includes(query.toLowerCase())).slice(0, 30)
         .map(note => ({ title: note.title || '无标题笔记', subtext: '引用笔记页面', group: '页面',
           onItemClick: () => {
             if (!editable() || editor !== instance || noteId !== id || !model.notes.some(item => item.id === note.id)) return

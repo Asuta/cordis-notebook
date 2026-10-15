@@ -15,6 +15,7 @@ export function pageRelations(notes, id, formats) {
 export function allowedParents(notes, id) {
   const byId = new Map(notes.map(note => [note.id, note]))
   return notes.filter(note => {
+    if (note.template) return false
     const seen = new Set(); let current = note
     while (current && !seen.has(current.id)) {
       if (current.id === id) return false

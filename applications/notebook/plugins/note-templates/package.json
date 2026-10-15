@@ -1,0 +1,76 @@
+{
+  "name": "@cordis-notebook/note-templates",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "note-templates",
+    "name": "页面模板库",
+    "description": "保存页面和数据库记录模板，独立创建新页面，支持备份与回收站。",
+    "defaultEnabled": true,
+    "order": 26,
+    "requires": {
+      "client": [
+        "ui",
+        "shell",
+        "notebook",
+        "noteFormats"
+      ],
+      "server": []
+    },
+    "provides": {
+      "client": [
+        "noteTemplates"
+      ],
+      "server": []
+    },
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "category": {
+      "id": "features",
+      "label": "功能"
+    },
+    "icon": "Copy",
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.jsx",
+        "output": "client.js",
+        "platform": "browser",
+        "minify": true,
+        "jsx": {
+          "factory": "h",
+          "fragment": "Fragment"
+        }
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "capabilities": [
+      {
+        "service": "noteTemplates",
+        "side": "client",
+        "description": "页面及数据库记录模板的保存、使用、版本校验与删除",
+        "contracts": [
+          "types/client.d.ts"
+        ],
+        "examples": [
+          "client.jsx"
+        ],
+        "lifecycle": [
+          "通过公开服务访问；写入仍经过 notebook 的保存保护和 revision 校验。"
+        ]
+      }
+    ]
+  }
+}

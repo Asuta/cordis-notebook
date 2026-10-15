@@ -39,7 +39,7 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
     current() { return copy(this.notes.find(n => n.id === this.selected)) },
     visible() {
       if (visibleVersion !== listVersion || visibleSource !== this.notes) {
-        visibleNotes = this.notes.map(copy).filter(note => [...filters].every(item => item.predicate(note))).sort((a, b) => Number(b.pinned) - Number(a.pinned) || (a.order ?? -1) - (b.order ?? -1) || b.updatedAt.localeCompare(a.updatedAt))
+        visibleNotes = this.notes.map(copy).filter(note => !note.template && [...filters].every(item => item.predicate(note))).sort((a, b) => Number(b.pinned) - Number(a.pinned) || (a.order ?? -1) - (b.order ?? -1) || b.updatedAt.localeCompare(a.updatedAt))
         visibleVersion = listVersion; visibleSource = this.notes
       }
       return [...visibleNotes]
@@ -77,11 +77,22 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
     },
     choose(id) { return this.perform(async () => { this.selected = id; revision++ }) },
     reorder(ids) { return this.perform(async () => { const notes = await ctx.notesApi.request('/order', 'PUT', { ids }); if (stopped) return; this.notes = notes }) },
-    create(type = 'plain', fields = {}, { select = true } = {}) { return this.perform(async () => { const note = await ctx.notesApi.request('', 'POST', { type, fields }); if (stopped) return; this.notes.unshift(note); invalidate(); if (select) this.selected = note.id; revision++; return copy(note) }) },
+    create(type = 'plain', fields = {}, { select = true } = {}) { return this.perform(async () => {
+      const now = new Date().toISOString(), id = crypto.randomUUID()
+      const candidate = { ...ctx.noteFormats.update(ctx.noteFormats.create(type), fields), id, revision: 0, createdAt: now, updatedAt: now }
+      validateHierarchy([...this.notes, candidate], candidate)
+      ctx.noteFormats.validateCollection([...this.notes, candidate], this.notes)
+      const rejection = await ctx.serial('notebook/before-save', ctx.noteFormats.snapshot(candidate))
+      if (rejection !== undefined && rejection !== null && rejection !== false) throw Error(String(rejection))
+      if (stopped) return
+      const note = await ctx.notesApi.request('', 'POST', { type, fields, id }); if (stopped) return
+      this.notes.unshift(note); invalidate(); if (select) this.selected = note.id; revision++; return copy(note)
+    }) },
     updateNote(id, patch, expectedRevision) { return this.perform(async () => {
       const original = this.notes.find(note => note.id === id)
       if (!original || original.revision !== expectedRevision) throw Error('页面或版本已变化，请刷新后重试')
       const next = ctx.noteFormats.update(original, patch)
+      ctx.noteFormats.validateCollection(this.notes.map(note => note.id === id ? next : note), this.notes)
       const rejection = await ctx.serial('notebook/before-save', ctx.noteFormats.snapshot(next))
       if (rejection !== undefined && rejection !== null && rejection !== false) throw Error(String(rejection))
       if (stopped) return
@@ -96,6 +107,16 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
       this.notes = [...created, ...this.notes]; invalidate(); this.selected = created[0]?.id || this.selected; revision++
       return created.map(copy)
     }) },
+    removeNote(id, expectedRevision) { return this.perform(async () => {
+      const note = this.notes.find(note => note.id === id)
+      if (!note || note.revision !== expectedRevision) throw Error('页面或版本已变化，请重新读取')
+      const result = await ctx.notesApi.request('/' + id, 'DELETE', { revision: expectedRevision })
+      if (stopped) return result
+      const reparented = new Map((result.reparented || []).map(note => [note.id, note]))
+      this.notes = this.notes.filter(note => note.id !== id).map(note => reparented.get(note.id) || note)
+      if (this.selected === id) this.selected = this.notes.find(note => !note.template)?.id || null
+      invalidate(); revision++; return result
+    }) },
     restoreNote(action) { return this.perform(async () => {
       const restored = await action(this.current())
       if (stopped) return restored
@@ -104,7 +125,7 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
       this.status = '✓ 已恢复并保存，原有版本保留在历史记录中'
       return copy(restored)
     }) },
-    remove() { if (!this.current()) return Promise.resolve(); return this.perform(async () => { const note = this.current(); const result = await ctx.notesApi.request('/' + note.id, 'DELETE', { revision: note.revision ?? 0 }); if (stopped) return; const reparented = new Map((result.reparented || []).map(note => [note.id, note])); this.notes = this.notes.filter(n => n.id !== note.id).map(n => reparented.get(n.id) || n); this.selected = this.notes[0]?.id || null }) },
+    remove() { if (!this.current()) return Promise.resolve(); return this.perform(async () => { const note = this.current(); const result = await ctx.notesApi.request('/' + note.id, 'DELETE', { revision: note.revision ?? 0 }); if (stopped) return; const reparented = new Map((result.reparented || []).map(note => [note.id, note])); this.notes = this.notes.filter(n => n.id !== note.id).map(n => reparented.get(n.id) || n); this.selected = this.notes.find(note => !note.template)?.id || null }) },
     saveCopy() {
       if (this.busy || stopped || !this.current()) return Promise.resolve()
       clearTimeout(timer); actionBusy = true; this.notify('busy')
@@ -128,7 +149,9 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
       const note = this.notes.find(n => n.id === this.selected); if (!note || stopped || this.busy) return
       if (draft?.id) throw new Error('未恢复草稿已保留，请先启用对应格式插件再编辑')
       if (Object.hasOwn(patch, 'parentId')) validateHierarchy(this.notes, { ...note, parentId: patch.parentId })
-      Object.assign(note, ctx.noteFormats.update(note, patch))
+      const next = ctx.noteFormats.update(note, patch)
+      ctx.noteFormats.validateCollection(this.notes.map(item => item.id === note.id ? next : item), this.notes)
+      Object.assign(note, next)
       note.updatedAt = new Date().toISOString(); revision++; this.dirty = true; this.status = '正在编辑…'
       invalidate(note)
       try { storage.setItem(draftKey, draftJSON(note)) } catch { sdk.toast('浏览器草稿备份不可用，请保持页面打开直到保存完成。') }
@@ -168,7 +191,7 @@ export async function createNotebook(ctx, sdk, { storage, draftKey, autosaveMs =
     await activeAction
     await model.flush()
   })
-  model.notes = await ctx.notesApi.request(''); model.selected = model.notes[0]?.id || null
+  model.notes = await ctx.notesApi.request(''); model.selected = model.notes.find(note => !note.template)?.id || null
   try { draft = JSON.parse(storage.getItem(draftKey)) } catch (error) { sdk.toast('草稿恢复失败：' + error.message) }
   function retryDraft() {
     if (!stopped && !model.busy && draft?.id) return activeAction = restoreDraft().catch(report)

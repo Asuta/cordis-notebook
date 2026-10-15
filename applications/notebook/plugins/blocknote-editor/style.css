@@ -14,3 +14,5 @@
 .cordis-blocknote .bn-editor { padding-inline: 54px; min-height: 240px; }
 .cordis-blocknote .bn-block-content { line-height: 1.7; }
 @media (max-width: 640px) { .blocknote-help { padding-inline: 14px; } .cordis-blocknote .bn-editor { padding-inline: 36px 16px; } }
+
+.notebook-database-block{width:100%;min-width:0;padding:8px 0;font-family:var(--theme-font,inherit)}.notebook-database-block>label{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px}.notebook-database-block>label select{max-width:100%;padding:6px;border:1px solid var(--theme-border);border-radius:6px;background:var(--theme-surface);color:var(--theme-text)}.notebook-database-block>p{font-size:13px;color:var(--theme-muted)}

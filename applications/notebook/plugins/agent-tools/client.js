@@ -7,7 +7,7 @@ export async function revision(note) {
 export default function (ctx, sdk) {
   const model = ctx.notebook
   const register = (name, description, inputSchema, execute) => sdk.agent.register({ name, description, inputSchema }, execute)
-  register('notebook_list', '列出本页面笔记及当前打开的笔记；parentId 为父页面 ID，null 表示顶层。包含本页未保存的状态。', object({}), () => ({ selected: model.selected, dirty: model.dirty, notes: model.notes.map(({ id, title, type, parentId }) => ({ id, title, type, parentId: parentId ?? null })) }))
+  register('notebook_list', '列出本页面笔记及当前打开的笔记；默认排除模板，模板列表用 notebook_templates；parentId 为父页面 ID，null 表示顶层。包含本页未保存的状态。', object({ includeTemplates: { type: 'boolean' } }), ({ includeTemplates = false } = {}) => ({ selected: model.selected, dirty: model.dirty, notes: model.notes.filter(note => includeTemplates || !note.template).map(({ id, title, type, parentId }) => ({ id, title, type, parentId: parentId ?? null })) }))
   register('notebook_read', '读取指定笔记（缺省为当前笔记）及修改所需的 revision。', object({ id: string }), async ({ id }) => {
     const note = id ? model.notes.find(n => n.id === id) : model.current()
     if (!note) throw Error('笔记不存在')
@@ -28,7 +28,7 @@ export default function (ctx, sdk) {
     await model.flush(); return { note: model.current() }
   })
   register('notebook_update', '修改已打开笔记。必须传入 notebook_read 返回的 revision；BlockNote 局部修改优先 notebook_blocknote_read/edit；只改选区使用 replace_selection。', {
-    ...object({ id: string, revision: string, patch: { type: 'object', description: 'title/parentId/properties 等通用字段；properties 支持状态 status、标签 tags、日期 date。数据库视图 database:{version:1,view:table或board}，记录是直接子页；普通笔记正文 content，Markdown 源码 markdown，自由页面 blocks/page/version；BlockNote 用 document:{version:1,blocks:[...]}，块结构为原生 props/content/children。非 plain 的 content 是派生纯文本，不能用于修改正文。' } }), required: ['id', 'revision', 'patch'],
+    ...object({ id: string, revision: string, patch: { type: 'object', description: 'title/parentId/properties 等通用字段；properties 支持状态 status、标签 tags、日期 date、自定义 custom（稳定字段 ID 为键）。数据库字段和视图请用 notebook_database_configure；直接替换 database 时必须保留完整 fields/views/activeViewId，记录是直接子页；普通笔记正文 content，Markdown 源码 markdown，自由页面 blocks/page/version；BlockNote 用 document:{version:1,blocks:[...]}，块结构为原生 props/content/children。非 plain 的 content 是派生纯文本，不能用于修改正文。' } }), required: ['id', 'revision', 'patch'],
   }, async args => {
     if (model.busy || !model.editable) throw Error('编辑器当前不可修改')
     const rejection = await ctx.serial('notebook/before-action')

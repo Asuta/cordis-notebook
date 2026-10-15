@@ -1,17 +1,17 @@
 // Versioned envelope around BlockNote's public block JSON. Both processes use
 // this validator; editor/DOM implementation code is never needed by storage.
-export const blockTypes = ['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'toggleListItem', 'quote', 'codeBlock', 'divider', 'table', 'image', 'video', 'audio', 'file', 'callout', 'equation', 'tableOfContents']
+export const blockTypes = ['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'toggleListItem', 'quote', 'codeBlock', 'divider', 'table', 'image', 'video', 'audio', 'file', 'callout', 'equation', 'tableOfContents', 'databaseView']
 const record = value => value && typeof value === 'object' && !Array.isArray(value)
 const idPattern = /^[\w:-]{1,100}$/
 const styles = new Set(['bold', 'italic', 'underline', 'strike', 'code', 'textColor', 'backgroundColor'])
 const common = ['textColor', 'backgroundColor', 'textAlignment']
 const propsByType = {
-  callout: ['tone'], equation: ['expression'],
+  callout: ['tone'], equation: ['expression'], databaseView: ['databaseId', 'viewId'],
   heading: ['level', 'isToggleable'], numberedListItem: ['start'], checkListItem: ['checked'],
   codeBlock: ['language'], image: ['name', 'url', 'caption', 'showPreview', 'previewWidth'],
   video: ['name', 'url', 'caption', 'showPreview', 'previewWidth'], audio: ['name', 'url', 'caption', 'showPreview'], file: ['name', 'url', 'caption'],
 }
-const baseProps = { equation: [], tableOfContents: [], codeBlock: [], divider: [], table: ['textColor'], quote: ['textColor', 'backgroundColor'],
+const baseProps = { equation: [], tableOfContents: [], databaseView: [], codeBlock: [], divider: [], table: ['textColor'], quote: ['textColor', 'backgroundColor'],
   image: ['textAlignment', 'backgroundColor'], video: ['textAlignment', 'backgroundColor'], audio: ['backgroundColor'], file: ['backgroundColor'] }
 function object(value, allowed, label) {
   if (!record(value) || Object.keys(value).some(key => !allowed.includes(key))) throw Error(label + '无效或包含未知字段')
@@ -116,11 +116,12 @@ export function normalizeDocument(input) {
         else if (typeof value !== 'string' || value.length > 4096) throw Error('块文字属性无效')
         if (key === 'url') url(value, true)
         if (key === 'tone' && !['info', 'warning', 'success'].includes(value)) throw Error('提示框类型无效')
+        if (['databaseId', 'viewId'].includes(key) && value && !idPattern.test(value)) throw Error('数据库或视图 ID 无效')
         if (key === 'textAlignment' && !['left', 'center', 'right', 'justify'].includes(value)) throw Error('对齐方式无效')
       }
       const result = { id: block.id, type: block.type, props: { ...props }, children: walk(block.children || [], depth + 1) }
       if (block.type === 'table') result.content = table(block.content)
-      else if (['image', 'video', 'audio', 'file', 'divider', 'equation', 'tableOfContents'].includes(block.type)) {
+      else if (['image', 'video', 'audio', 'file', 'divider', 'equation', 'tableOfContents', 'databaseView'].includes(block.type)) {
         if (block.content !== undefined) throw Error('此块不接受文字正文')
       } else {
         result.content = inline(block.content || [])
@@ -138,7 +139,7 @@ export const createBlock = (type = 'paragraph', text = '', id = crypto.randomUUI
   if (type === 'table') block.content = { type: 'tableContent', rows: Array.from({ length: 3 }, () => ({ cells: [[], [], []] })) }
   else if (['image', 'video', 'audio', 'file'].includes(type)) block.props.url = text
   else if (type === 'equation') block.props.expression = text
-  else if (!['divider', 'tableOfContents'].includes(type)) block.content = [{ type: 'text', text, styles: {} }]
+  else if (!['divider', 'tableOfContents', 'databaseView'].includes(type)) block.content = [{ type: 'text', text, styles: {} }]
   return normalizeDocument({ version: 1, blocks: [block] }).blocks[0]
 }
 export function documentText(document) {
@@ -153,12 +154,13 @@ export function documentText(document) {
 function visitReferences(document, visit) {
   const walk = value => {
     if (!value || typeof value !== 'object') return
-    if (value.type === 'pageLink') visit(value.props)
+    if (value.type === 'pageLink') visit(value.props, 'noteId')
+    else if (value.type === 'databaseView') { if (value.props.databaseId) visit(value.props, 'databaseId'); walk(value.children) }
     else for (const child of Object.values(value)) if (typeof child === 'object') walk(child)
   }
   walk(document)
 }
 export const blockNoteDocument = { normalize: normalizeDocument, create: createBlock, text: documentText,
-  references(document) { const ids = new Set(); visitReferences(document, props => ids.add(props.noteId)); return [...ids] },
-  remapReferences(document, ids) { const result = normalizeDocument(document); visitReferences(result, props => { if (Object.hasOwn(ids, props.noteId)) props.noteId = ids[props.noteId] }); return result },
+  references(document) { const ids = new Set(); visitReferences(document, (props, key) => ids.add(props[key])); return [...ids] },
+  remapReferences(document, ids) { const result = normalizeDocument(document); visitReferences(result, (props, key) => { if (Object.hasOwn(ids, props[key])) props[key] = ids[props[key]] }); return result },
 }

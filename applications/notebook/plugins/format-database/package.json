@@ -18,7 +18,9 @@
     },
     "provides": {
       "server": [],
-      "client": []
+      "client": [
+        "databaseSchema"
+      ]
     },
     "order": 10,
     "defaultEnabled": true,
@@ -50,6 +52,22 @@
     "server": {
       "entry": "server.js",
       "export": "default"
-    }
+    },
+    "capabilities": [
+      {
+        "service": "databaseSchema",
+        "side": "client",
+        "description": "数据库字段、命名视图、筛选排序和记录值的纯数据契约",
+        "contracts": [
+          "types/client.d.ts"
+        ],
+        "examples": [
+          "schema.js"
+        ],
+        "lifecycle": [
+          "通过公开服务访问；写入仍经过 notebook 的保存保护和 revision 校验。"
+        ]
+      }
+    ]
   }
 }

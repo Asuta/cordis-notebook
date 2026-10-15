@@ -7,7 +7,7 @@ import { createApp } from '../server/server.js'
 import { blockNoteDocument as blocks } from '../applications/notebook/plugins/format-blocknote/document.js'
 import { applyOperations } from '../applications/notebook/plugins/blocknote-agent-tools/operations.js'
 import { normalizeProperties } from '../applications/notebook/plugins/note-formats/properties.js'
-import { queryRows } from '../applications/notebook/plugins/database-editor/query.js'
+import { queryRows } from '../applications/notebook/plugins/format-database/schema.js'
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-notion-'))

@@ -8,7 +8,7 @@
 | markdown | plugins/format-markdown | markdown | markdown 服务 toText 生成的纯文本 |
 | freeform | plugins/format-freeform | blocks、page、version | 按块位置排序合并的纯文本 |
 | blocknote | plugins/format-blocknote | document（原生 props/content/children 及扩展块） | 按块提取，含公式源码 |
-| database | plugins/format-database | database（version:1、view:table/board） | 空字符串；记录是独立子页面 |
+| database | plugins/format-database | database（version:1、fields、views、activeViewId；view 为当前布局） | 空字符串；记录是独立子页面 |
 
 `plugins/markdown` 是渲染/转换服务，格式定义在 `plugins/format-markdown/format.js`。`note-formats` 按 fields 规范化格式数据，再通过 toText 派生 content。普通笔记更新 `{ content: "…" }`；Markdown 更新 `{ markdown: "…" }`；自由页面按块和版本契约更新。读取当前草稿用 notebook.current()/observe，不从磁盘读取或改其他编辑器的内部 DOM。
 
@@ -25,7 +25,7 @@ const source = type === 'plain' ? note.content
 
 不要在 Markdown 源码为空时用 content 回退，否则可能把过期派生文本当成正文。新增格式应查它的 fields、normalize 和 toText 契约，再确定是否适用同一统计规则。
 
-BlockNote 页面更新 `{ document: { version: 1, blocks: [...] } }`，原生 props/content/children 由 `blockNoteDocument` 服务校验；契约见 `plugins/format-blocknote/types/data.d.ts`。不能用派生 `content` 还原结构，也不要套用自由页面的坐标块字段。
+BlockNote 页面更新 `{ document: { version: 1, blocks: [...] } }`，原生 props/content/children 由 `blockNoteDocument` 服务校验；契约见 `plugins/format-blocknote/README.md` 和 `document.js`。不能用派生 `content` 还原结构，也不要套用自由页面的坐标块字段。
 
 `note.revision` 是服务端保存版本；HTTP 更新/删除必须传读取时的版本，收到 409 且错误 `code` 为 `NOTE_REVISION_CONFLICT` 时保留本页草稿并另存副本。格式插件暂时不可用等其他 409 保留重试能力。`notebook.current()` 和 `visible()` 返回缓存的只读快照，不能直接修改。只关心内容/选择的订阅可用 `observe(ctx, render, { reasons: ["edit", "selection", "filters", "busy"] })`，跳过仅保存状态变化的通知；默认订阅仍接收全部事件。
 

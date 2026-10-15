@@ -52,6 +52,10 @@
 
 ## 依赖与升级
 
-使用 `@blocknote/core`、`@blocknote/react`、`@blocknote/ariakit` 0.55.0 的开源核心，公式使用 KaTeX（MIT）；不包含 XL、多栏、协作后端或商业 AI 功能。轻量数据库是另一个独立笔记格式，由 format-database/database-editor 提供，不嵌在 BlockNote 文档中。React 由 UI 插件共享；不得在编辑器里再创建独立 React 副本。Tiptap 补丁版本在 pnpm overrides 中对齐，升级时同步检查。
+使用 `@blocknote/core`、`@blocknote/react`、`@blocknote/ariakit` 0.55.0 的开源核心，公式使用 KaTeX（MIT）；不包含 XL、多栏、协作后端或商业 AI 功能。数据库由 format-database/database-editor 提供；正文可插入 `databaseView` 引用，记录仍独立保存。React 由 UI 插件共享；不得在编辑器里再创建独立 React 副本。Tiptap 补丁版本在 pnpm overrides 中对齐，升级时同步检查。
+
+## 数据库引用
+
+`/` → “数据库视图”插入 `{type:'databaseView',props:{databaseId:'数据库ID',viewId:'视图ID'}}`，不接受 text/content。空 databaseId 表示待选择，空 viewId 跟随数据库默认视图。可在正文里切换已保存视图、编辑记录和管理字段。引用参与双向链接和备份重映射；数据库或视图删除后明确提示。停用 database-editor 仅让引用显示占位提示，其他正文编辑继续可用。见 [数据库使用说明](../database-editor/README.md)。
 
 升级 BlockNote 时先核对默认 schema 与 `document.js`，再运行 `blocknote-editor/test/document.test.js`、`blocknote-agent-tools/test/agent.test.js` 及 `test/notebook-browser.test.js` 的 BlockNote 场景，确认原生编辑、保存刷新、Agent、选区、图片和旧格式复制均正常。

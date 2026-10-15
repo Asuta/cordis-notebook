@@ -6,8 +6,8 @@
   "cordis": {
     "schemaVersion": 1,
     "id": "database-editor",
-    "name": "数据库表格与看板",
-    "description": "数据库表格与看板",
+    "name": "数据库与命名视图",
+    "description": "自定义属性、命名视图和可嵌入的表格/看板。",
     "requires": {
       "server": [],
       "client": [
@@ -15,12 +15,15 @@
         "notebook",
         "editorHost",
         "noteFormats",
-        "shell"
+        "shell",
+        "databaseSchema"
       ]
     },
     "provides": {
       "server": [],
-      "client": []
+      "client": [
+        "databaseUI"
+      ]
     },
     "order": 20,
     "defaultEnabled": true,
@@ -53,6 +56,22 @@
         "type": "copy",
         "input": "style.css",
         "output": "style.css"
+      }
+    ],
+    "capabilities": [
+      {
+        "service": "databaseUI",
+        "side": "client",
+        "description": "独立页面与 BlockNote 共享的数据库视图组件",
+        "contracts": [
+          "types/client.d.ts"
+        ],
+        "examples": [
+          "view.jsx"
+        ],
+        "lifecycle": [
+          "通过公开服务访问；写入仍经过 notebook 的保存保护和 revision 校验。"
+        ]
       }
     ]
   }

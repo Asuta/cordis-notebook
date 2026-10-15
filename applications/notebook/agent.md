@@ -7,7 +7,7 @@
 - `notebook_list` 列出笔记和当前选择。
 - `notebook_read` 返回笔记与 revision；`notebook_open` 先保存当前笔记，再打开目标。
 - `notebook_create` 创建 plain、markdown、freeform、blocknote（BlockNote 页面）或 database（数据库页面）笔记，也可用已安装格式插件的类型。工具并不保证未启用的格式可用。
-- `notebook_update` 只修改已打开笔记，要求刚读取的 revision。patch 正文分别为 plain 的 content、markdown 的 markdown、freeform 的 blocks/page/version、blocknote 的 document；不要用非 plain 格式的派生 content 修改正文。数据库的 database 字段只保存视图配置，记录是直接子页面。整篇替换不能保证编辑器的局部撤销历史，局部文字改写优先用选区工具。
+- `notebook_update` 只修改已打开笔记，要求刚读取的 revision。patch 正文分别为 plain 的 content、markdown 的 markdown、freeform 的 blocks/page/version、blocknote 的 document；不要用非 plain 格式的派生 content 修改正文。数据库的 database 字段保存 fields、views、activeViewId，记录是直接子页面；修改优先 notebook_database_configure，避免整对象覆盖丢失配置。整篇替换不能保证编辑器的局部撤销历史，局部文字改写优先用选区工具。
 - `notebook_blocknote_read` 读取当前 BlockNote 页面的块树、稳定 ID、文字、props 与 revision；需要富文本/表格原结构时传 `{includeContent:true}`。
 - `notebook_blocknote_edit` 使用刚读取的 `{id,revision,operations}` 批量插入、修改、删除或移动块。insert/update 的 text 是纯文字替换，content 是原生行内内容或表格结构，两者互斥；待办状态用 `props.checked`。move 的 inside 嵌套到目标下，after 放在目标同级之后，start/end 放在页面顶层首尾。移动保留子树，删除包含子树；类型转换必须明确提供正文。每批 1–100 项，全部校验后一次应用保存；失败保存会保留草稿，应重新读取确认，不要盲目重放批次。完整格式见 `plugins/format-blocknote/README.md`。
 - `replace_selection` 由通用桥接提供，具体修改由捕获选区的编辑器负责，支持普通、Markdown、自由页面和 BlockNote 页面。选区替换插入纯文字，保留编辑器撤销；不会把模型文本当 HTML 执行。
@@ -25,3 +25,9 @@
 新增插件后，在工作台管理的开发模式中先看 `workspace_status` 的热更新事件，不要例行构建或重启。测试放在插件自己的 `test/**/*.test.js`；`workspace_test` 的类型检查只覆盖项目声明文件和类型测试，不会自动为 JavaScript 运行实现做静态类型检查。界面改动是否做真实浏览器验收以本轮开关为准。
 
 BlockNote 页面（`type: blocknote`）是 Notion 风格流式编辑器，与自由页面（`type: freeform`）分别注册。正文使用 `document: { version: 1, blocks: [...] }`，每个块包含原生 `id/type/props/content/children`。通过 blockNoteDocument 服务创建和校验文档；不要写入 Tiptap JSON 或把派生 `note.content` 当作可编辑源码。图片与附件通过 note-assets 保存；数据库、页面关系、历史恢复分别使用对应插件提供的工具。
+
+## 数据库和模板
+
+`notebook_database_read` 返回数据库结构、命名视图、记录及数值 revision；`notebook_database_configure` 更新完整 fields/views 数组；`notebook_database_write` 写记录，properties.custom 以稳定字段 ID 为键。字段类型支持 text/number/select/multiSelect/checkbox/date/url，null 清空值。数据库视图保存筛选排序，正文的 databaseView 块用 props.databaseId/viewId 引用同一数据源；完整备份会重映射这些 ID。
+
+`notebook_templates` 列出模板；`notebook_template_save` 另存当前页面；`notebook_template_apply` 创建独立副本；`notebook_template_delete` 回收。模板范围为通用或指定数据库，不复制子页面和记录。模板接口使用 note.revision 的数值；通用 notebook_update 仍使用 notebook_read 返回的内容哈希。

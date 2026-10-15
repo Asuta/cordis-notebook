@@ -8,7 +8,7 @@ const doc = (...blocks) => ({ version: 1, blocks })
 const text = value => [{ type: 'text', text: value, styles: {} }]
 
 test('存储校验覆盖已安装的 BlockNote 原生 schema，默认属性往返保留', () => {
-  assert.deepEqual(blockTypes.filter(type => !['callout', 'equation', 'tableOfContents'].includes(type)).sort(), Object.keys(defaultBlockSpecs).sort())
+  assert.deepEqual(blockTypes.filter(type => !['callout', 'equation', 'tableOfContents', 'databaseView'].includes(type)).sort(), Object.keys(defaultBlockSpecs).sort())
   for (const type of Object.keys(defaultBlockSpecs)) {
     const block = service.create(type, '', type)
     block.props = Object.fromEntries(Object.entries(defaultBlockSpecs[type].config.propSchema).filter(([, spec]) => spec.default !== undefined).map(([key, spec]) => [key, spec.default]))

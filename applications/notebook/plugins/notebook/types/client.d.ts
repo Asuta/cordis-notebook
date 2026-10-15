@@ -33,6 +33,7 @@ export interface NotebookService {
   /** Flush and hold edits while an importer atomically appends new notes. */
   importNotes(action: () => Promise<Note[]>): Promise<Note[] | undefined>
   remove(): Promise<void>
+  removeNote(id: string, expectedRevision: number): Promise<{ok: true} | undefined>
   /** Flush and hold editing while restoring a durable note from history or trash. */
   restoreNote(action: (current: Note | undefined) => Promise<Note>): Promise<Note | undefined>
   edit(patch: NotePatch): void
@@ -47,7 +48,8 @@ declare module 'cordis' { interface Events {
     'notebook/before-action'(): Validation | Promise<Validation>
     /** @mode parallel */
     'notebook/changed'(event: NotebookChange): void | Promise<void>
-    /** Return a message or throw to reject. No recursive flush() here.
+    /** Called before create and save; new pages have their proposed stable ID.
+     * Return a message or throw to reject. No recursive flush() here.
      * @mode serial
      */
     'notebook/before-save'(note: Note): Validation | Promise<Validation>
