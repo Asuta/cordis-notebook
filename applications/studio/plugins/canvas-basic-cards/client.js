@@ -1,97 +1,80 @@
+import { renderPending } from './pending.js'
+
+const ASSET_DRAG_TYPE = 'application/x-cordis-studio-asset'
+
 export default function (ctx, sdk) {
   const s = ctx.canvasSession, view = ctx.canvasUI
   const { el, button, safe, edit, imageUrl, position, coordinates, stage, add } = view
   const api = (path, body) => sdk.request('/api/studio' + path, body === undefined ? 'GET' : 'POST', body)
-  const { rememberAsset } = s, uuid = () => crypto.randomUUID()
+  const { rememberAsset, mediaKind, mediaUrl, uploadMedia } = s, uuid = () => crypto.randomUUID()
   async function upload(file, extra = {}) {
-    if (file.size > 20 * 1024 * 1024) throw Error('图片不能超过 20 MB')
-    const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file) })
-    const targetBoard = s.boardId, uploaded = await api('/upload', { name: file.name, base64: data })
+    const targetBoard = s.boardId, uploaded = await uploadMedia(file, sdk.signal)
     if (sdk.signal?.aborted) throw Error('图片卡片插件已停止')
     const asset = rememberAsset(uploaded)
-    await edit([{ type: 'add', node: { id: uuid(), type: 'image', title: file.name, assetId: asset.id, ...position(), ...extra } }], { targetBoard })
+    await edit([{ type: 'add', node: { id: uuid(), type: mediaKind(asset), title: file.name, assetId: asset.id, ...position(), ...extra } }], { targetBoard })
     return asset
   }
   const fileInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, hidden: true })
   fileInput.onchange = safe(async () => { for (const file of fileInput.files) await upload(file); fileInput.value = '' })
-  const viewer = el('dialog', { class: 'studio-viewer' })
-  const viewerStage = el('div', { class: 'studio-viewer-stage', 'aria-label': '图片预览区域' }), viewerImage = el('img', { alt: '图片预览', draggable: false }), viewerZoom = el('span', { class: 'studio-viewer-zoom' }, '100%'), viewerDownload = el('a', { download: '' }, '下载原图')
-  const viewerView = { zoom: 1, fit: 1, x: 0, y: 0, drag: null }
-  const applyViewerView = () => { viewerImage.style.transform = `translate(-50%,-50%) translate(${viewerView.x}px,${viewerView.y}px) scale(${viewerView.zoom})`; viewerZoom.textContent = Math.round(viewerView.zoom * 100) + '%' }
-  const zoomViewer = (next, px = 0, py = 0) => {
-    const target = Math.min(8, Math.max(0.05, next)), ratio = target / viewerView.zoom
-    viewerView.x = px - (px - viewerView.x) * ratio; viewerView.y = py - (py - viewerView.y) * ratio
-    viewerView.zoom = target; applyViewerView()
-  }
-  const fitViewer = () => {
-    const rect = viewerStage.getBoundingClientRect(), width = viewerImage.naturalWidth || rect.width, height = viewerImage.naturalHeight || rect.height
-    viewerView.fit = Math.min(rect.width / width, rect.height / height, 1) || 1
-    viewerView.zoom = viewerView.fit; viewerView.x = 0; viewerView.y = 0; applyViewerView()
-  }
-  const resetViewer = () => { viewerView.zoom = 1; viewerView.x = 0; viewerView.y = 0; applyViewerView() }
-  const endViewerDrag = event => {
-    if (!viewerView.drag) return
-    viewerView.drag = null; viewerStage.classList.remove('grabbing')
-    if (event?.pointerId !== undefined && viewerStage.hasPointerCapture?.(event.pointerId)) viewerStage.releasePointerCapture?.(event.pointerId)
-  }
-  viewerImage.draggable = false
-  viewerImage.onload = () => { if (viewer.open) fitViewer() }
-  viewerStage.onwheel = event => {
-    event.preventDefault()
-    const rect = viewerStage.getBoundingClientRect()
-    zoomViewer(viewerView.zoom * Math.exp(-event.deltaY * 0.0015), event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2)
-  }
-  viewerStage.onpointerdown = event => {
-    if (event.button !== 0) return
-    event.preventDefault(); viewerView.drag = { x: event.clientX - viewerView.x, y: event.clientY - viewerView.y }
-    viewerStage.setPointerCapture?.(event.pointerId); viewerStage.classList.add('grabbing')
-  }
-  viewerStage.onpointermove = event => {
-    if (!viewerView.drag) return
-    viewerView.x = event.clientX - viewerView.drag.x; viewerView.y = event.clientY - viewerView.drag.y; applyViewerView()
-  }
-  viewerStage.onpointerup = endViewerDrag
-  viewerStage.onpointercancel = endViewerDrag
-  viewerStage.ondblclick = () => { if (Math.abs(viewerView.zoom - viewerView.fit) < 0.001) resetViewer(); else fitViewer() }
-  const viewerBar = el('div', { class: 'studio-viewer-bar' })
-  viewerBar.append(button('关闭预览', () => viewer.close()),
-    button('−', () => zoomViewer(viewerView.zoom / 1.25), 'studio-viewer-out'), viewerZoom,
-    button('＋', () => zoomViewer(viewerView.zoom * 1.25), 'studio-viewer-in'),
-    button('适应窗口', fitViewer), button('1:1', resetViewer),
-    el('span', { class: 'studio-viewer-hint' }, '滚轮缩放 · 拖动平移 · 双击切换'),
-    viewerDownload)
-  viewerStage.append(viewerImage)
-  viewer.append(viewerBar, viewerStage)
-  function viewImage(id) {
-    const asset = s.state.assets[id]
-    viewerView.drag = null; viewerImage.src = imageUrl(id, false); viewerImage.alt = asset.name
-    viewerDownload.href = imageUrl(id, false); viewerDownload.download = asset.name + '.png'
-    viewer.showModal(); resetViewer()
-    if (viewerImage.complete && viewerImage.naturalWidth) fitViewer()
-  }
+  const videoInput = el('input', { type: 'file', accept: 'video/mp4,video/webm', multiple: true, hidden: true })
+  videoInput.onchange = safe(async () => { for (const file of videoInput.files) await upload(file); videoInput.value = '' })
   sdk.listen(stage, 'dragover', event => event.preventDefault())
-  sdk.listen(stage, 'drop', safe(async event => { event.preventDefault(); let offset = 0; for (const file of event.dataTransfer.files) { await upload(file, { ...coordinates(event), y: coordinates(event).y + offset }); offset += 50 } }))
+  sdk.listen(stage, 'drop', safe(async event => {
+    event.preventDefault()
+    const asset = s.state.assets[event.dataTransfer.getData(ASSET_DRAG_TYPE)]
+    if (asset) {
+      const point = coordinates(event)
+      await add(mediaKind(asset), { assetId: asset.id, title: asset.name, ...point }, { fit: false })
+      return
+    }
+    let offset = 0
+    for (const file of event.dataTransfer.files) { await upload(file, { ...coordinates(event), y: coordinates(event).y + offset }); offset += 50 }
+  }))
   sdk.listen(window, 'paste', safe(async event => { if (event.target.closest('input,textarea')) return; const files = [...event.clipboardData.files]; if (files.length) { event.preventDefault(); for (const file of files) await upload(file) } }))
 
-  view.root.append(fileInput, viewer)
+  view.root.append(fileInput, videoInput)
   view.menu(ctx, { id: 'text', label: '＋ 文字', order: 10, run: () => add('text') })
   view.menu(ctx, { id: 'image', label: '↑ 图片', order: 20, run: () => fileInput.click() })
+  view.menu(ctx, { id: 'video', label: '↑ 视频', order: 40, run: () => videoInput.click() })
   view.register(ctx, { id: 'text', label: '文字灵感', icon: 'T', output: true, height: 230,
     actions: [{ label: '编辑文字', run: node => view.cards.querySelector(`[data-node="${node.id}"] textarea`)?.focus() }],
     render(node, card) { card.append(view.field(node, 'text', true)) },
   })
   view.register(ctx, { id: 'image', label: '图片', icon: '▧', output: true, height: 360,
-    actions: [{ label: '预览图片', run: node => viewImage(node.assetId) }],
+    actions: [{ label: '预览图片', run: node => view.openMedia(node.assetId) }],
     render(node, card) {
+      if (renderPending(node, card, view, s)) return
       const asset = s.state.assets[node.assetId], image = el('img', { src: imageUrl(node.assetId), alt: node.title, draggable: false, loading: 'lazy' })
-      image.ondblclick = () => viewImage(node.assetId)
+      image.title = '单击放大预览'
+      image.onclick = event => { event.stopPropagation(); view.openMedia(node.assetId) }
       const foot = el('div', { class: 'studio-image-foot' })
-      foot.append(el('small', {}, asset ? `${asset.width} × ${asset.height}` : '素材不可用'), button('预览', () => viewImage(node.assetId)), el('a', { href: imageUrl(node.assetId, false), download: (asset?.name || '图片') + '.png' }, '下载'))
+      foot.append(el('small', {}, asset ? `${asset.width} × ${asset.height}` : '素材不可用'), button('预览', () => view.openMedia(node.assetId)), el('a', { href: imageUrl(node.assetId, false), download: (asset?.name || '图片') + '.png' }, '下载'))
       card.append(image, foot)
     },
   })
+  view.register(ctx, { id: 'video', label: '视频', icon: '▷', output: true, height: 300,
+    render(node, card) {
+      if (renderPending(node, card, view, s)) return
+      const asset = s.state.assets[node.assetId], player = el('video', { src: asset ? mediaUrl(asset) : '', controls: true, preload: 'metadata', playsInline: true, 'aria-label': node.title + ' 视频播放' })
+      const foot = el('div', { class: 'studio-image-foot' })
+      foot.append(el('small', {}, asset ? `${asset.width} × ${asset.height} · ${Number(asset.duration || 0).toFixed(1)} 秒` : '素材不可用'), el('a', { href: asset ? mediaUrl(asset) : '', download: (asset?.name || '视频') + '.' + (asset?.extension || 'mp4') }, '下载视频'))
+      card.append(player, foot)
+    },
+  })
   view.extend(ctx, 'assets', {
-    refresh() { view.assetsList.replaceChildren(...Object.values(s.state.assets).reverse().map(asset => { const b = button('', () => add('image', { assetId: asset.id, title: asset.name })); b.title = '添加到画布：' + asset.name; b.append(el('img', { src: imageUrl(asset.id), alt: asset.name, loading: 'lazy' })); return b })) },
-    dispose() { view.assetsList.replaceChildren(); fileInput.remove(); viewer.remove() },
+    refresh() { view.assetsList.replaceChildren(...Object.values(s.state.assets).reverse().map(asset => {
+      const b = button('', () => view.openMedia(asset.id))
+      b.title = '单击放大预览，拖到画布添加：' + asset.name
+      b.draggable = true
+      b.ondragstart = event => {
+        event.dataTransfer.effectAllowed = 'copy'
+        event.dataTransfer.setData(ASSET_DRAG_TYPE, asset.id)
+        event.dataTransfer.setData('text/plain', asset.name)
+      }
+      b.append(el(mediaKind(asset) === 'video' ? 'video' : 'img', { src: mediaUrl(asset), ...(mediaKind(asset) === 'video' ? { preload: 'metadata', muted: true } : { alt: asset.name, loading: 'lazy' }) }))
+      if (mediaKind(asset) === 'video') b.append(el('span', { class: 'studio-video-badge' }, '▷ 视频'))
+      return b
+    })) },
+    dispose() { view.assetsList.replaceChildren(); fileInput.remove(); videoInput.remove() },
   })
 }

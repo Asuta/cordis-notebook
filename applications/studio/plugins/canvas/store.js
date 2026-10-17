@@ -4,10 +4,12 @@ import { randomUUID } from 'node:crypto'
 import sharp from 'sharp'
 import { createNodeRegistry } from './registry.js'
 import { applyOperation, validateBoard, invalid, string } from './model.js'
+import { videoMetadata } from './video.js'
 
 export const newBoard = title => ({ id: randomUUID(), title, revision: 0, viewport: { x: 60, y: 60, zoom: 1 }, nodes: [], edges: [] })
 export async function createStore(directory, writeSnapshot, types = createNodeRegistry()) {
   await mkdir(join(directory, 'images'), { recursive: true })
+  await mkdir(join(directory, 'videos'), { recursive: true })
   const file = join(directory, 'studio.json')
   let state
   try { state = JSON.parse(await readFile(file, 'utf8')) }
@@ -71,13 +73,27 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
       if (encoded.data.length > 40 * 1024 * 1024) invalid('解码后的图片过大')
       await writeFile(join(directory, 'images', id + '.png'), encoded.data)
       await sharp(encoded.data).resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true }).webp({ quality: 82 }).toFile(join(directory, 'images', id + '.webp'))
-      const asset = { id, name: String(name).slice(0, 120), width: encoded.info.width, height: encoded.info.height, createdAt: Date.now() }
+      const asset = { id, kind: 'image', mimeType: 'image/png', name: String(name).slice(0, 120), width: encoded.info.width, height: encoded.info.height, createdAt: Date.now() }
       await store.change(state => { state.assets[id] = asset }); return asset
     },
     async image(id, thumbnail = false) {
-      if (!state.assets[id] || !/^[a-f0-9-]{36}$/.test(id)) throw Object.assign(Error('图片不存在'), { status: 404 })
+      if (!state.assets[id] || state.assets[id].kind === 'video' || !/^[a-f0-9-]{36}$/.test(id)) throw Object.assign(Error('图片不存在'), { status: 404 })
       return readFile(join(directory, 'images', id + (thumbnail ? '.webp' : '.png')))
     },
+    async addVideo(bytes, name = '视频') {
+      const info = videoMetadata(bytes), id = randomUUID()
+      await writeFile(join(directory, 'videos', id + '.' + info.extension), bytes)
+      const asset = { id, kind: 'video', name: String(name).slice(0, 120), ...info, size: bytes.length, createdAt: Date.now() }
+      await store.change(state => { state.assets[id] = asset }); return asset
+    },
+    mediaFile(id) {
+      const asset = state.assets[id]
+      if (!asset || !/^[a-f0-9-]{36}$/.test(id)) throw Object.assign(Error('素材不存在'), { status: 404 })
+      if (asset.kind !== 'video') return { path: join(directory, 'images', id + '.png'), mimeType: 'image/png' }
+      if (!['mp4', 'webm'].includes(asset.extension)) invalid('视频格式无效')
+      return { path: join(directory, 'videos', id + '.' + asset.extension), mimeType: asset.mimeType }
+    },
+    async media(id) { return readFile(store.mediaFile(id).path) },
   }
   return store
 }

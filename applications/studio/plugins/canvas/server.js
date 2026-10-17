@@ -4,6 +4,8 @@ import { createRegistry } from './registry.js'
 import { invalid } from './model.js'
 import { readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
+import { installMediaRoutes } from './media-server.js'
+import { copySelection } from './copy.js'
 
 async function uploadBody(req) {
   const chunks = []; let size = 0
@@ -14,7 +16,7 @@ export default async function (ctx, settings, runtime) {
   const store = await createStore(runtime.dataDir, runtime.writeSnapshot), snapshots = createRegistry(), changes = new Set()
   const service = Object.assign(new Service(ctx, 'canvasDocuments'), {
     types: store.types, snapshots,
-    read: store.read, addBoard: store.addBoard, addImage: store.addImage, image: store.image,
+    read: store.read, addBoard: store.addBoard, addImage: store.addImage, image: store.image, addVideo: store.addVideo, media: store.media,
     records: store.records,
     observe(owner, fn) { return owner.effect(() => { changes.add(fn); return () => changes.delete(fn) }) },
     async edit(...args) { const result = await store.edit(...args); for (const fn of changes) await fn(result.board); return result },
@@ -24,12 +26,18 @@ export default async function (ctx, settings, runtime) {
     },
   })
   ctx.effect(() => () => store.flush())
+  await installMediaRoutes(ctx, store)
   const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
   route('GET', /^\/api\/studio$/, () => ({ ...store.read(), ...Object.assign({}, ...snapshots.list().map(item => item.read())), types: store.types.list().map(({ id, label, fields, accepts, output }) => ({ id, label, fields, accepts, output })) }))
   route('POST', /^\/api\/studio\/boards$/, async ({ req }) => store.addBoard((await ctx.http.body(req)).title))
   route('POST', /^\/api\/studio\/edit$/, async ({ req }) => {
     const input = await ctx.http.body(req)
     return service.edit(input.boardId, input.revision, input.operations)
+  })
+  route('POST', /^\/api\/studio\/copy$/, async ({ req }) => {
+    const input = await ctx.http.body(req), state = store.read(), board = state.boards.find(board => board.id === input.boardId)
+    if (!board || board.revision !== input.revision) throw Object.assign(Error('画布已变化，请重新读取后复制'), { status: 409 })
+    return copySelection(board, input.nodeIds, store.types, state.assets)
   })
   route('POST', /^\/api\/studio\/upload$/, async ({ req }) => {
     const input = await uploadBody(req)
@@ -38,10 +46,11 @@ export default async function (ctx, settings, runtime) {
   })
   route('POST', /^\/api\/studio\/import$/, async ({ req }) => {
     const { path } = await ctx.http.body(req)
-    if (typeof path !== 'string' || !isAbsolute(path)) invalid('请提供用户指定图片的绝对路径')
+    if (typeof path !== 'string' || !isAbsolute(path)) invalid('请提供用户指定素材的绝对路径')
     const info = await stat(path)
-    if (!info.isFile() || info.size > 20 * 1024 * 1024) invalid('请提供小于 20 MB 的图片文件')
-    return store.addImage(await readFile(path), basename(path))
+    const video = /\.(mp4|webm)$/i.test(path)
+    if (!info.isFile() || info.size > (video ? 200 : 20) * 1024 * 1024) invalid(video ? '请提供小于 200 MB 的视频文件' : '请提供小于 20 MB 的图片文件')
+    return (video ? store.addVideo : store.addImage)(await readFile(path), basename(path))
   })
   route('GET', /^\/api\/studio\/inspect\/([a-f0-9-]{36})$/, async ({ match }) => ({ asset: store.read().assets[match[1]],
     image: { type: 'image', mimeType: 'image/webp', data: (await store.image(match[1], true)).toString('base64') } }))

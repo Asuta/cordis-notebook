@@ -1,9 +1,10 @@
 import { cardBounds, fitView, arrangeCards, moveDelta, overlayPosition } from './geometry.js'
+import { createMediaViewer } from './media-viewer.js'
 export default async function (ctx, sdk) {
   const s = ctx.canvasSession, el = sdk.el, uuid = () => crypto.randomUUID();
   const { board, api, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
   const renderers = new Map(), menus = new Map(), extensions = new Map();
-  let stopped = false, drag = null, connecting = null, space = false, viewTimer, selectionSignature = "";
+  let stopped = false, drag = null, connecting = null, space = false, viewTimer, selectionSignature = "", editingField = null, suppressCardClick = false;
   const selected = new Set();
   const root = el("main", { class: "studio-app" }), side = el("aside", { class: "studio-sidebar" }), main = el("section", { class: "studio-main" });
   const toolbar = el("header", { class: "studio-toolbar" }), stage = el("div", { class: "studio-stage", tabIndex: 0, "aria-label": "无限画布" });
@@ -24,6 +25,16 @@ export default async function (ctx, sdk) {
       sdk.toast(error.message);
     }
   };
+  function beginEditing(input) {
+    editingField = input;
+    s.editing = true;
+  }
+  function endEditing(input) {
+    // A previous blur may finish saving after another field has gained focus.
+    if (editingField !== input) return;
+    editingField = null;
+    s.editing = false;
+  }
   const button = (text, action, cls = "") => {
     const b = el("button", { type: "button", class: cls }, text);
     b.onpointerdown = (event) => {
@@ -35,19 +46,20 @@ export default async function (ctx, sdk) {
     });
     return b;
   };
+  const mediaViewer = createMediaViewer({ ctx, s, el, button, root });
   const position = () => {
     const point = { x: Math.round((stage.clientWidth / 2 - s.viewport.x) / s.viewport.zoom - 140), y: Math.round((stage.clientHeight / 2 - s.viewport.y) / s.viewport.zoom - 130) };
     while (board().nodes.some((n) => Math.abs(n.x - point.x) < 300 && Math.abs(n.y - point.y) < 280)) point.x += 340;
     return point;
   };
-  async function add(type, extra = {}) {
+  async function add(type, extra = {}, options = {}) {
     await flush();
     const id = uuid();
     await edit([{ type: "add", node: { id, type, ...position(), ...extra } }]);
     selected.clear();
     selected.add(id);
     render();
-    fit();
+    if (options.fit !== false) fit();
     return id;
   }
   async function connect(from, to) {
@@ -90,14 +102,13 @@ export default async function (ctx, sdk) {
     })
   );
   boardTitle.onfocus = () => {
-    s.editing = true;
+    beginEditing(boardTitle);
     updateSelectionTools();
   };
   boardTitle.oninput = () => draft({ id: s.titleDraftId, title: s.renderedTitle }, "title", boardTitle.value);
   boardTitle.onblur = safe(async () => {
-    s.editing = false;
-    await flush();
-    if (!s.drafts.size) render();
+    try { await flush(); }
+    finally { endEditing(boardTitle); if (!s.drafts.size) render(); }
   });
   empty.append(el("div", { class: "studio-empty-symbol" }, "✳"), el("h1", {}, "给灵感一片空白"), el("p", {}, "放入图片，写下想法，连接到生成卡片。"), el("small", {}, "也可以把图片拖到这里，或让右侧 Agent 帮你搭建画布。"));
   const controls = el("div", { class: "studio-viewport-controls" });
@@ -175,15 +186,13 @@ export default async function (ctx, sdk) {
   }
   async function duplicateSelection() {
     await flush();
-    const nodes = selectedNodes(), ids = new Map(nodes.map((n) => [n.id, uuid()]));
-    if (!nodes.length) return;
-    const delta = moveDelta(nodes, 40, 40);
-    const operations = nodes.map((n) => ({ type: "add", node: { ...n, id: ids.get(n.id), x: n.x + delta.x, y: n.y + delta.y } }));
-    for (const edge of board().edges) if (ids.has(edge.from) && ids.has(edge.to)) operations.push({ type: "connect", id: uuid(), from: ids.get(edge.from), to: ids.get(edge.to) });
-    if (operations.length > 100) throw Error("所选卡片和内部连线过多，请分批创建副本。");
-    await edit(operations);
+    const nodeIds = [...selected], targetBoard = s.boardId;
+    if (!nodeIds.length) return;
+    const copy = await api('/copy', { boardId: targetBoard, revision: board().revision, nodeIds });
+    await edit(copy.operations, { targetBoard, expectedRevision: copy.revision });
+    if (s.boardId !== targetBoard) return;
     selected.clear();
-    ids.forEach((id) => selected.add(id));
+    copy.nodeIds.forEach((id) => selected.add(id));
     render();
   }
   function placeContextTools() {
@@ -258,18 +267,17 @@ export default async function (ctx, sdk) {
   }
   function field(node, prop, area = false) {
     const value = s.drafts.get(node.id)?.patch[prop] ?? node[prop];
-    const input = el(area ? "textarea" : "input", { value, "aria-label": node.title + (prop === "prompt" ? " 提示词" : prop === "text" ? " 文字内容" : " 标题"), maxLength: area ? 12e3 : 120 });
+    const input = el(area ? "textarea" : "input", { value, "aria-label": node.title + (prop === "prompt" ? " 提示词" : prop === "text" ? " 文字内容" : " 标题"), maxLength: prop === 'prompt' ? 24000 : area ? 12e3 : 120 });
     input.onfocus = () => {
-      s.editing = true;
+      beginEditing(input);
       selected.clear();
       selected.add(node.id);
       updateSelectionTools();
     };
     input.oninput = () => draft(node, prop, input.value);
     input.onblur = safe(async () => {
-      s.editing = false;
-      await flush();
-      if (!s.drafts.size) render();
+      try { await flush(); }
+      finally { endEditing(input); if (!s.drafts.size) render(); }
     });
     input.onkeydown = (event) => {
       if (event.isComposing || event.key !== "Escape") return;
@@ -300,6 +308,8 @@ export default async function (ctx, sdk) {
       input.select();
     };
     const renderer = renderers.get(node.type);
+    card.studioRenderer = renderer;
+    card.studioNode = JSON.stringify(node);
     head.append(el("span", { class: "studio-kind" }, renderer?.icon || "?"), title);
     card.append(head);
     if (renderer?.input || renderer?.output) {
@@ -323,12 +333,20 @@ export default async function (ctx, sdk) {
     boardList.replaceChildren(...s.state.boards.map((b) => button(b.title, () => choose(b.id), b.id === s.boardId ? "active" : "")));
     for (const extension of extensions.values()) extension.refresh?.();
     s.renderedNodes.clear();
-    for (const item of cards.children) resizeObserver?.unobserve(item);
-    cards.replaceChildren(...board().nodes.map((node) => {
+    const existingCards = new Map([...cards.children].map(item => [item.dataset.node, item]));
+    const nextCards = board().nodes.map((node) => {
       const rendered = structuredClone(node);
       s.renderedNodes.set(node.id, rendered);
+      const existing = existingCards.get(node.id);
+      // Keep an unchanged video element connected while background jobs update.
+      if (node.type === 'video' && node.assetId && existing?.studioRenderer === renderers.get(node.type) && existing.studioNode === JSON.stringify(node)) {
+        existing.classList.toggle('selected', selected.has(node.id)); return existing;
+      }
       return renderCard(rendered);
-    }));
+    });
+    const keep = new Set(nextCards);
+    for (const item of [...cards.children]) if (!keep.has(item)) { resizeObserver?.unobserve(item); item.remove(); }
+    nextCards.forEach((item, index) => { if (cards.children[index] !== item) cards.insertBefore(item, cards.children[index] || null); });
     empty.hidden = board().nodes.length > 0;
     for (const item of cards.children) resizeObserver?.observe(item);
     if (restoreFocus) stage.focus({ preventScroll: true });
@@ -356,18 +374,13 @@ export default async function (ctx, sdk) {
       if (connecting) void safe(() => connect(connecting, input.dataset.input))();
       return;
     }
-    if (!pan && event.target.closest("button,input,textarea,select,a,path")) return;
+    if (!pan && event.target.closest("button,input,textarea,select,a,path,video,label,[role=button],[contenteditable=true]")) return;
+    const scroller = event.target.closest(".studio-scroll");
+    if (!pan && event.target === scroller && ((scroller.clientWidth > 0 && event.offsetX >= scroller.clientWidth) || (scroller.clientHeight > 0 && event.offsetY >= scroller.clientHeight))) return;
     const card = event.target.closest("[data-node]");
     if (card && !pan && event.button === 0) {
       if (event.shiftKey || event.ctrlKey || event.metaKey) {
         selected.has(card.dataset.node) ? selected.delete(card.dataset.node) : selected.add(card.dataset.node);
-        updateSelectionTools();
-        return;
-      }
-      if (!event.target.closest("[data-handle]")) {
-        selected.clear();
-        selected.add(card.dataset.node);
-        stage.focus({ preventScroll: true });
         updateSelectionTools();
         return;
       }
@@ -386,9 +399,9 @@ export default async function (ctx, sdk) {
       }
     }
     Object.assign(drag, { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, moved: false });
-    stage.setPointerCapture?.(event.pointerId);
+    if (drag.type !== "nodes") stage.setPointerCapture?.(event.pointerId);
     stage.focus({ preventScroll: true });
-    event.preventDefault();
+    if (drag.type !== "nodes") event.preventDefault();
     updateSelectionTools();
   });
   function movePointer(event) {
@@ -430,7 +443,7 @@ export default async function (ctx, sdk) {
       }
     }
   }
-  sdk.listen(stage, "pointermove", movePointer);
+  sdk.listen(window, "pointermove", movePointer);
   function cancelGesture() {
     if (!drag) return;
     const previous = drag;
@@ -457,6 +470,8 @@ export default async function (ctx, sdk) {
     if (stage.hasPointerCapture?.(previous.pointerId)) stage.releasePointerCapture(previous.pointerId);
     selectionBox.hidden = true;
     if (previous.type === "nodes" && previous.moved) {
+      suppressCardClick = true;
+      setTimeout(() => { suppressCardClick = false }, 0);
       const operations = previous.nodes.map((old) => {
         const n = board().nodes.find((n2) => n2.id === old.id);
         const patch = { x: n.x, y: n.y };
@@ -469,9 +484,19 @@ export default async function (ctx, sdk) {
         render();
       }
     } else if (previous.type === "pan" && previous.moved) await saveViewport();
-    render();
+    // Keep the pressed element connected for a normal click. A moved card is
+    // already re-rendered after its position is saved.
+    if (previous.type !== "nodes") render();
   });
   sdk.listen(window, "pointerup", release);
+  const blockDraggedCardClick = event => {
+    if (!suppressCardClick) return;
+    suppressCardClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  stage.addEventListener("click", blockDraggedCardClick, true);
+  ctx.effect(() => () => stage.removeEventListener("click", blockDraggedCardClick, true));
   sdk.listen(stage, "pointercancel", cancelGesture);
   sdk.listen(stage, "lostpointercapture", cancelGesture);
   sdk.listen(window, "blur", () => {
@@ -480,7 +505,7 @@ export default async function (ctx, sdk) {
     cancelGesture();
   });
   sdk.listen(stage, "wheel", (event) => {
-    if (event.target.closest("textarea,select,.studio-context-tools,.studio-bottom-controls")) return;
+    if (event.target.closest("textarea,select,video,.studio-scroll,.studio-context-tools,.studio-bottom-controls")) return;
     event.preventDefault();
     if (drag) return;
     const rect = stage.getBoundingClientRect();
@@ -511,6 +536,7 @@ export default async function (ctx, sdk) {
       event.preventDefault();
       await historyStep(!event.shiftKey);
     }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); await duplicateSelection(); }
     if (event.key === "Delete" && selected.size) {
       event.preventDefault();
       await edit([{ type: "remove", ids: [...selected] }]);
@@ -529,6 +555,8 @@ export default async function (ctx, sdk) {
     el,
     button,
     safe,
+    beginEditing,
+    endEditing,
     field,
     add,
     edit,
@@ -548,6 +576,7 @@ export default async function (ctx, sdk) {
     state: () => s.state,
     boardId: () => s.boardId,
     execute: (...args) => s.execute(...args),
+    openMedia: assetId => mediaViewer.open(assetId),
     render,
     register(owner, definition) {
       if (!/^[a-z][a-z0-9-]*$/.test(definition.id) || renderers.has(definition.id)) throw Error("卡片视图无效或重复");

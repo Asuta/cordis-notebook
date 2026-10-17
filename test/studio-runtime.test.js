@@ -41,7 +41,7 @@ test('灵感画布 HTTP：上传/导入/预览、真实请求协议、结果持�
     const image = await request('/inspect/' + asset.id); assert.equal(image.image.mimeType, 'image/webp')
     const result = await request('/edit', { boardId: state.boards[0].id, revision: 0, operations: [
       { type: 'add', node: { id: 'image', type: 'image', assetId: asset.id } },
-      { type: 'add', node: { id: 'generator', type: 'generator', prompt: '改背景', x: 350 } },
+      { type: 'add', node: { id: 'generator', type: 'generator', provider: 'pixel', prompt: '改背景', x: 350 } },
       { type: 'connect', id: 'edge', from: 'image', to: 'generator' },
     ] })
     const input = { requestId: randomUUID(), boardId: result.board.id, nodeId: 'generator', revision: result.board.revision }
@@ -57,6 +57,6 @@ test('灵感画布 HTTP：上传/导入/预览、真实请求协议、结果持�
     const start = Date.now(); await app.applications.switch(null, app.applications.session)
     assert.ok(Date.now() - start < 5000, '切换不能等待长时间生图请求')
     await app.applications.switch('studio', app.applications.session)
-    saved = await request(''); assert.equal(saved.jobs.at(-1).status, 'interrupted'); assert.equal(saved.boards[0].nodes.length, 3)
+    saved = await request(''); assert.equal(saved.jobs.at(-1).status, 'interrupted'); assert.equal(saved.boards[0].nodes.length, 4)
   } finally { await app?.close(); upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)); await rm(dir, { recursive: true, force: true }) }
 })

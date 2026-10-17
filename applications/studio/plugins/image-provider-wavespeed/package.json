@@ -1,0 +1,15 @@
+{
+  "name": "@cordis-studio/image-provider-wavespeed", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "ajv": "^8.17.1", "undici": "8.11.2" },
+  "cordis": {
+    "schemaVersion": 1, "id": "image-provider-wavespeed", "name": "WaveSpeed 图片与视频",
+    "description": "搜索 WaveSpeed 模型目录，按模型参数生成图片和视频", "defaultEnabled": true, "order": 20,
+    "requires": { "server": ["http", "canvasDocuments", "imageGeneration"], "client": ["canvasUI", "canvasSession"] },
+    "provides": { "server": [], "client": [] },
+    "build": [
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }
+    ],
+    "server": { "entry": "server.js", "export": "default" }, "client": "client.js", "public": ["client.js"]
+  }
+}

@@ -1,14 +1,19 @@
 {
   "version": 1,
   "tests": [
+    {"file":"test/studio-parallel.test.js","application":"studio","plugins":["canvas","canvas-basic-cards","image-generation"]},
+    {"file":"test/studio-reuse.test.js","application":"studio","plugins":["canvas","canvas-basic-cards","image-generation","image-provider-wavespeed"]},
     {"file":"test/notebook-database.test.js","application":"notebook","plugins":["format-database","database-editor","note-templates","note-formats","notes","note-transfer","format-blocknote","blocknote-agent-tools"]},
     {"file":"test/notebook-recovery.test.js","application":"notebook","plugins":["notes","notebook","note-recovery","storage"]},
     {"file":"test/notebook-notion-features.test.js","application":"notebook","plugins":["notes","note-recovery","note-assets","note-transfer","format-blocknote","blocknote-editor","blocknote-agent-tools","note-formats","format-database","database-editor"]},
     {"file":"test/notebook-notion-features-browser.test.js","application":"notebook","plugins":["note-recovery","notebook","note-assets","blocknote-editor","format-blocknote","blocknote-agent-tools","format-database","database-editor","note-templates"]},
-    { "file": "test/studio-development.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"] },
-    {"file": "test/studio-runtime.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
-    {"file": "test/studio-client.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
-    {"file": "test/app-tool-result.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
+    { "file": "test/studio-development.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel", "image-provider-wavespeed"] },
+    {"file": "test/studio-runtime.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel", "image-provider-wavespeed"]},
+    {"file": "test/studio-client.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel", "image-provider-wavespeed"]},
+    {"file": "test/studio-wavespeed.test.js", "application": "studio", "plugins": ["canvas", "image-generation", "image-provider-wavespeed"]},
+    {"file": "test/studio-wavespeed-runtime.test.js", "application": "studio", "plugins": ["canvas", "canvas-basic-cards", "image-generation", "image-provider-wavespeed"]},
+    {"file": "test/studio-wavespeed-browser.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-wavespeed"]},
+    {"file": "test/app-tool-result.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel", "image-provider-wavespeed"]},
     {"file": "test/theme-palette.test.js", "application": "notebook", "services": {"server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"]}},
     {"file": "test/theme-providers.test.js", "application": "notebook", "services": {"server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"]}},
     {"file": "test/themes.test.js", "application": "notebook", "services": {"server": ["theme", "themeEngine"], "client": ["theme", "themeEngine"]}},
@@ -20,7 +25,7 @@
     {"file": "test/free-page-interaction.test.js", "application": "notebook", "plugins": ["free-page-editor"]},
     {"file": "test/free-page-async.test.js", "application": "notebook", "plugins": ["free-page-editor"]},
     {"file": "test/markdown.test.js", "application": "notebook", "plugins": ["markdown-editor", "format-markdown", "markdown"]},
-    {"file": "test/studio-model.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]},
-    {"file": "test/studio-plugins.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel"]}
+    {"file": "test/studio-model.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel", "image-provider-wavespeed"]},
+    {"file": "test/studio-plugins.test.js", "application": "studio", "plugins": ["canvas", "canvas-agent-tools", "canvas-basic-cards", "canvas-ui", "image-generation", "image-provider-pixel", "image-provider-wavespeed"]}
   ]
 }

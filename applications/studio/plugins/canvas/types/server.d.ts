@@ -13,6 +13,8 @@ export interface CanvasDocuments {
   edit(boardId: string, revision: number, operations: CanvasOperation[]): Promise<EditResult>
   addBoard(title: string): Promise<CanvasBoard>
   addImage(bytes: Buffer, name?: string): Promise<CanvasAsset>
+  addVideo(bytes: Buffer, name?: string): Promise<CanvasAsset>
+  media(id: string): Promise<Buffer>
   image(id: string, thumbnail?: boolean): Promise<Buffer>
   /** Callback is synchronous; network and image decoding must happen outside the transaction. */
   records<T extends object = Record<string, unknown>>(namespace: string): { read(): T[]; change<R>(callback: (transaction: RecordTransaction<T>) => R extends PromiseLike<unknown> ? never : R): Promise<R> }

@@ -85,16 +85,16 @@ test('撤销和重做在服务端检查相关字段，冲突时整批操作不�
   await assert.rejects(edit(added.inverse), error => error.status === 409)
 })
 
-test('首次设置图片服务经过 JSON 传输后可撤销、重做并继续撤销更早操作', async t => {
+test('切换默认 WaveSpeed 服务经过 JSON 传输后可撤销、重做并继续撤销更早操作', async t => {
   const { directory, store } = await setup(t), id = store.read().boards[0].id
   const wire = value => JSON.parse(JSON.stringify(value))
   const edit = async operations => wire(await store.edit(id, store.read().boards[0].revision, wire(operations)))
   const added = await edit([{ type: 'add', node: { id: 'g', type: 'generator' } }])
-  assert.equal(Object.hasOwn(added.board.nodes[0], 'provider'), false)
+  assert.equal(added.board.nodes[0].provider, 'wavespeed')
   const changed = await edit([{ type: 'update', id: 'g', patch: { provider: 'pixel', prompt: '更新提示词' } }])
   const undone = await edit(changed.inverse)
   assert.deepEqual(undone.board.nodes, added.board.nodes)
-  assert.equal(Object.hasOwn((await createStore(directory)).read().boards[0].nodes[0], 'provider'), false)
+  assert.equal((await createStore(directory)).read().boards[0].nodes[0].provider, 'wavespeed')
   const redone = await edit(undone.inverse)
   assert.deepEqual(redone.board.nodes, changed.board.nodes)
   await edit(redone.inverse)
@@ -104,6 +104,7 @@ test('首次设置图片服务经过 JSON 传输后可撤销、重做并继续�
 test('可选字段撤销仍检查冲突，删除只允许已声明且非必填的字段', () => {
   const wire = value => JSON.parse(JSON.stringify(value))
   const board = applyOperation(newBoard('旧卡片'), { type: 'add', node: { id: 'g', type: 'generator' } }, {}).board
+  delete board.nodes[0].provider // Simulate a persisted card from before provider selection existed.
   const changed = applyOperation(board, { type: 'update', id: 'g', patch: { provider: 'pixel' } }, {})
   const undo = wire(changed.inverse)
   const external = applyOperation(changed.board, { type: 'update', id: 'g', patch: { provider: 'another-provider' } }, {})
@@ -152,11 +153,11 @@ test('生成冻结输入、重复请求不重复生图、结果新增卡片；�
   } }
   const jobs = await createJobs(store, { private: () => ({ apiKey: 'private', model: 'gpt-image-2' }) }, pixel)
   t.after(() => jobs.close())
-  const added = await store.edit(first.id, 0, [{ type: 'add', node: { id: 'g', type: 'generator', prompt: '原提示词' } }])
+  const added = await store.edit(first.id, 0, [{ type: 'add', node: { id: 'g', type: 'generator', provider: 'fake', prompt: '原提示词' } }])
   const args = { requestId: randomUUID(), boardId: first.id, nodeId: 'g', revision: added.board.revision }
   const job = await jobs.start(args); await until(() => calls === 1)
   await jobs.start(args); assert.equal(calls, 1)
-  await store.edit(first.id, added.board.revision, [{ type: 'update', id: 'g', patch: { prompt: '之后的修改' } }])
+  await store.edit(first.id, store.read().boards[0].revision, [{ type: 'update', id: 'g', patch: { prompt: '之后的修改' } }])
   release(); await until(() => store.read().jobs[0].status === 'succeeded')
   assert.equal(store.read().jobs[0].input.prompt, '原提示词')
   assert.equal(store.read().boards[0].nodes.filter(n => n.type === 'image').length, 1)
@@ -167,7 +168,7 @@ test('生成冻结输入、重复请求不重复生图、结果新增卡片；�
   await jobs.close()
   assert.equal(store.read().jobs.at(-1).status, 'interrupted')
   assert.equal(store.read().jobs[0].id, job.id)
-  assert.equal((await createStore(directory)).read().boards[0].nodes.length, 2)
+  assert.equal((await createStore(directory)).read().boards[0].nodes.length, 3)
 })
 
 test('大参考图只优化上传副本，multipart 图片总量受控且原图字节不变', async () => {

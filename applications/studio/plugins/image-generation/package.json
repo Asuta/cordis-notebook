@@ -12,8 +12,8 @@
   "cordis": {
     "schemaVersion": 1,
     "id": "image-generation",
-    "name": "图片生成",
-    "description": "图片生成",
+    "name": "图片与视频生成",
+    "description": "模型参数、参考素材与可恢复的图片和视频生成任务",
     "defaultEnabled": true,
     "order": 10,
     "requires": {

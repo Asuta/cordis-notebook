@@ -12,6 +12,8 @@ export interface CanvasUI {
   el: ClientSDK['el']
   button(label: string, callback: (event?: Event) => unknown, className?: string): HTMLButtonElement
   field(node: CanvasNode, property: string, area?: boolean): HTMLInputElement | HTMLTextAreaElement
+  beginEditing(input: HTMLElement): void
+  endEditing(input: HTMLElement): void
   register(owner: Context, definition: CardView): () => unknown
   menu(owner: Context, definition: { id: string; label: string; order?: number; className?: string; run(): unknown }): () => unknown
   extend(owner: Context, id: string, extension: { refresh?(): void; dispose?(): void }): () => unknown
@@ -19,13 +21,14 @@ export interface CanvasUI {
   board(): CanvasBoard
   boardId(): string
   state(): CanvasState
-  add(type: string, fields?: Record<string, unknown>): Promise<string>
+  add(type: string, fields?: Record<string, unknown>, options?: { fit?: boolean }): Promise<string>
   edit(operations: CanvasOperation[], options?: { expectedRevision?: number; history?: boolean; targetBoard?: string }): Promise<EditResult>
   flush(): Promise<void>
   refresh(): Promise<void>
   execute(id: string, args?: Record<string, unknown>, source?: 'user' | 'agent'): Promise<unknown>
   api<T = unknown>(path: string, body?: unknown): Promise<T>
   imageUrl(id: string, thumbnail?: boolean): string
+  openMedia(assetId: string): void
   position(): { x: number; y: number }
   coordinates(event: { clientX: number; clientY: number }): { x: number; y: number }
   safe(callback: (event: any) => unknown): (event?: any) => Promise<void>

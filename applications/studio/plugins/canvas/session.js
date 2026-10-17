@@ -1,4 +1,5 @@
 import { createRegistry } from './registry.js'
+import { mediaKind, mediaUrl, uploadMedia } from './media-client.js'
 
 export async function createSession(ctx, sdk) {
   const api = (path, body) => sdk.request('/api/studio' + path, body === undefined ? 'GET' : 'POST', body)
@@ -7,6 +8,7 @@ export async function createSession(ctx, sdk) {
   const notice = { set textContent(value) { status = value; view.status?.(value) } }
   const render = () => view.render()
   const drafts = new Map(), undo = new Map(), redo = new Map(), renderedNodes = new Map()
+  const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right)
   let state = await api(''), boardId = sdk.storage.local.getItem('board'), queue = Promise.resolve(), stopped = false, held = false, editing = false, draftTimer, polling = false, epoch = 0, pendingEdits = 0, flushing, preparing = false
   const board = () => state.boards.find(b => b.id === boardId) || state.boards[0]
   boardId = board().id
@@ -17,12 +19,13 @@ export async function createSession(ctx, sdk) {
     if (drafts.size) sdk.storage.local.setItem('drafts', JSON.stringify({ boardId, drafts: [...drafts] }))
     else sdk.storage.local.removeItem('drafts')
   }
-  async function refresh() {
-    if (stopped || polling || view.dragging() || drafts.size || pendingEdits) return
+  async function refresh({ fresh = false } = {}) {
+    if (polling) { await polling; if (!fresh) return }
+    if (stopped || view.dragging() || drafts.size || pendingEdits) return
     const stamp = epoch
-    polling = true
-    try { const next = await api(''); if (stopped || stamp !== epoch || view.dragging() || drafts.size || pendingEdits) return; const changed = JSON.stringify(next) !== JSON.stringify(state); state = { ...next, assets: { ...state.assets, ...next.assets } }; if (changed && !editing) render() }
-    finally { polling = false }
+    const task = (async () => { const next = await api(''); if (stopped || stamp !== epoch || view.dragging() || drafts.size || pendingEdits) return; const changed = JSON.stringify(next) !== JSON.stringify(state); state = { ...next, assets: { ...state.assets, ...next.assets } }; if (changed && !editing) render() })()
+    polling = task
+    try { await task } finally { if (polling === task) polling = false }
   }
   async function edit(operations, { expectedRevision, history = true, targetBoard = boardId } = {}) {
     pendingEdits++; epoch++
@@ -57,7 +60,7 @@ export async function createSession(ctx, sdk) {
     const current = latest.boards.find(b => b.id === boardId)
     for (const [id, entry] of entries) {
       const node = id === titleDraftId ? current : current?.nodes.find(n => n.id === id)
-      if (!node || Object.keys(entry.patch).some(key => node[key] !== entry.before[key] && node[key] !== entry.patch[key])) throw Error((id === titleDraftId ? '画板名称' : '这张卡片') + '已在其他页面修改，草稿已保留；请先复制草稿再载入最新画板')
+      if (!node || Object.keys(entry.patch).some(key => !equal(node[key], entry.before[key]) && !equal(node[key], entry.patch[key]))) throw Error((id === titleDraftId ? '画板名称' : '这张卡片') + '已在其他页面修改，草稿已保留；请先复制草稿再载入最新画板')
     }
     state = { ...latest, assets: { ...state.assets, ...latest.assets } }
     await edit(entries.map(([id, entry]) => id === titleDraftId ? { type: 'rename', title: entry.patch.title } : { type: 'update', id, patch: entry.patch }), { expectedRevision: current.revision })
@@ -85,7 +88,16 @@ export async function createSession(ctx, sdk) {
   const imageUrl = (id, thumb = true) => `/api/studio/images/${id}.${thumb ? 'webp' : 'png'}`
   function rememberAsset(asset) { epoch++; state.assets[asset.id] = asset; render(); return asset }
   async function importImage(input) { return rememberAsset(await api('/import', input)) }
-  async function saveViewport() { if (!stopped && !held) await edit([{ type: 'viewport', viewport: { ...viewport } }], { history: false }) }
+  async function saveViewport() {
+    if (stopped || held) return
+    try { await edit([{ type: 'viewport', viewport: { ...viewport } }], { history: false }) }
+    catch (error) {
+      // Another page may have saved a newer viewport while both pages prepare
+      // for reload. Keep that saved view instead of blocking their content save.
+      if (error.status !== 409) throw error
+      await refresh()
+    }
+  }
   const editable = () => !stopped && !held && !preparing && !view.dragging() && !drafts.size && !editing
   const read = () => ({ board: structuredClone(board()), boards: state.boards.map(({ id, title }) => ({ id, title })), assets: structuredClone(state.assets), jobs: structuredClone(state.jobs || []), providers: structuredClone(state.providers || []), types: structuredClone(state.types || []), actions: actions.list().map(({ id, label, schema }) => ({ id, label, schema })), dirty: drafts.size > 0 })
   let recovered
@@ -104,7 +116,8 @@ export async function createSession(ctx, sdk) {
     get editing() { return editing }, set editing(value) { editing = value },
     get viewport() { return viewport }, set viewport(value) { viewport = value },
     get renderedTitle() { return renderedTitle }, set renderedTitle(value) { renderedTitle = value },
-    drafts, undo, redo, renderedNodes, titleDraftId, board, api, read, editable, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport,
+    drafts, undo, redo, renderedNodes, titleDraftId, board, api, read, editable, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport, mediaKind, mediaUrl,
+    uploadMedia: (file, signal = sdk.signal, progress) => uploadMedia(file, api, signal, progress),
     async discardDrafts() { clearTimeout(draftTimer); drafts.clear(); rememberDrafts(); editing = false; await queue; await refresh(); render() },
     attachView(owner, next) {
       return owner.effect(() => { view = next; view.status?.(status); return () => { if (view === next) { view = fallbackView; editing = false; renderedNodes.clear() } } })
