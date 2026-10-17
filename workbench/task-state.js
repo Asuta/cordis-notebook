@@ -29,7 +29,7 @@ export async function recoverConversations(conversations, { dataDir, mark }) {
 }
 
 export function createTraceReporter({ redact, notify, persist }) {
-  let traceTimer
+  let traceTimer, persistTimer
   const updateTrace = (task, event) => {
     const turn = task.turn
     let record = turn.events.find(record => record.id === event.id)
@@ -44,13 +44,16 @@ export function createTraceReporter({ redact, notify, persist }) {
     }
     if (event.delta) { const full = (record.text || '') + redact(event.delta); record.text = full.slice(0, 256000); record.truncated = full.length > 256000 || record.truncated }
     if (['done', 'error', 'stopped'].includes(record.status)) record.endedAt ||= Date.now()
-    // Coalesce token events; one bounded write/broadcast per 200 ms, with a final
-    // full snapshot at task completion. Revisions protect against poll/SSE races.
+    // Coalesce token events for the UI, while conversation snapshots are written
+    // less often. Task completion still performs a final immediate persistence.
     if (!traceTimer) traceTimer = setTimeout(() => {
       traceTimer = null; task.thread.revision++
       notify({ type: 'turn', threadId: task.thread.id, revision: task.thread.revision, turn, contextUsage: task.thread.contextUsage })
+    }, 500)
+    if (!persistTimer) persistTimer = setTimeout(() => {
+      persistTimer = null
       persist(task.thread)
-    }, 200)
+    }, 1000)
   }
-  return { updateTrace, clearTrace() { clearTimeout(traceTimer); traceTimer = null } }
+  return { updateTrace, clearTrace() { clearTimeout(traceTimer); clearTimeout(persistTimer); traceTimer = persistTimer = null } }
 }

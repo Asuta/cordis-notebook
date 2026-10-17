@@ -1,5 +1,8 @@
 import { renderMarkdown } from './markdown.js'
 const node = (tag, className, text) => { const element = document.createElement(tag); element.className = className || ''; if (text !== undefined) element.textContent = text; return element }
+const setText = (element, value) => { value = String(value ?? ''); if (element.textContent !== value) element.textContent = value }
+const setData = (element, key, value) => { value = String(value ?? ''); if (element.dataset[key] !== value) element.dataset[key] = value }
+const setHidden = (element, value) => { value = !!value; if (element.hidden !== value) element.hidden = value }
 const statusNames = { running: '进行中', done: '完成', error: '失败', stopped: '已停止' }
 export const duration = (start, end = Date.now()) => { const seconds = Math.max(0, Math.floor(((end || Date.now()) - start) / 1000)); return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)}分${seconds % 60}秒` }
 function modelTiming(event) {
@@ -46,6 +49,7 @@ export function createTurn() {
     const open = header.getAttribute('aria-expanded') !== 'true'
     header.setAttribute('aria-expanded', String(open)); element.classList.toggle('process-open', open)
     inner.inert = !open; inner.setAttribute('aria-hidden', String(!open))
+    if (open) element._refresh?.()
     element.dispatchEvent(new CustomEvent('process-toggle', { bubbles: true }))
   }
   element._parts = { header, label, meta, list, answer, notice, browserReport, events: new Map() }
@@ -69,16 +73,15 @@ export function finalAnswer(turn, messages = []) {
   }
   return null
 }
-export function updateTurn(element, turn, { messages = [], commands = [], onTerminate } = {}) {
+export function updateTurn(element, turn, options = {}) {
+  const { messages = [], commands = [], onTerminate } = options
+  element._refresh = () => updateTurn(element, turn, options)
   updateBrowserReport(element._parts.browserReport, turn.browserVerification)
   const { label, meta, list, events, answer, notice } = element._parts
-  const commandRows = updateCommands(element, commands, onTerminate)
-  const commandsById = new Map(commands.map(command => [command.session_id, command]))
-  const linked = new Set(), entries = [], visibleEvents = new Set()
-  element.dataset.status = turn.status
+  setData(element, 'status', turn.status)
   const tools = turn.events.filter(event => event.kind === 'tool').length
-  label.textContent = `${turn.status === 'done' ? '用时' : statusNames[turn.status] || turn.status} ${duration(turn.startedAt, turn.endedAt)}${tools ? ` · ${tools} 次工具调用` : ''}`
-  meta.textContent = `${turn.model === 'deepseek-flash' ? 'Flash' : turn.model || '模型未记录'} · ${turn.effort === 'off' ? '思考关闭' : (turn.effort || 'high').toUpperCase()}`
+  setText(label, `${turn.status === 'done' ? '用时' : statusNames[turn.status] || turn.status} ${duration(turn.startedAt, turn.endedAt)}${tools ? ` · ${tools} 次工具调用` : ''}`)
+  setText(meta, `${turn.model === 'deepseek-flash' ? 'Flash' : turn.model || '模型未记录'} · ${turn.effort === 'off' ? '思考关闭' : (turn.effort || 'high').toUpperCase()}`)
   const final = finalAnswer(turn, messages)
   let visible = final
   if (turn.status === 'running') {
@@ -86,15 +89,21 @@ export function updateTurn(element, turn, { messages = [], commands = [], onTerm
     const current = turn.currentMessageId ? turn.events.filter(e => e.kind === 'text' && e.messageId === turn.currentMessageId) : last ? [last] : []
     visible = current.length ? { text: current.map(e => e.text || '').join(''), eventIds: current.map(e => e.id) } : null
   }
-  const outside = new Set(visible?.eventIds || [])
-  answer.hidden = !visible?.text; if (!answer.hidden) markdownInto(answer, visible.text)
-  notice.hidden = turn.status === 'done' && !!visible?.text && !final?.truncated
-  notice.dataset.status = turn.status
-  notice.textContent = turn.status === 'running' ? (turn.events.filter(e => e.status === 'running' && e.kind !== 'text').at(-1)?.name || '正在处理…')
+  setHidden(answer, !visible?.text); if (!answer.hidden) markdownInto(answer, visible.text)
+  setHidden(notice, turn.status === 'done' && !!visible?.text && !final?.truncated)
+  setData(notice, 'status', turn.status)
+  setText(notice, turn.status === 'running' ? (turn.events.filter(e => e.status === 'running' && e.kind !== 'text').at(-1)?.name || '正在处理…')
     : turn.status === 'error' ? '本轮执行失败，展开过程查看原因。'
     : turn.status === 'stopped' ? '本轮已停止，已完成的操作和输出保留在执行过程中。'
     : final?.truncated ? '已达到单次输出长度限制，回复可能不完整。可以发送“继续”获取后续内容。'
-    : turn.mode === 'compact' ? '上下文压缩已完成，展开查看详情。' : '本轮已结束，没有最终文字答复。'
+    : turn.mode === 'compact' ? '上下文压缩已完成，展开查看详情。' : '本轮已结束，没有最终文字答复。')
+  // Trace rows are expensive to build and update. Keep a closed process panel
+  // to its summary; the header's refresh callback creates rows on first open.
+  if (!element.classList.contains('process-open')) return
+  const commandRows = updateCommands(element, commands, onTerminate)
+  const commandsById = new Map(commands.map(command => [command.session_id, command]))
+  const linked = new Set(), entries = [], visibleEvents = new Set()
+  const outside = new Set(visible?.eventIds || [])
   for (const event of turn.events) {
     // Tool results provide the exact session link, including for older histories.
     // Polling calls keep their own place; only the launch is replaced by its live card.
@@ -121,21 +130,22 @@ export function updateTurn(element, turn, { messages = [], commands = [], onTerm
       events.set(event.id, row)
     }
     entries.push({ row, at: event.startedAt ?? turn.startedAt ?? 0 })
-    row.dataset.status = event.status
-    row.hidden = outside.has(event.id)
+    setData(row, 'status', event.status)
+    setHidden(row, outside.has(event.id))
     if (event.kind === 'text') markdownInto(row, (event.text || '') + (event.truncated ? '\n\n*界面记录已截断，完整记录保存在 Pi 会话中。*' : ''))
     else {
       const p = row._parts
-      p.icon.textContent = event.status === 'running' ? '◌' : event.status === 'error' ? '!' : event.kind === 'tool' ? '⌘' : '◇'
+      setText(p.icon, event.status === 'running' ? '◌' : event.status === 'error' ? '!' : event.kind === 'tool' ? '⌘' : '◇')
       let subject = ''
       if (event.input) { try { const args = JSON.parse(event.input); subject = args.path || args.pattern || args.command || args.name || '' } catch {} }
-      p.title.textContent = (event.kind === 'thinking' ? '思考' : event.name || '工作台') + (subject ? ' · ' + subject : '')
-      p.title.title = p.title.textContent
-      p.state.textContent = `${statusNames[event.status] || ''} · ${duration(event.startedAt, event.endedAt)}`
-      p.input.hidden = !event.input; if (p.input.textContent !== (event.input || '')) p.input.textContent = event.input || ''
-      p.output.hidden = !event.output; if (p.output.textContent !== (event.output || '')) p.output.textContent = event.output || ''
+      const title = (event.kind === 'thinking' ? '思考' : event.name || '工作台') + (subject ? ' · ' + subject : '')
+      setText(p.title, title)
+      if (p.title.title !== title) p.title.title = title
+      setText(p.state, `${statusNames[event.status] || ''} · ${duration(event.startedAt, event.endedAt)}`)
+      setHidden(p.input, !event.input); if (p.input.textContent !== (event.input || '')) p.input.textContent = event.input || ''
+      setHidden(p.output, !event.output); if (p.output.textContent !== (event.output || '')) p.output.textContent = event.output || ''
       const prose = event.kind === 'model' ? modelTiming(event) : event.text || ''
-      p.prose.hidden = !prose; markdownInto(p.prose, prose + (event.truncated ? '\n\n*界面记录已截断，完整记录保存在 Pi 会话中。*' : ''))
+      setHidden(p.prose, !prose); markdownInto(p.prose, prose + (event.truncated ? '\n\n*界面记录已截断，完整记录保存在 Pi 会话中。*' : ''))
     }
   }
   for (const [id, row] of events) if (!visibleEvents.has(id)) { row.remove(); events.delete(id) }
@@ -175,17 +185,17 @@ export function updateCommands(element, commands, onTerminate) {
       row._parts = { title, state, meta, output, stop }; rows.set(command.session_id, row)
     }
     const p = row._parts, running = command.status === 'running'
-    row.dataset.status = running ? 'running' : command.status === 'exited' && command.exit_code !== 0 ? 'error' : 'done'
-    p.title.textContent = `${command.background ? '后台服务' : '命令'} · ${command.command}`; p.title.title = command.command
+    setData(row, 'status', running ? 'running' : command.status === 'exited' && command.exit_code !== 0 ? 'error' : 'done')
+    setText(p.title, `${command.background ? '后台服务' : '命令'} · ${command.command}`); if (p.title.title !== command.command) p.title.title = command.command
     const status = { running: '运行中', exited: '已退出', terminated: '已终止', interrupted: '已中断' }[command.status] || command.status
-    p.state.textContent = `${status}${command.exit_code != null ? ' · 退出码 ' + command.exit_code : ''} · ${duration(command.startedAt, command.endedAt)}`
-    p.meta.textContent = `${command.workdir}${command.tty ? ' · PTY' : ''}${command.truncated ? ' · 仅显示最近输出' : ''}${command.error ? '\n' + command.error : ''}`
+    setText(p.state, `${status}${command.exit_code != null ? ' · 退出码 ' + command.exit_code : ''} · ${duration(command.startedAt, command.endedAt)}`)
+    setText(p.meta, `${command.workdir}${command.tty ? ' · PTY' : ''}${command.truncated ? ' · 仅显示最近输出' : ''}${command.error ? '\n' + command.error : ''}`)
     if (p.output.textContent !== command.output) {
       const follow = p.output.scrollHeight - p.output.scrollTop - p.output.clientHeight < 30
       p.output.textContent = command.output || ''
       if (follow) p.output.scrollTop = p.output.scrollHeight
     }
-    p.stop.hidden = !running; p.stop.textContent = command.background ? '停止服务' : '停止命令'
+    setHidden(p.stop, !running); setText(p.stop, command.background ? '停止服务' : '停止命令')
     p.stop.onclick = async () => {
       p.stop.disabled = true
       try { await onTerminate?.(command.session_id) } finally { p.stop.disabled = false }

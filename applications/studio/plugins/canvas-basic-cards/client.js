@@ -45,8 +45,8 @@ export default function (ctx, sdk) {
     render(node, card) {
       if (renderPending(node, card, view, s)) return
       const asset = s.state.assets[node.assetId], image = el('img', { src: imageUrl(node.assetId), alt: node.title, draggable: false, loading: 'lazy' })
-      image.title = '单击放大预览'
-      image.onclick = event => { event.stopPropagation(); view.openMedia(node.assetId) }
+      image.title = '双击放大预览'
+      image.ondblclick = event => { event.stopPropagation(); view.openMedia(node.assetId) }
       const foot = el('div', { class: 'studio-image-foot' })
       foot.append(el('small', {}, asset ? `${asset.width} × ${asset.height}` : '素材不可用'), button('预览', () => view.openMedia(node.assetId)), el('a', { href: imageUrl(node.assetId, false), download: (asset?.name || '图片') + '.png' }, '下载'))
       card.append(image, foot)

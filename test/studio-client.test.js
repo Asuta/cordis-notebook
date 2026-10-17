@@ -7,7 +7,7 @@ import basic from '../applications/studio/plugins/canvas-basic-cards/client.js'
 import generation from '../applications/studio/plugins/image-generation/client.js'
 import agent from '../applications/studio/plugins/canvas-agent-tools/client.js'
 import { newBoard } from '../applications/studio/plugins/canvas/store.js'
-import { applyOperation, createTypes } from './helpers/studio-fixture.js'
+import { applyOperation, createTypes, generationInput } from './helpers/studio-fixture.js'
 import { copySelection } from '../applications/studio/plugins/canvas/copy.js'
 import { normalizeModels } from '../applications/studio/plugins/image-provider-wavespeed/schema.js'
 import { modelRows } from './helpers/studio-wavespeed.js'
@@ -181,7 +181,25 @@ test('参考区共同排序卡片内和连线素材，可绑定首尾帧；Agent
   ] })
   await waitUntil(() => window.document.querySelector('[aria-label="参考素材 1 输入位置"]'))
   assert.deepEqual([...window.document.querySelectorAll('.studio-reference-row')].map(n => n.getAttribute('data-reference')), ['direct:inside', 'edge:edge'])
+  await window.document.querySelector('[aria-label="参考素材 1 下移"]').onclick()
+  await waitUntil(() => window.document.querySelectorAll('.studio-reference-row')[0]?.dataset.reference === 'edge:edge')
   await window.document.querySelector('[aria-label="参考素材 2 上移"]').onclick()
+  await waitUntil(() => window.document.querySelectorAll('.studio-reference-row')[0]?.dataset.reference === 'direct:inside')
+  const quick = window.document.querySelector('[aria-label="快速编辑参考素材 1"]')
+  assert.ok(quick, '图片参考提供快速编辑入口')
+  await quick.onclick()
+  const editor = window.document.querySelector('.studio-quick-edit')
+  assert.equal(editor.open, true)
+  assert.ok(editor.querySelector('.studio-quick-edit-canvas'))
+  assert.ok(editor.querySelector('[aria-label="笔刷粗细"]'))
+  assert.equal(editor.querySelector('.studio-quick-edit-actions .studio-primary').disabled, true, '未画线前不能保存')
+  editor.close()
+  assert.equal(editor.open, false)
+  const rows = [...window.document.querySelectorAll('.studio-reference-row')], dataTransfer = { setData() {}, effectAllowed: '', dropEffect: '' }
+  rows[1].ondragstart({ dataTransfer })
+  rows[0].getBoundingClientRect = () => ({ top: 100, height: 40, bottom: 140 })
+  rows[0].ondragover({ preventDefault() {}, clientY: 110, dataTransfer })
+  await rows[0].ondrop({ preventDefault() {}, dataTransfer })
   assert.deepEqual(state.boards[0].nodes.find(n => n.id === 'g').referenceOrder, ['edge:edge', 'direct:inside'])
   const binding = window.document.querySelector('[aria-label="参考素材 1 输入位置"]')
   binding.value = '/start_image'; await binding.onchange()
@@ -190,6 +208,43 @@ test('参考区共同排序卡片内和连线素材，可绑定首尾帧；Agent
   for (const id of ['models', 'model', 'resume', 'detach']) assert.ok(actions.includes(id))
   const catalog = await tools.get('studio_action')({ id: 'models', revision: state.boards[0].revision, args: { provider: 'wavespeed', kind: 'video' } })
   assert.ok(catalog.items.some(m => m.id === 'mock/video'))
+})
+
+test('参考区可先新建多个空槽位，再点槽位从素材库填入；空槽位不进入生成入参', async t => {
+  const env = await setup(t), { window, state, tools } = env
+  const asset = await tools.get('studio_import_image')({ path: 'C:/test/slot.png' })
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'g', type: 'generator', prompt: '槽位测试' } }] })
+  const addSlot = () => [...window.document.querySelectorAll('.studio-reference-actions button')].find(node => node.textContent.includes('新建参考槽位'))
+  await waitUntil(() => addSlot())
+  const slotButton = addSlot()
+  await Promise.all([slotButton.onclick(), slotButton.onclick()])
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'g').references?.length === 2)
+  const node = state.boards[0].nodes.find(node => node.id === 'g')
+  assert.deepEqual(node.references.map(ref => ref.assetId), [null, null])
+  assert.ok(node.references.every(ref => /^[a-f0-9-]{36}$/.test(ref.id)))
+  assert.deepEqual(generationInput(state.boards[0], 'g').assetIds, [])
+  assert.equal(window.document.querySelectorAll('.studio-reference-row.is-empty').length, 2)
+  await window.document.querySelector('[aria-label="选择参考素材 2"]').onclick()
+  const picker = window.document.querySelector('.studio-asset-picker')
+  assert.equal(picker.open, true)
+  await window.document.querySelector('[aria-label="使用素材 ' + asset.name + '"]').onclick()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'g').references[1].assetId === asset.id)
+  assert.equal(picker.open, false)
+  assert.deepEqual(generationInput(state.boards[0], 'g').assetIds, [asset.id])
+  await waitUntil(() => window.document.querySelectorAll('.studio-reference-row.is-empty').length === 1)
+  assert.ok(window.document.querySelector('.studio-picker-grid .is-upload'), '选择框提供本地上传入口')
+  assert.equal(window.document.querySelector('.studio-asset-picker input[type=file]').accept, 'image/png,image/jpeg,image/webp,video/mp4,video/webm')
+  const rows = () => [...window.document.querySelectorAll('.studio-reference-row')], [first, second] = rows()
+  const dataTransfer = { setData() {}, effectAllowed: '', dropEffect: '' }
+  first.ondragstart({ dataTransfer })
+  second.getBoundingClientRect = () => ({ top: 100, height: 40, bottom: 140 })
+  second.ondragover({ preventDefault() {}, clientY: 130, dataTransfer })
+  assert.equal(second.classList.contains('is-drop-after'), true)
+  await second.ondrop({ preventDefault() {}, dataTransfer })
+  const reordered = state.boards[0].nodes.find(node => node.id === 'g'), [slotRef, filledRef] = reordered.references
+  assert.deepEqual(reordered.referenceOrder, ['direct:' + filledRef.id, 'direct:' + slotRef.id])
+  await waitUntil(() => rows()[0].dataset.reference === 'direct:' + filledRef.id)
+  assert.equal(window.document.querySelectorAll('.studio-reference-row.is-drop-after').length, 0)
 })
 
 test('卡片视图、生成操作与 Agent 可分别卸载和恢复，不删除内容或重复入口', async t => {
@@ -521,8 +576,11 @@ test('图片预览支持缩小放大、拖动平移、滚轮缩放与适应窗�
   assert.ok(scale() < moved.scale, '滚轮向下滚动缩小图片')
   await click('关闭预览')
   assert.equal(viewer.open, false)
-  await window.document.querySelector('.studio-image>img').onclick({ stopPropagation() {} })
-  assert.equal(viewer.open, true, '单击图片卡片缩略图必须打开同一个放大预览')
+  const thumb = window.document.querySelector('.studio-image>img')
+  assert.equal(thumb.title, '双击放大预览')
+  assert.equal(thumb.onclick, null, '图片自身不再处理单击')
+  await thumb.ondblclick({ stopPropagation() {} })
+  assert.equal(viewer.open, true, '双击图片卡片缩略图必须打开同一个放大预览')
   assert.equal(viewer.querySelector('.studio-viewer-stage img').getAttribute('src'), `/api/studio/images/${asset.id}.png`)
   assert.deepEqual(toasts, [])
 })

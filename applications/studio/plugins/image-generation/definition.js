@@ -18,7 +18,8 @@ export const definition = {
     for (const prop of ['modelParameters', 'referenceBindings']) if (node[prop] !== undefined && (!object(node[prop]) || JSON.stringify(node[prop]).length > 200000 || Object.keys(node[prop]).length > 100)) invalid('模型参数格式无效或过大')
     if (node.references !== undefined) {
       if (!Array.isArray(node.references) || node.references.length > 1500 || new Set(node.references.map(r => r?.id)).size !== node.references.length) invalid('参考素材列表无效（最多 1500 项）')
-      for (const ref of node.references) if (!ref || typeof ref.id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(ref.id) || !assets[ref.assetId]) invalid('参考素材不存在')
+      // assetId: null 表示尚未填写素材的空槽位，不参与生成。
+      for (const ref of node.references) if (!ref || typeof ref.id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(ref.id) || (ref.assetId !== null && ref.assetId !== undefined && !assets[ref.assetId])) invalid('参考素材不存在')
     }
     if (node.referenceOrder !== undefined && (!Array.isArray(node.referenceOrder) || node.referenceOrder.length > 1500 || new Set(node.referenceOrder).size !== node.referenceOrder.length || node.referenceOrder.some(key => typeof key !== 'string' || !/^(direct|edge):[a-zA-Z0-9-]{1,100}$/.test(key)))) invalid('参考素材顺序无效')
   },
@@ -30,6 +31,6 @@ export function generationInput(board, nodeId, types, assets = {}, { allowEmptyP
   for (const input of inputs) { const type = types.require(input.type); if (!definition.accepts.includes(type.output) || !type.resolve) invalid('输入卡片不可用') }
   const prompt = [...textInputs(board, node, types).map(ref => ref.text), node.prompt].filter(s => s.trim()).join('\n\n')
   if ((!allowEmptyPrompt && !prompt.trim()) || prompt.length > 24000) invalid('请填写提示词，合并后最多 24000 字符')
-  const references = referenceInputs(board, node, assets, types), assetIds = references.map(ref => ref.assetId), key = modelKey(providerId ?? node.provider, node.model)
+  const references = referenceInputs(board, node, assets, types).filter(ref => ref.assetId), assetIds = references.map(ref => ref.assetId), key = modelKey(providerId ?? node.provider, node.model)
   return { prompt, assetIds, ratio: node.ratio, resolution: node.resolution, references, ...(node.model ? { model: node.model, parameters: structuredClone(node.modelParameters?.[key] || {}), bindings: structuredClone(node.referenceBindings?.[key] || {}) } : {}) }
 }

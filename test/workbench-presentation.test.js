@@ -14,6 +14,8 @@ test('模型请求显示首段等待与持续输出，保留没有计时的旧�
       { id: 'old-model', kind: 'model', status: 'done', startedAt: 100, endedAt: 4100 },
     ] }
     updateTurn(element, turn)
+    assert.equal(element.querySelectorAll('.trace-event,.trace-text').length, 0)
+    element.querySelector('.turn-header').click()
     assert.match(element.textContent, /首段等待 1.2 秒/); assert.match(element.textContent, /持续输出 2.7 秒/)
     assert.match(element.textContent, /响应头等待包含在首段等待中/); assert.doesNotMatch(element.textContent, /NaN|undefined/)
   } finally { globalThis.document = previous; await window.happyDOM.abort() }
@@ -115,11 +117,31 @@ test('流式更新保持工具展开和滚动位置，只重绘变化的正文',
       { id: 'text', kind: 'text', status: 'running', text: '## 第一步' },
     ] }
     updateTurn(element, turn)
+    element.querySelector('.turn-header').click()
     const detail = element.querySelector('details'), output = detail.querySelector('.trace-output'), text = element.querySelector('.trace-text')
     detail.open = true; output.scrollTop = 20
     turn.events[1].text += '\n\n更多内容'; updateTurn(element, turn)
     assert.equal(element.querySelector('details'), detail); assert.equal(detail.open, true); assert.equal(output.scrollTop, 20)
     assert.equal(element.querySelector('.trace-text'), text); assert.match(text.innerHTML, /<h2>/)
+  } finally { globalThis.document = previous; window.happyDOM.abort() }
+})
+
+test('过程详情懒加载，相同快照重复更新保留现有文本和状态节点', () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const element = createTurn(), turn = { id: 'steady', status: 'done', startedAt: 10, endedAt: 20, events: [
+      { id: 'read', kind: 'tool', name: 'read', status: 'done', startedAt: 10, endedAt: 20, input: '{"path":"a"}', output: 'ok' },
+    ] }
+    updateTurn(element, turn)
+    assert.equal(element.querySelector('.trace-list').children.length, 0)
+    element.querySelector('.turn-header').click()
+    const row = element.querySelector('.trace-event'), title = row.querySelector('.trace-title'), state = row.querySelector('.trace-state')
+    const titleNode = title.firstChild, stateNode = state.firstChild
+    updateTurn(element, turn)
+    assert.equal(title.firstChild, titleNode)
+    assert.equal(state.firstChild, stateNode)
+    assert.equal(element.querySelector('.trace-event'), row)
   } finally { globalThis.document = previous; window.happyDOM.abort() }
 })
 
@@ -132,6 +154,7 @@ test('Agent 回复结束后命令仍显示运行中，增量渲染保留卡片�
     let stopped
     const options = { commands: [command], onTerminate: async id => { stopped = id } }
     updateTurn(element, turn, options)
+    element.querySelector('.turn-header').click()
     const card = element.querySelector('.command-session'); card.open = true
     assert.match(card.textContent, /后台服务/); assert.match(card.textContent, /运行中/)
     assert.equal(card.querySelector('button').hidden, false)
@@ -161,6 +184,8 @@ test('历史命令卡片替换原启动调用并按执行顺序排列，最终�
     ]
     for (const element of [createTurn(), createTurn()]) { // New render and history replay use the same ordering.
       updateTurn(element, turn, { commands })
+      assert.equal(element.querySelector('.trace-list').children.length, 0)
+      element.querySelector('.turn-header').click()
       const rows = [...element.querySelector('.trace-list').children]
       assert.equal(rows.length, 6)
       assert.match(rows[1].textContent, /rg --files/)
@@ -170,7 +195,7 @@ test('历史命令卡片替换原启动调用并按执行顺序排列，最终�
       assert.equal(rows.at(-1).textContent.trim(), '最终总结')
       assert.equal(rows.at(-1).hidden, true)
       assert.equal(element.querySelector('.turn-answer').textContent.trim(), '最终总结')
-      assert.equal(element.querySelector('.turn-header').getAttribute('aria-expanded'), 'false')
+      assert.equal(element.querySelector('.turn-header').getAttribute('aria-expanded'), 'true')
       assert.equal(element.querySelectorAll('.command-session').length, 2)
       assert.equal(element.querySelector('.command-list'), null)
     }
@@ -187,6 +212,7 @@ test('命令快照先到、启动结果迟到及后台输出更新均保持顺�
     let stopped
     const options = { commands: [command], onTerminate: async id => { stopped = id } }
     updateTurn(element, turn, options)
+    element.querySelector('.turn-header').click()
     const card = element.querySelector('.command-session'), output = card.querySelector('.trace-output')
     card.open = true; output.scrollTop = 20
     turn.events.push({ id: 'final', kind: 'text', startedAt: 30, status: 'done', text: '后台服务已启动' })

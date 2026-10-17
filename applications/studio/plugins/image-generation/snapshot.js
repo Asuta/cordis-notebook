@@ -20,7 +20,7 @@ export function snapshotGenerator(node, { board, edgeIds = new Map(), types, ass
   copy.referenceOrder = referenceInputs(board, node, assets, types).map(ref => {
     let key
     if (ref.edgeId && edgeIds.has(ref.edgeId)) key = 'edge:' + edgeIds.get(ref.edgeId)
-    else { const id = uuid(); copy.references.push({ id, assetId: ref.assetId }); key = 'direct:' + id }
+    else { const id = uuid(); copy.references.push({ id, assetId: ref.assetId ?? null }); key = 'direct:' + id }
     keys.set(ref.key, key); return key
   })
   copy.referenceBindings = Object.fromEntries(Object.entries(node.referenceBindings || {}).map(([model, bindings]) => [model, Object.fromEntries(Object.entries(bindings).filter(([key]) => keys.has(key)).map(([key, path]) => [keys.get(key), path]))]))

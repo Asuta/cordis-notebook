@@ -38,6 +38,14 @@ async function api(path, data) {
 const safe = action => async event => { try { await action(event) } catch (error) { toast(error.message) } }
 const removeDraftImage = id => pendingImages.has(id) ? Promise.resolve() : api('images/remove', { id })
 function current() { return state?.threads.find(t => t.id === threadId) }
+function refreshSignature(value) {
+  return JSON.stringify({
+    applications: value.applications,
+    application: value.application,
+    activeThreadId: value.activeThreadId,
+    threads: (value.threads || []).map(({ messages, turns, commands, history, detailRevision, ...summary }) => summary),
+  })
+}
 function upsert(thread, options) {
   const index = state.threads.findIndex(t => t.id === thread.id), previous = state.threads[index]
   thread = mergeThread(previous, thread, options)
@@ -164,25 +172,32 @@ function connectFrame() { if (!standalone && appOrigin) frame.contentWindow.post
 async function refresh() {
   if (polling) return; polling = true
   try {
-    const fresh = await api('state?summary=1')
+    const fresh = await api('state?summary=1'), before = state ? refreshSignature(state) : ''
     if (state) {
       fresh.threads = fresh.threads.map(thread => mergeThread(state.threads.find(t => t.id === thread.id), thread))
       for (const thread of state.threads) if (!fresh.threads.some(t => t.id === thread.id)) fresh.threads.push(thread)
       fresh.activeThreadId = fresh.threads.find(t => t.running)?.id || null
     }
+    const changed = !state || refreshSignature(fresh) !== before
     state = fresh
-    $('app-select').replaceChildren(...state.applications.map(app => {
-      const option = new Option(app.name + (app.error ? ' · 清单错误' : ''), app.id)
-      if (app.error) option.title = app.error
-      return option
-    }))
-    if (!appId || !state.applications.some(app => app.id === appId)) appId = state.application.state?.current?.id || state.applications[0]?.id || ''
-    if (threadId && !current()) threadId = ''
-    $('app-select').value = appId
+    if (changed) {
+      $('app-select').replaceChildren(...state.applications.map(app => {
+        const option = new Option(app.name + (app.error ? ' · 清单错误' : ''), app.id)
+        if (app.error) option.title = app.error
+        return option
+      }))
+      if (!appId || !state.applications.some(app => app.id === appId)) appId = state.application.state?.current?.id || state.applications[0]?.id || ''
+      if (threadId && !current()) threadId = ''
+      $('app-select').value = appId
+    }
     if (!appOrigin) { appOrigin = new URL(state.appUrl).origin; if (!standalone) frame.src = state.appUrl }
-    $('offline').hidden = state.application.online; $('logs').textContent = [state.application.error, ...state.application.logs.map(log => log.text)].filter(Boolean).join('\n')
+    if (changed) {
+      $('offline').hidden = state.application.online; $('logs').textContent = [state.application.error, ...state.application.logs.map(log => log.text)].filter(Boolean).join('\n')
+    }
     if (!state.application.online) binding = null
-    render(); connectFrame(); await loadThread()
+    if (changed) render()
+    if (changed || !binding) connectFrame()
+    await loadThread()
   } finally { polling = false }
 }
 const detailRequests = new Map()
@@ -348,4 +363,4 @@ events.onerror = () => { $('connection').textContent = '工作台连接中断，
 config = await api('config'); setModelOptions()
 await refresh().catch(error => toast(error.message))
 setInterval(() => void refresh().catch(() => {}), 3000)
-setInterval(() => { if (current()?.running || current()?.commands?.some(command => command.status === 'running')) scheduleRender() }, 1000)
+setInterval(() => { if (!$('chat').hidden && (current()?.running || current()?.commands?.some(command => command.status === 'running'))) scheduleRender() }, 1000)

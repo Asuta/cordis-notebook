@@ -283,7 +283,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
           } else for (const file of batch) await update(file)
         }
       }).catch(report).finally(() => { if (--working === 0) emit({ type: 'idle' }) })
-    }, 120)
+    }, 300)
   }
   const changes = new Set()
   try {
