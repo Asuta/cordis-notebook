@@ -1,4 +1,5 @@
 import { generationInput } from './definition.js'
+import { snapshotGenerator } from './snapshot.js'
 import { reserveResult, completeResults } from './results.js'
 
 const pending = job => ['queued', 'running'].includes(job?.status)
@@ -132,12 +133,14 @@ export async function createJobs(documents) {
         const provider = node?.provider ? providers.get(node.provider) : orderedProviders()[0]
         if (!provider) fail('图片服务不可用，请启用对应插件')
         selectedProvider = provider
-        const snapshot = generationInput(board, input.nodeId, documents.types, documents.read().assets, { allowEmptyPrompt: !!provider.public().modelCatalog, providerId: provider.id })
+        const assets = documents.read().assets
+        const snapshot = generationInput(board, input.nodeId, documents.types, assets, { allowEmptyPrompt: !!provider.public().modelCatalog, providerId: provider.id })
+        const cardSnapshot = snapshotGenerator(node, { board, types: documents.types, assets })
         request = provider.prepare(structuredClone(snapshot))
         if (!request || typeof request.generate !== 'function' || typeof request.model !== 'string') fail('图片服务返回了无效请求')
         if (request.parameters) snapshot.parameters = structuredClone(request.parameters)
         if (request.bindings) snapshot.bindings = structuredClone(request.bindings)
-        const job = { id: input.requestId, boardId: board.id, nodeId: input.nodeId, status: 'queued', createdAt: Date.now(), promptText: node.prompt, input: snapshot, model: request.model, provider: provider.id, outputKind: request.outputKind || 'image' }
+        const job = { id: input.requestId, boardId: board.id, nodeId: input.nodeId, status: 'queued', createdAt: Date.now(), promptText: node.prompt, input: snapshot, cardSnapshot, model: request.model, provider: provider.id, outputKind: request.outputKind || 'image' }
         reserveResult(tx, job)
         tx.records.push(job); return job
       })

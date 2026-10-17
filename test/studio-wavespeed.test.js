@@ -85,6 +85,9 @@ test('卡片内素材与连线素材共同排序，按真实服务键读取模�
 test('每份参考必须使用，首尾帧必须显式分配，单输入自动绑定、数组保序和超限拒绝', () => {
   const all = models(), refs = [0, 1].map(i => ({ key: 'direct:' + i, assetId: String(i), kind: 'image' }))
   assert.throws(() => prepareInput(all.get('mock/video'), input({ references: refs })), /指定输入位置/)
+  const firstFrame = prepareInput(all.get('mock/video'), input({ references: [refs[0]] }))
+  assert.deepEqual(firstFrame.bindings, { 'direct:0': '/start_image' })
+  assert.equal(firstFrame.fill(new Map([['direct:0', 'https://example.com/first.png']])).start_image, 'https://example.com/first.png')
   assert.throws(() => prepareInput(all.get('mock/video'), input({ references: refs, bindings: { 'direct:0': '/start_image', 'direct:1': '/start_image' } })), /最多接受 1/)
   assert.throws(() => prepareInput(all.get('mock/image'), input({ references: refs })), /不接受图片/)
   assert.throws(() => prepareInput(all.get('mock/edit'), input({ references: [{ ...refs[0], kind: 'video' }] })), /不接受视频/)

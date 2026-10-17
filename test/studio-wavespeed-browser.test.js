@@ -176,7 +176,17 @@ test('画布浏览器：上传与连线参考共同排序、首尾帧、原任�
   assert.equal(await viewer.evaluate(node => node.open), false)
   const directKey = await card.locator('.studio-reference-row').first().getAttribute('data-reference')
   assert.match(directKey, /^direct:/)
-  await card.locator('.studio-reference-row').nth(1).dragTo(card.locator('.studio-reference-row').first(), { targetPosition: { x: 40, y: 4 } })
+  const sourceRow = card.locator('.studio-reference-row').nth(1), targetRow = card.locator('.studio-reference-row').first()
+  const sourceBox = await sourceRow.locator('.studio-reference-grip').boundingBox(), targetBox = await targetRow.boundingBox()
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 4, { steps: 6 })
+  assert.equal(await sourceRow.evaluate(node => node.classList.contains('is-pointer-dragging')), true)
+  if (process.env.CORDIS_BROWSER_ARTIFACT_DIR) {
+    const output = resolve(process.env.CORDIS_BROWSER_ARTIFACT_DIR); await mkdir(output, { recursive: true })
+    await page.screenshot({ path: join(output, 'studio-reference-drag.png'), fullPage: true })
+  }
+  await page.mouse.up()
   await until(async () => (await card.locator('.studio-reference-row').first().getAttribute('data-reference')) === 'edge:connected')
   await card.getByLabel('参考素材 1 输入位置', { exact: true }).selectOption('/start_image')
   await card.getByLabel('参考素材 2 输入位置', { exact: true }).selectOption('/end_image')

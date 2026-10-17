@@ -4,14 +4,22 @@ export default async function (ctx, sdk) {
   const s = ctx.canvasSession, el = sdk.el, uuid = () => crypto.randomUUID();
   const { board, api, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
   const renderers = new Map(), menus = new Map(), extensions = new Map();
-  let stopped = false, drag = null, connecting = null, space = false, viewTimer, selectionSignature = "", editingField = null, suppressCardClick = false;
+  let stopped = false, drag = null, connecting = null, connectDrag = null, space = false, viewTimer, selectionSignature = "", editingField = null, suppressCardClick = false, renamingBoardId = null;
+  let clipboard = null, lastPointer = null, pasteTarget = null;
   const selected = new Set();
   const root = el("main", { class: "studio-app" }), side = el("aside", { class: "studio-sidebar" }), main = el("section", { class: "studio-main" });
   const toolbar = el("header", { class: "studio-toolbar" }), stage = el("div", { class: "studio-stage", tabIndex: 0, "aria-label": "无限画布" });
   const world = el("div", { class: "studio-world" }), cards = el("div", { class: "studio-cards" });
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.classList.add("studio-wires");
-  const boardList = el("nav", { class: "studio-boards", "aria-label": "画板列表" }), assetsList = el("div", { class: "studio-assets" });
+  const boardList = el("nav", { class: "studio-boards", "aria-label": "画板列表" });
+  const assetPanel = el("section", { class: "studio-asset-panel", "aria-label": "素材库" });
+  const assetHeader = el("header", { class: "studio-asset-header" }), assetCount = el("span", { class: "studio-asset-count", "aria-live": "polite" }, "0");
+  const assetsTools = el("div", { class: "studio-assets-tools" }), assetsList = el("div", { class: "studio-assets" });
+  const assetHeading = el("div", { class: "studio-asset-heading" });
+  assetHeading.append(el("strong", {}, "素材库"), assetCount);
+  assetHeader.append(assetHeading);
+  assetPanel.append(assetHeader, assetsTools, assetsList);
   const boardTitle = el("input", { class: "studio-board-title", "aria-label": "画板名称", maxLength: 120 }), notice = el("span", { class: "studio-status" }, "已保存");
   const zoomLabel = el("select", { "aria-label": "画布缩放" }), empty = el("div", { class: "studio-empty" });
   const contextTools = el("div", { class: "studio-context-tools", role: "toolbar", "aria-label": "所选卡片工具", hidden: true });
@@ -46,6 +54,28 @@ export default async function (ctx, sdk) {
     });
     return b;
   };
+  const themeKey = "studio-theme";
+  const savedTheme = () => {
+    const value = sdk.storage.local.getItem(themeKey);
+    return value === "light" || value === "dark" ? value : null;
+  };
+  const themeQuery = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  let theme = savedTheme() || (themeQuery?.matches ? "dark" : "light");
+  const themeToggle = button("", () => setTheme(theme === "dark" ? "light" : "dark", true), "studio-theme-toggle");
+  function setTheme(value, persist = false) {
+    theme = value;
+    root.dataset.theme = value;
+    root.style.colorScheme = value;
+    themeToggle.textContent = value === "dark" ? "☀ 浅色模式" : "◐ 深色模式";
+    themeToggle.title = value === "dark" ? "切换到浅色模式" : "切换到深色模式";
+    themeToggle.setAttribute("aria-label", themeToggle.title);
+    themeToggle.setAttribute("aria-pressed", String(value === "dark"));
+    if (persist) sdk.storage.local.setItem(themeKey, value);
+  }
+  setTheme(theme);
+  if (themeQuery) sdk.listen(themeQuery, "change", () => {
+    if (!savedTheme()) setTheme(themeQuery.matches ? "dark" : "light");
+  });
   const mediaViewer = createMediaViewer({ ctx, s, el, button, root });
   const position = () => {
     const point = { x: Math.round((stage.clientWidth / 2 - s.viewport.x) / s.viewport.zoom - 140), y: Math.round((stage.clientHeight / 2 - s.viewport.y) / s.viewport.zoom - 130) };
@@ -85,9 +115,13 @@ export default async function (ctx, sdk) {
     el("p", { class: "studio-tagline" }, "让想法，有形可见。"),
     button("＋ 新建画板", () => newBoard(), "studio-new-board"),
     boardList,
-    el("div", { class: "studio-sidebar-label" }, "素材库"),
-    assetsList
+    assetPanel,
+    themeToggle
   );
+  sdk.listen(document, 'pointerdown', event => {
+    if (event.target.closest('.studio-board-menu')) return;
+    for (const menu of boardList.querySelectorAll('.studio-board-menu[open]')) menu.open = false;
+  });
   const undoButton = button("↶", () => historyStep(true)), redoButton = button("↷", () => historyStep(false));
   undoButton.title = "撤销 Ctrl+Z";
   redoButton.title = "重做 Ctrl+Shift+Z";
@@ -120,7 +154,7 @@ export default async function (ctx, sdk) {
   zoomLabel.onchange = () => zoom(Number(zoomLabel.value) / 100);
   const focusButton = button("聚焦所选", () => focusView(true)), returnButton = button("返回视图", returnView);
   controls.append(button("−", () => zoom(s.viewport.zoom / 1.2)), zoomLabel, button("＋", () => zoom(s.viewport.zoom * 1.2)), button("适应画布", () => focusView(false)), focusButton, returnButton);
-  const hint = el("div", { class: "studio-canvas-hint" }, "空白拖动平移 · 滚轮缩放 · Shift 框选 · Esc 退出编辑/选择");
+  const hint = el("div", { class: "studio-canvas-hint" }, "中键空白拖动平移 · 左键框选 · 滚轮缩放 · Esc 退出编辑/选择");
   bottomControls.append(dock, controls);
   world.append(svg, cards);
   stage.append(world, empty, selectionBox, contextTools, bottomControls, hint);
@@ -292,7 +326,8 @@ export default async function (ctx, sdk) {
     return input;
   }
   function renderCard(node) {
-    const card = el("article", { class: `studio-card studio-${node.type}${selected.has(node.id) ? " selected" : ""}` });
+    const generatedVideo = node.type === 'video' && !!node.sourceNodeId, unplayedVideo = generatedVideo && node.played !== true;
+    const card = el("article", { class: `studio-card studio-${node.type}${selected.has(node.id) ? " selected" : ""}${unplayedVideo ? ' is-unplayed' : ''}` });
     card.dataset.node = node.id;
     card.style.left = node.x + "px";
     card.style.top = node.y + "px";
@@ -310,7 +345,9 @@ export default async function (ctx, sdk) {
     const renderer = renderers.get(node.type);
     card.studioRenderer = renderer;
     card.studioNode = JSON.stringify(node);
-    head.append(el("span", { class: "studio-kind" }, renderer?.icon || "?"), title);
+    head.append(el("span", { class: "studio-kind" }, renderer?.icon || "?"));
+    if (unplayedVideo) head.append(el('span', { class: 'studio-video-unplayed' }, '未播放'));
+    head.append(title);
     card.append(head);
     if (renderer?.input || renderer?.output) {
       const port = button(renderer.input ? "输入" : "连接", () => {
@@ -322,7 +359,43 @@ export default async function (ctx, sdk) {
     }
     if (renderer) renderer.render(node, card, view);
     else card.append(el("p", { class: "studio-missing-card" }, `“${node.title}”的卡片功能暂不可用，请在插件管理中启用对应功能。内容和连线已保留。`));
+    for (const extension of extensions.values()) extension.card?.(node, card, view);
     return card;
+  }
+  function beginBoardRename(id) {
+    renamingBoardId = id;
+    render();
+    queueMicrotask(() => boardList.querySelector('[data-board-rename="' + id + '"]')?.focus());
+  }
+  function boardRow(item) {
+    if (renamingBoardId === item.id) {
+      const input = el('input', { class: 'studio-board-rename', 'data-board-rename': item.id, 'aria-label': '重命名画板', value: item.title, maxLength: 120 });
+      let cancelled = false;
+      input.onfocus = () => beginEditing(input);
+      input.onkeydown = (event) => {
+        if (event.key === 'Escape') { cancelled = true; event.preventDefault(); input.blur(); }
+        else if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
+      };
+      input.onblur = safe(async () => {
+        try {
+          const title = input.value.trim();
+          if (!cancelled && title && title !== item.title) await s.renameBoard(item.id, title);
+        } finally {
+          endEditing(input); renamingBoardId = null; render();
+        }
+      });
+      return input;
+    }
+    const row = el('div', { class: 'studio-board-item' });
+    const chooseBoard = button(item.title, () => choose(item.id), item.id === s.boardId ? 'active' : '');
+    const menu = el('details', { class: 'studio-board-menu' });
+    const summary = el('summary', { 'aria-label': `管理画板 ${item.title}`, title: '画板操作' }, '⋯');
+    const actions = el('div', { class: 'studio-board-menu-panel' });
+    actions.append(
+      button('重命名', () => { menu.open = false; beginBoardRename(item.id); }),
+      button('复制画板', async () => { menu.open = false; await s.duplicateBoard(item.id); }),
+    );
+    menu.append(summary, actions); row.append(chooseBoard, menu); return row;
   }
   function render() {
     if (stopped || drag || s.editing) return;
@@ -330,7 +403,7 @@ export default async function (ctx, sdk) {
     for (const id of selected) if (!board().nodes.some((n) => n.id === id)) selected.delete(id);
     s.renderedTitle = board().title;
     boardTitle.value = s.drafts.get(s.titleDraftId)?.patch.title ?? s.renderedTitle;
-    boardList.replaceChildren(...s.state.boards.map((b) => button(b.title, () => choose(b.id), b.id === s.boardId ? "active" : "")));
+    boardList.replaceChildren(...s.state.boards.map(boardRow));
     for (const extension of extensions.values()) extension.refresh?.();
     s.renderedNodes.clear();
     const existingCards = new Map([...cards.children].map(item => [item.dataset.node, item]));
@@ -339,7 +412,7 @@ export default async function (ctx, sdk) {
       s.renderedNodes.set(node.id, rendered);
       const existing = existingCards.get(node.id);
       // Keep an unchanged video element connected while background jobs update.
-      if (node.type === 'video' && node.assetId && existing?.studioRenderer === renderers.get(node.type) && existing.studioNode === JSON.stringify(node)) {
+      if (node.type === 'video' && node.assetId && existing && existing.studioRenderer === renderers.get(node.type) && existing.studioNode === JSON.stringify(node)) {
         existing.classList.toggle('selected', selected.has(node.id)); return existing;
       }
       return renderCard(rendered);
@@ -360,26 +433,137 @@ export default async function (ctx, sdk) {
     const rect = stage.getBoundingClientRect();
     return { x: (event.clientX - rect.left - s.viewport.x) / s.viewport.zoom, y: (event.clientY - rect.top - s.viewport.y) / s.viewport.zoom };
   };
+  function setPasteTarget(target) {
+    if (pasteTarget === target) return;
+    pasteTarget?.clear?.();
+    pasteTarget = target;
+  }
+  function clearPasteTarget() {
+    if (!pasteTarget) return;
+    pasteTarget.clear?.();
+    pasteTarget = null;
+  }
+  function canConnect(from, to) {
+    if (!from || !to || from === to) return false;
+    const targetNode = board().nodes.find((node) => node.id === to);
+    if (!targetNode || !renderers.get(targetNode.type)?.input) return false;
+    if (board().edges.some((edge) => edge.from === from && edge.to === to)) return false;
+    const types = new Map((s.state.types || []).map((type) => [type.id, type]));
+    const sourceType = types.get(board().nodes.find((node) => node.id === from)?.type), targetType = types.get(targetNode.type);
+    // The server remains the authority when a view is still loading type metadata.
+    return !sourceType || !targetType ? true : !!targetType.accepts?.includes(sourceType.output);
+  }
+  function connectPreview(from, point) {
+    const source = board().nodes.find((node) => node.id === from);
+    if (!source) return;
+    let path = svg.querySelector('.studio-connect-preview');
+    if (!path) {
+      path = document.createElementNS(svg.namespaceURI, 'path');
+      path.classList.add('studio-connect-preview');
+      svg.append(path);
+    }
+    path.setAttribute('d', wirePath({ x: source.x + 288, y: source.y + 38 }, point));
+  }
+  function clearConnectDrag() {
+    if (!connectDrag) return;
+    const state = connectDrag;
+    connectDrag = null;
+    svg.querySelector('.studio-connect-preview')?.remove();
+    for (const card of cards.children) card.classList.remove('is-connect-target', 'is-connect-invalid');
+    if (stage.hasPointerCapture?.(state.pointerId)) stage.releasePointerCapture(state.pointerId);
+  }
+  function updateConnectDrag(event) {
+    if (!connectDrag || event.pointerId !== connectDrag.pointerId) return;
+    if (Math.hypot(event.clientX - connectDrag.startX, event.clientY - connectDrag.startY) >= 4) connectDrag.moved = true;
+    if (!connectDrag.moved) return;
+    const element = document.elementFromPoint(event.clientX, event.clientY), card = element?.closest('[data-node]');
+    const target = card?.dataset.node || null, valid = !!target && canConnect(connectDrag.from, target);
+    connectDrag.target = valid ? target : null;
+    for (const item of cards.children) {
+      item.classList.toggle('is-connect-target', !!valid && item.dataset.node === target);
+      item.classList.toggle('is-connect-invalid', !!target && !valid && item.dataset.node === target);
+    }
+    connectPreview(connectDrag.from, coordinates(event));
+  }
+  async function copySelectedToClipboard() {
+    if (!selected.size) return;
+    await flush();
+    const nodeIds = [...selected], targetBoard = s.boardId;
+    const copy = await api('/copy', { boardId: targetBoard, revision: board().revision, nodeIds });
+    clipboard = { operations: copy.operations, count: nodeIds.length, boardId: targetBoard };
+    notice.textContent = `已复制 ${nodeIds.length} 张卡片`;
+    sdk.toast(`已复制 ${nodeIds.length} 张卡片，Ctrl+V 粘贴`);
+  }
+  function materializeClipboard(point) {
+    const operations = structuredClone(clipboard.operations), additions = operations.filter((operation) => operation.type === 'add');
+    if (!additions.length) return null;
+    const nodeIds = new Map(additions.map((operation) => [operation.node.id, uuid()]));
+    const minX = Math.min(...additions.map((operation) => operation.node.x)), maxX = Math.max(...additions.map((operation) => operation.node.x));
+    const minY = Math.min(...additions.map((operation) => operation.node.y)), maxY = Math.max(...additions.map((operation) => operation.node.y));
+    const dx = Math.max(-100000 - minX, Math.min(100000 - maxX, Math.round(point.x - minX)));
+    const dy = Math.max(-100000 - minY, Math.min(100000 - maxY, Math.round(point.y - minY)));
+    for (const operation of operations) {
+      if (operation.type === 'add') {
+        operation.node.id = nodeIds.get(operation.node.id);
+        operation.node.x += dx; operation.node.y += dy;
+        if (operation.node.sourceNodeId) operation.node.sourceNodeId = nodeIds.get(operation.node.sourceNodeId) || undefined;
+        if (!operation.node.sourceNodeId) delete operation.node.sourceNodeId;
+      } else if (operation.type === 'connect') {
+        operation.id = uuid(); operation.from = nodeIds.get(operation.from); operation.to = nodeIds.get(operation.to);
+      }
+    }
+    return { operations, nodeIds: [...nodeIds.values()] };
+  }
+  async function pasteClipboard(point) {
+    if (!clipboard) return false;
+    const copy = materializeClipboard(point);
+    if (!copy) return false;
+    await flush();
+    await edit(copy.operations);
+    selected.clear();
+    copy.nodeIds.forEach((id) => selected.add(id));
+    render();
+    notice.textContent = `已粘贴 ${copy.nodeIds.length} 张卡片`;
+    return true;
+  }
+  function clipboardImage() {
+    if (!clipboard) return null;
+    const additions = clipboard.operations.filter((operation) => operation.type === 'add');
+    if (additions.length !== 1 || additions[0].node.type !== 'image' || !additions[0].node.assetId || s.state.assets[additions[0].node.assetId]?.kind !== 'image') return null;
+    return additions[0].node;
+  }
   sdk.listen(stage, "pointerdown", (event) => {
     if (s.held || stopped || event.button > 1 || drag || event.target.closest(".studio-context-tools,.studio-bottom-controls")) return;
-    const pan = space || event.button === 1;
+    const left = event.button === 0, middle = event.button === 1, card = event.target.closest("[data-node]");
+    lastPointer = coordinates(event);
+    if (!event.target.closest('.studio-reference-row')) clearPasteTarget();
+    const pan = (space && left) || (middle && !card);
     const output = event.target.closest("[data-output]"), input = event.target.closest("[data-input]");
-    if (!pan && output) {
-      connecting = output.dataset.output;
-      notice.textContent = "选择生成卡片的输入圆点";
+    if (left && !space && output) {
+      connecting = null;
+      connectDrag = { from: output.dataset.output, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false, target: null };
+      stage.setPointerCapture?.(event.pointerId);
       event.preventDefault();
       return;
     }
-    if (!pan && input) {
-      if (connecting) void safe(() => connect(connecting, input.dataset.input))();
+    if (left && !space && connecting && card && card.dataset.node !== connecting) {
+      const target = card.dataset.node;
+      if (canConnect(connecting, target)) { void safe(() => connect(connecting, target))(); return; }
+      sdk.toast('这张卡片不能接收当前连线');
       return;
     }
-    if (!pan && event.target.closest("button,input,textarea,select,a,path,video,label,[role=button],[contenteditable=true]")) return;
+    if (left && !space && input) {
+      if (connecting) {
+        if (canConnect(connecting, input.dataset.input)) void safe(() => connect(connecting, input.dataset.input))();
+        else { connecting = null; sdk.toast('这张卡片不能接收当前连线'); }
+      }
+      return;
+    }
+    if (left && !space && event.target.closest("button,input,textarea,select,a,path,label,[role=button],[contenteditable=true]")) return;
     const scroller = event.target.closest(".studio-scroll");
-    if (!pan && event.target === scroller && ((scroller.clientWidth > 0 && event.offsetX >= scroller.clientWidth) || (scroller.clientHeight > 0 && event.offsetY >= scroller.clientHeight))) return;
-    const card = event.target.closest("[data-node]");
-    if (card && !pan && event.button === 0) {
-      if (event.shiftKey || event.ctrlKey || event.metaKey) {
+    if (left && !space && event.target === scroller && ((scroller.clientWidth > 0 && event.offsetX >= scroller.clientWidth) || (scroller.clientHeight > 0 && event.offsetY >= scroller.clientHeight))) return;
+    if (card && !pan) {
+      if (left && (event.shiftKey || event.ctrlKey || event.metaKey)) {
         selected.has(card.dataset.node) ? selected.delete(card.dataset.node) : selected.add(card.dataset.node);
         updateSelectionTools();
         return;
@@ -389,22 +573,22 @@ export default async function (ctx, sdk) {
         selected.add(card.dataset.node);
       }
       drag = { type: "nodes", start: coordinates(event), nodes: board().nodes.filter((n) => selected.has(n.id)).map((n) => ({ id: n.id, x: n.x, y: n.y })) };
+    } else if (left && !space) {
+      if (connecting) connecting = null;
+      const extend = event.shiftKey || event.ctrlKey || event.metaKey;
+      drag = { type: "select", start: coordinates(event), selected: new Set(selected), extend };
+      if (!drag.extend) selected.clear();
     } else {
-      if (!pan && event.shiftKey) {
-        drag = { type: "select", start: coordinates(event), selected: new Set(selected), extend: event.ctrlKey || event.metaKey };
-        if (!drag.extend) selected.clear();
-      } else {
-        if (!pan) selected.clear();
-        drag = { type: "pan", x: event.clientX, y: event.clientY, before: { ...s.viewport } };
-      }
+      drag = { type: "pan", x: event.clientX, y: event.clientY, before: { ...s.viewport } };
     }
     Object.assign(drag, { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, moved: false });
     if (drag.type !== "nodes") stage.setPointerCapture?.(event.pointerId);
     stage.focus({ preventScroll: true });
-    if (drag.type !== "nodes") event.preventDefault();
+    if (middle || drag.type !== "nodes") event.preventDefault();
     updateSelectionTools();
   });
   function movePointer(event) {
+    if (connectDrag) updateConnectDrag(event);
     if (!drag || event.pointerId !== drag.pointerId) return;
     if (Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) > 4) drag.moved = true;
     if (!drag.moved) return;
@@ -444,7 +628,9 @@ export default async function (ctx, sdk) {
     }
   }
   sdk.listen(window, "pointermove", movePointer);
+  sdk.listen(stage, "pointermove", (event) => { lastPointer = coordinates(event) });
   function cancelGesture() {
+    if (connectDrag) clearConnectDrag();
     if (!drag) return;
     const previous = drag;
     drag = null;
@@ -459,6 +645,20 @@ export default async function (ctx, sdk) {
     render();
   }
   const release = safe(async (event) => {
+    if (connectDrag && event.pointerId === connectDrag.pointerId) {
+      const state = connectDrag;
+      if (!state.moved) {
+        clearConnectDrag();
+        connecting = state.from;
+        notice.textContent = "选择接收连线的卡片";
+        return;
+      }
+      updateConnectDrag(event);
+      const target = connectDrag?.target;
+      clearConnectDrag(); connecting = null;
+      if (target) await connect(state.from, target);
+      return;
+    }
     if (connecting) {
       const input = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-input]");
       if (input) await connect(connecting, input.dataset.input);
@@ -479,16 +679,27 @@ export default async function (ctx, sdk) {
         return { type: "update", id: old.id, patch };
       }).filter((op) => previous.nodes.some((n) => n.id === op.id && (n.x !== op.patch.x || n.y !== op.patch.y)));
       try {
-        if (operations.length) await edit(operations);
-      } finally {
+        if (operations.length) {
+          await edit(operations, { repaint: false });
+          for (const before of previous.nodes) {
+            const node = board().nodes.find((item) => item.id === before.id), rendered = s.renderedNodes.get(before.id);
+            if (rendered) Object.assign(rendered, { x: node.x, y: node.y });
+            const card = cards.querySelector(`[data-node="${before.id}"]`);
+            if (card) card.studioNode = JSON.stringify(rendered || node);
+          }
+        }
+        updateSelectionTools();
+      } catch (error) {
         render();
+        throw error;
       }
     } else if (previous.type === "pan" && previous.moved) await saveViewport();
-    // Keep the pressed element connected for a normal click. A moved card is
-    // already re-rendered after its position is saved.
-    if (previous.type !== "nodes") render();
+    // Keep the pressed element connected for a normal click. Moving cards already
+    // updates their live position, so saving that position must not rebuild media.
+    if (previous.type !== "nodes") updateSelectionTools();
   });
   sdk.listen(window, "pointerup", release);
+  sdk.listen(stage, "auxclick", event => { if (event.button === 1) event.preventDefault() });
   const blockDraggedCardClick = event => {
     if (!suppressCardClick) return;
     suppressCardClick = false;
@@ -502,6 +713,7 @@ export default async function (ctx, sdk) {
   sdk.listen(window, "blur", () => {
     space = false;
     connecting = null;
+    clearConnectDrag();
     cancelGesture();
   });
   sdk.listen(stage, "wheel", (event) => {
@@ -522,8 +734,9 @@ export default async function (ctx, sdk) {
         cancelGesture();
         return;
       }
-      ;
       connecting = null;
+      clearConnectDrag();
+      clearPasteTarget();
       selected.clear();
       render();
     }
@@ -536,7 +749,29 @@ export default async function (ctx, sdk) {
       event.preventDefault();
       await historyStep(!event.shiftKey);
     }
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); await duplicateSelection(); }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+      if (!selected.size) return;
+      event.preventDefault();
+      await copySelectedToClipboard();
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+      if (pasteTarget && !pasteTarget.valid?.()) clearPasteTarget();
+      if (pasteTarget) {
+        if (!clipboard) return;
+        event.preventDefault();
+        const image = clipboardImage();
+        if (!image) { sdk.toast('参考槽位只能粘贴单张图片卡片'); return; }
+        await flush();
+        await pasteTarget.apply(image.assetId);
+        clearPasteTarget();
+        notice.textContent = '已粘贴到参考槽位';
+        return;
+      }
+      if (clipboard) {
+        event.preventDefault();
+        await pasteClipboard(lastPointer || position());
+      }
+    }
     if (event.key === "Delete" && selected.size) {
       event.preventDefault();
       await edit([{ type: "remove", ids: [...selected] }]);
@@ -570,6 +805,10 @@ export default async function (ctx, sdk) {
     side,
     stage,
     assetsList,
+    assetPanel,
+    assetHeader,
+    assetCount,
+    assetsTools,
     cards,
     position,
     coordinates,
@@ -577,6 +816,13 @@ export default async function (ctx, sdk) {
     boardId: () => s.boardId,
     execute: (...args) => s.execute(...args),
     openMedia: assetId => mediaViewer.open(assetId),
+    setPasteTarget,
+    clearPasteTarget,
+    focusReference(target) {
+      selected.clear();
+      updateSelectionTools();
+      setPasteTarget(target);
+    },
     render,
     register(owner, definition) {
       if (!/^[a-z][a-z0-9-]*$/.test(definition.id) || renderers.has(definition.id)) throw Error("卡片视图无效或重复");
@@ -620,6 +866,8 @@ export default async function (ctx, sdk) {
   s.attachView(ctx, { render, status: (value) => notice.textContent = value, dragging: () => !!drag, choose: () => {
     selected.clear();
     connecting = null;
+    clearConnectDrag();
+    clearPasteTarget();
   }, hold: (value) => {
     root.inert = value;
   } });

@@ -115,7 +115,10 @@ export function prepareInput(model, input, validate = compileInput(model)) {
   for (const name of ['enable_sync_mode', 'enable_base64_output']) if (model.schema.properties?.[name]) values[name] = false
   const fields = model.mediaFields
   for (const ref of input.references || []) {
-    const binding = input.bindings?.[ref.key], candidates = fields.filter(field => field.kind === ref.kind), field = binding ? candidates.find(field => field.path === binding) : candidates.length === 1 ? candidates[0] : null
+    const binding = input.bindings?.[ref.key], candidates = fields.filter(field => field.kind === ref.kind), required = candidates.filter(field => field.required)
+    const sameKind = (input.references || []).filter(item => item.kind === ref.kind)
+    const fallback = candidates.length === 1 ? candidates[0] : sameKind.length === 1 && required.length === 1 ? required[0] : null
+    const field = binding ? candidates.find(field => field.path === binding) : fallback
     if (!field) invalid(candidates.length ? '请为每份参考素材指定输入位置（如首帧、尾帧）' : `此模型不接受${ref.kind === 'video' ? '视频' : '图片'}参考，请移除或断开对应素材`)
     const list = assignments.get(field.path) || []
     if (list.length >= field.max) invalid(`${field.label} 最多接受 ${field.max} 份素材`)

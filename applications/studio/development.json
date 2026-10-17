@@ -6,7 +6,7 @@
         "styles": { "note": "canvasUI.menu 的按钮位于 .studio-app 内，继承现有按钮样式；有需要时用 className 添加插件专属 class。以下变量只在 .studio-app 内可用，不能给 body 独立面板直接使用。", "tokens": ["--ink", "--muted", "--accent", "--line"] },
         "icons": { "note": "menu 没有 icon 参数，label 可用文字加符号，如 ＋ 动作；卡片视图 register 的 icon 是另一接口的文字标记。" },
         "ordering": { "note": "canvasUI.menu 支持 order，默认 1000；升序，同值按 id。现有文字动作 10、图片动作 20，新动作可用 30。", "example": "ctx.canvasUI.menu(ctx, {id:'<plugin-id>', label:'＋ 动作', order:30, run:() => sdk.toast('完成')})" },
-        "references": [{ "file": "plugins/canvas-ui/style.css", "start": 1, "end": 6 }, { "file": "plugins/canvas-ui/client.js", "start": 586, "end": 593 }]
+        "references": [{ "file": "plugins/canvas-ui/style.css", "start": 1, "end": 6 }, { "file": "plugins/canvas-ui/client.js", "start": 842, "end": 849 }]
       },
       "services": { "client": ["canvasUI", "canvasSession"], "server": [] }, "contracts": ["plugins/canvas-ui/types/client.d.ts", "plugins/canvas/types/client.d.ts"], "examples": ["plugins/canvas-basic-cards/package.json", "plugins/canvas-basic-cards/client.js"], "patterns": ["界面扩展通过 canvasUI.register/menu/extend，传 ctx 绑定生命周期；本应用没有 notebook/shell 页脚。", "画板读取和修改通过 canvasSession，修改保留 expectedRevision 和历史；视图订阅用 attachView(ctx, view)。"] },
     "backend": { "services": { "server": ["canvasDocuments", "http"], "client": [] }, "contracts": ["plugins/canvas/types/server.d.ts"], "examples": ["plugins/canvas-basic-cards/server.js", "plugins/canvas-basic-cards/package.json"], "patterns": ["后端注册使用 canvasDocuments 的卡片/图片提供者契约，传 ctx 自动释放；真实生成须用户明确要求。"] },

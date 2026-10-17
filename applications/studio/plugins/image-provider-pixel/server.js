@@ -1,7 +1,7 @@
 import { createConfig, createPixel } from './pixel.js'
 export default async function (ctx, settings, runtime) {
   const config = await createConfig(runtime.dataDir, { writeSnapshot: runtime.writeSnapshot, legacy: () => ctx.canvasDocuments.legacyPixelConfig() }), pixel = createPixel()
-  const capabilities = { ratios: ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3'], resolutions: ['1k', '2k', '4k'], referenceImages: true }
+  const capabilities = { ratios: ['auto', '1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3'], resolutions: ['1k', '2k', '4k'], referenceImages: true }
   ctx.effect(() => () => pixel.close())
   ctx.imageGeneration.register(ctx, {
     id: 'pixel', label: 'AI Pixel', public: () => ({ ...config.public(), ...capabilities }),

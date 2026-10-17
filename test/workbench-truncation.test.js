@@ -57,9 +57,11 @@ test('真实 Pi 输出达到长度限制后保留正文和截断提示，重启�
       if (reply.text) {
         assert.match(element._parts.answer.textContent, index === 0 ? /有效答复/ : /完整答复/)
         assert.ok(turn.finalAnswer.eventIds.length)
+        assert.equal(element._parts.header.getAttribute('aria-expanded'), 'false')
+        element._parts.header.click()
         for (const id of turn.finalAnswer.eventIds) assert.equal(element._parts.events.get(id).hidden, true)
       }
-      assert.equal(element._parts.header.getAttribute('aria-expanded'), 'false')
+      if (!reply.text) assert.equal(element._parts.header.getAttribute('aria-expanded'), 'false')
     }
     window = new Window(); globalThis.document = window.document
     for (let index = 0; index < replies.length; index++) {

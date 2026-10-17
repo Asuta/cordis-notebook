@@ -141,6 +141,10 @@ test('Pixel 文生图走 JSON，参考图走 edits 的 image[]，比例与分辨
   await pixel.generate(input, config, [image, image], new AbortController().signal)
   assert.match(calls[1].url, /images\/edits$/); assert.equal(calls[1].options.body.getAll('image[]').length, 2)
   assert.equal(calls[1].options.headers['Content-Type'], undefined)
+  await pixel.generate({ ...input, ratio: 'auto' }, config, [], new AbortController().signal)
+  const automatic = JSON.parse(calls[2].options.body)
+  assert.equal(automatic.size, undefined)
+  assert.doesNotMatch(automatic.prompt, /图片比例/)
   assert.equal(imageSize('1:1', '1k'), '1024x1024'); await pixel.close()
 })
 

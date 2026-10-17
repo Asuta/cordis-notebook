@@ -27,7 +27,7 @@ export async function createSession(ctx, sdk) {
     polling = task
     try { await task } finally { if (polling === task) polling = false }
   }
-  async function edit(operations, { expectedRevision, history = true, targetBoard = boardId } = {}) {
+  async function edit(operations, { expectedRevision, history = true, repaint = true, targetBoard = boardId } = {}) {
     pendingEdits++; epoch++
     return enqueue(async () => {
       if (stopped || held) throw Error('画布正在退出')
@@ -36,7 +36,7 @@ export async function createSession(ctx, sdk) {
       state.boards[state.boards.findIndex(b => b.id === targetBoard)] = result.board
       if (history) { const items = undo.get(targetBoard) || []; items.push(result.inverse); if (items.length > 40) items.shift(); undo.set(targetBoard, items); redo.set(targetBoard, []) }
       notice.textContent = '已保存'
-      if (!editing && !view.dragging()) render()
+      if (repaint && !editing && !view.dragging()) render()
       return result
     }).finally(() => { pendingEdits-- })
   }
@@ -84,13 +84,21 @@ export async function createSession(ctx, sdk) {
   async function newBoard(title = '新的灵感画板') {
     await flush(); const created = await api('/boards', { title }); state.boards.push(created); await choose(created.id); return created
   }
+  async function duplicateBoard(id = boardId) {
+    await flush(); await saveViewport()
+    const created = await api('/boards/' + encodeURIComponent(id) + '/copy', {})
+    state.boards.push(created); await choose(created.id); return created
+  }
+  async function renameBoard(id, title) {
+    await flush(); await edit([{ type: 'rename', title }], { targetBoard: id })
+  }
 
   const imageUrl = (id, thumb = true) => `/api/studio/images/${id}.${thumb ? 'webp' : 'png'}`
   function rememberAsset(asset) { epoch++; state.assets[asset.id] = asset; render(); return asset }
   async function importImage(input) { return rememberAsset(await api('/import', input)) }
   async function saveViewport() {
     if (stopped || held) return
-    try { await edit([{ type: 'viewport', viewport: { ...viewport } }], { history: false }) }
+    try { await edit([{ type: 'viewport', viewport: { ...viewport } }], { history: false, repaint: false }) }
     catch (error) {
       // Another page may have saved a newer viewport while both pages prepare
       // for reload. Keep that saved view instead of blocking their content save.
@@ -116,7 +124,7 @@ export async function createSession(ctx, sdk) {
     get editing() { return editing }, set editing(value) { editing = value },
     get viewport() { return viewport }, set viewport(value) { viewport = value },
     get renderedTitle() { return renderedTitle }, set renderedTitle(value) { renderedTitle = value },
-    drafts, undo, redo, renderedNodes, titleDraftId, board, api, read, editable, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport, mediaKind, mediaUrl,
+    drafts, undo, redo, renderedNodes, titleDraftId, board, api, read, editable, edit, flush, draft, choose, newBoard, duplicateBoard, renameBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport, mediaKind, mediaUrl,
     uploadMedia: (file, signal = sdk.signal, progress) => uploadMedia(file, api, signal, progress),
     async discardDrafts() { clearTimeout(draftTimer); drafts.clear(); rememberDrafts(); editing = false; await queue; await refresh(); render() },
     attachView(owner, next) {

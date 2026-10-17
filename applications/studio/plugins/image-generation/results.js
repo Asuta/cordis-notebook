@@ -27,7 +27,7 @@ export function reserveResult(tx, job) {
   job.resultNodeId = randomUUID()
   const count = board.nodes.filter(node => node.sourceNodeId === source.id).length
   const outputKind = job.outputKind || 'image'
-  tx.edit(board.id, [{ type: 'add', node: { id: job.resultNodeId, type: outputKind, title: `生成结果 ${count + 1}`, ...resultPosition(board, source), sourceNodeId: source.id, jobId: job.id } }])
+  tx.edit(board.id, [{ type: 'add', node: { id: job.resultNodeId, type: outputKind, title: `生成结果 ${count + 1}`, ...resultPosition(board, source), ...(outputKind === 'video' ? { played: false } : {}), sourceNodeId: source.id, jobId: job.id } }])
 }
 export function completeResults(tx, job, outputs, assetIds) {
   let board = tx.board(job.boardId)
@@ -45,7 +45,7 @@ export function completeResults(tx, job, outputs, assetIds) {
     } else {
       if (board.nodes.length >= 500) break
       const count = board.nodes.filter(node => node.sourceNodeId === source.id).length
-      tx.edit(board.id, [{ type: 'add', node: { id: randomUUID(), type: output.kind, assetId: assetIds[index], title: `生成结果 ${count + 1}`, ...resultPosition(board, source), sourceNodeId: source.id, jobId: job.id } }])
+      tx.edit(board.id, [{ type: 'add', node: { id: randomUUID(), type: output.kind, assetId: assetIds[index], title: `生成结果 ${count + 1}`, ...resultPosition(board, source), ...(output.kind === 'video' ? { played: false } : {}), sourceNodeId: source.id, jobId: job.id } }])
     }
     placed++
   }

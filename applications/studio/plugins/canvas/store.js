@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { createNodeRegistry } from './registry.js'
 import { applyOperation, validateBoard, invalid, string } from './model.js'
 import { videoMetadata } from './video.js'
+import { copySelection } from './copy.js'
 
 export const newBoard = title => ({ id: randomUUID(), title, revision: 0, viewport: { x: 60, y: 60, zoom: 1 }, nodes: [], edges: [] })
 export async function createStore(directory, writeSnapshot, types = createNodeRegistry()) {
@@ -63,6 +64,24 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
     async addBoard(title) {
       string(title, 120, '画板名称')
       return store.change(state => { if (state.boards.length >= 50) invalid('最多创建 50 个画板'); const board = newBoard(title || '新的画板'); state.boards.push(board); return structuredClone(board) })
+    },
+    async duplicateBoard(boardId) {
+      return store.change(state => {
+        if (state.boards.length >= 50) invalid('最多创建 50 个画板')
+        const source = state.boards.find(board => board.id === boardId)
+        if (!source) invalid('画板不存在')
+        const nodes = source.nodes.filter(node => !(node.sourceNodeId && !node.assetId))
+        const operations = nodes.length ? copySelection(source, nodes.map(node => node.id), types, state.assets, { offset: 0, limit: 3000 }).operations : []
+        let title = (source.title + ' 副本').slice(0, 120), suffix = 2
+        while (state.boards.some(board => board.title === title)) {
+          const ending = ' 副本 ' + suffix++
+          title = source.title.slice(0, 120 - ending.length) + ending
+        }
+        let board = newBoard(title)
+        for (const operation of operations) board = applyOperation(board, operation, state.assets, types).board
+        state.boards.push(board)
+        return structuredClone(board)
+      })
     },
     async addImage(bytes, name = '图片') {
       if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > 20 * 1024 * 1024) invalid('图片需小于 20 MB')

@@ -7,6 +7,12 @@ export interface CardView {
   render(node: CanvasNode, card: HTMLElement, view: CanvasUI): void
   actions?: { label: string; run(node: CanvasNode, view: CanvasUI): unknown }[]
 }
+export interface ReferencePasteTarget {
+  boardId: string; nodeId: string; refKey: string
+  valid?(): boolean
+  clear?(): void
+  apply(assetId: string): Promise<void> | void
+}
 export interface CanvasUI {
   root: HTMLElement; empty: HTMLElement; side: HTMLElement; stage: HTMLElement; assetsList: HTMLElement; cards: HTMLElement
   el: ClientSDK['el']
@@ -16,7 +22,7 @@ export interface CanvasUI {
   endEditing(input: HTMLElement): void
   register(owner: Context, definition: CardView): () => unknown
   menu(owner: Context, definition: { id: string; label: string; order?: number; className?: string; run(): unknown }): () => unknown
-  extend(owner: Context, id: string, extension: { refresh?(): void; dispose?(): void }): () => unknown
+  extend(owner: Context, id: string, extension: { refresh?(): void; card?(node: CanvasNode, card: HTMLElement, view: CanvasUI): void; dispose?(): void }): () => unknown
   render(): void
   board(): CanvasBoard
   boardId(): string
@@ -29,6 +35,9 @@ export interface CanvasUI {
   api<T = unknown>(path: string, body?: unknown): Promise<T>
   imageUrl(id: string, thumbnail?: boolean): string
   openMedia(assetId: string): void
+  setPasteTarget(target: ReferencePasteTarget | null): void
+  clearPasteTarget(): void
+  focusReference(target: ReferencePasteTarget): void
   position(): { x: number; y: number }
   coordinates(event: { clientX: number; clientY: number }): { x: number; y: number }
   safe(callback: (event: any) => unknown): (event?: any) => Promise<void>

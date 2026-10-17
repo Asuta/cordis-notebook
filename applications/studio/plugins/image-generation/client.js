@@ -93,14 +93,26 @@ export default function (ctx, sdk) {
       }
       const promptLabel = el('div', { class: 'studio-prompt-label' }, '提示词' + (model?.fields.find(item => item.path === '/prompt')?.required ? ' *' : ''))
       const promptHistory = button('历史 / 收藏', () => library.prompts(node)); promptHistory.setAttribute('aria-label', '提示词历史与收藏'); promptLabel.append(promptHistory)
-      body.append(promptLabel, field(node, 'prompt', true))
+      const promptInput = field(node, 'prompt', true), activeSuffixes = (node.promptSuffixes || []).filter(item => item.enabled)
+      let promptArea = promptInput
+      if (activeSuffixes.length) {
+        const preview = el('div', { class: 'studio-prompt-suffix-preview', role: 'note', 'aria-label': '固定尾缀，只读内容' })
+        preview.append(el('small', { class: 'studio-prompt-suffix-label' }, '尾缀 · 只读'))
+        for (const suffix of activeSuffixes) {
+          const line = el('p', {}, suffix.text)
+          preview.append(line)
+        }
+        promptArea = el('div', { class: 'studio-prompt-area' })
+        promptArea.append(promptInput, preview)
+      }
+      body.append(promptLabel, promptArea, library.suffixBar(node))
       if (model && !model.fields.some(item => item.path === '/prompt')) body.append(el('small', { class: 'studio-no-prompt' }, '此模型不接受提示词，请清空文字并断开文字输入。'))
       if (provider?.modelCatalog) { if (model) body.append(form.render(node, provider, model, () => updateRun(), layout, folded)) }
       else {
         const options = el('div', { class: 'studio-generation-options' })
         for (const [prop, values] of [['ratio', provider?.ratios || [node.ratio]], ['resolution', provider?.resolutions || [node.resolution]]]) {
           const select = el('select', { 'aria-label': node.title + (prop === 'ratio' ? ' 比例' : ' 分辨率') })
-          for (const value of values) select.append(el('option', { value }, value))
+          for (const value of values) select.append(el('option', { value }, prop === 'ratio' && value === 'auto' ? '自动' : value))
           select.value = node[prop]; select.onchange = safe(async () => { await flush(); await edit([{ type: 'update', id: node.id, patch: { [prop]: select.value } }]) })
           const row = el('div', { class: 'studio-model-field' }); row.append(select)
           const visible = layout.parameter(node, (provider?.id || '') + ':legacy', prop, prop === 'ratio' ? '图片比例' : '图片分辨率', node[prop], row, folded); if (visible) options.append(visible)

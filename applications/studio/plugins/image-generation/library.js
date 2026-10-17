@@ -14,7 +14,42 @@ export function createLibrary(documents, jobs) {
       seen.add(prompt); history.push({ id: job.id, prompt, createdAt: job.createdAt })
       if (history.length >= 300) break
     }
-    return { prompts: all.filter(item => item.kind === 'prompt'), models: all.filter(item => item.kind === 'model'), cards: all.filter(item => item.kind === 'card'), history }
+    return {
+      prompts: all.filter(item => item.kind === 'prompt'),
+      models: all.filter(item => item.kind === 'model'),
+      cards: all.filter(item => item.kind === 'card'),
+      results: all.filter(item => item.kind === 'result'),
+      suffixes: all.filter(item => item.kind === 'suffix'),
+      history,
+    }
+  }
+  function generatorFromJob(job, result, state) {
+    if (job.cardSnapshot) {
+      const node = Object.fromEntries(['type', 'title', ...definition.fields].filter(key => Object.hasOwn(job.cardSnapshot, key)).map(key => [key, structuredClone(job.cardSnapshot[key])]))
+      node.type = 'generator'; node.title = job.cardSnapshot.title || result.title
+      definition.validate(node, state.assets); return node
+    }
+    const entries = Array.isArray(job.input?.references) ? job.input.references.filter(ref => ref?.assetId && state.assets[ref.assetId]) : []
+    const references = entries.map(ref => ({ id: randomUUID(), assetId: ref.assetId })), keys = new Map()
+    entries.forEach((ref, index) => keys.set(ref.key || 'ref:' + index, 'direct:' + references[index].id))
+    const provider = job.provider, model = job.model, modelKey = provider + ':' + model, bindingGroups = new Map()
+    for (const [name, values] of Object.entries(job.input?.bindings || {})) {
+      if (values && typeof values === 'object' && !Array.isArray(values)) bindingGroups.set(name, { ...values })
+    }
+    const legacyBindings = Object.fromEntries(Object.entries(job.input?.bindings || {}).filter(([, value]) => typeof value === 'string'))
+    if (Object.keys(legacyBindings).length) bindingGroups.set(modelKey, { ...bindingGroups.get(modelKey), ...legacyBindings })
+    const bindings = {}
+    for (const [bindingModel, values] of bindingGroups) {
+      const migrated = Object.fromEntries(Object.entries(values || {}).flatMap(([key, path]) => keys.has(key) ? [[keys.get(key), path]] : []))
+      if (Object.keys(migrated).length) bindings[bindingModel] = migrated
+    }
+    const node = {
+      type: 'generator', title: result.sourceTitle || result.title, provider, model,
+      prompt: String(job.input?.prompt || ''), ratio: job.input?.ratio || '1:1', resolution: job.input?.resolution || '1k',
+      references, referenceOrder: references.map(ref => 'direct:' + ref.id), referenceBindings: bindings,
+      modelParameters: { [modelKey]: structuredClone(job.input?.parameters || {}) },
+    }
+    definition.validate(node, state.assets); return node
   }
   return {
     read,
@@ -27,6 +62,7 @@ export function createLibrary(documents, jobs) {
       let item
       const title = () => text(input.title, 120, '收藏名称')
       if (input.kind === 'prompt') item = { kind: 'prompt', title: title(), prompt: text(input.prompt, 24000, '提示词') }
+      else if (input.kind === 'suffix') item = { kind: 'suffix', title: title(), text: text(input.text, 24000, '固定尾缀') }
       else if (input.kind === 'model') {
         if (typeof input.provider !== 'string' || !/^[a-z][a-z0-9-]*$/.test(input.provider)) fail('模型服务无效')
         item = { kind: 'model', provider: input.provider, model: text(input.model, 200, '模型 ID'), title: title() }
@@ -36,6 +72,14 @@ export function createLibrary(documents, jobs) {
         const snapshot = snapshotGenerator(node, { board, types: documents.types, assets: state.assets })
         definition.validate(snapshot, state.assets)
         item = { kind: 'card', title: title(), node: Object.fromEntries(['type', 'title', ...definition.fields].filter(key => Object.hasOwn(snapshot, key)).map(key => [key, snapshot[key]])) }
+      } else if (input.kind === 'result') {
+        const state = documents.read(), board = state.boards.find(board => board.id === input.boardId), node = board?.nodes.find(node => node.id === input.nodeId && ['image', 'video'].includes(node.type) && node.sourceNodeId)
+        if (!node || board.revision !== input.revision || !state.assets[node.assetId]) throw Object.assign(Error('生成结果已变化，请重新收藏'), { status: 409 })
+        const job = [...jobs.read()].sort((left, right) => right.createdAt - left.createdAt).find(job => job.nodeId === node.sourceNodeId && (job.resultNodeId === node.id || job.resultAssetIds?.includes(node.assetId) || job.assetId === node.assetId))
+        if (!job) fail('找不到这张结果的生成参数')
+        const source = board.nodes.find(item => item.id === node.sourceNodeId)
+        const resultTitle = input.title || node.title
+        item = { kind: 'result', title: text(resultTitle, 120, '收藏名称'), assetId: node.assetId, outputKind: node.type, sourceTitle: source?.title || resultTitle, node: generatorFromJob(job, { title: resultTitle, sourceTitle: source?.title }, state), source: { boardId: board.id, nodeId: node.id, sourceNodeId: node.sourceNodeId, jobId: job.id } }
       } else fail('收藏类型无效')
       await records.change(tx => {
         const index = input.id ? tx.records.findIndex(record => record.id === input.id && record.kind === item.kind) : -1
@@ -45,6 +89,7 @@ export function createLibrary(documents, jobs) {
         const saved = { ...item, id: index >= 0 ? input.id : randomUUID(), createdAt: index >= 0 ? tx.records[index].createdAt : Date.now(), updatedAt: Math.max(Date.now(), (index >= 0 ? tx.records[index].updatedAt : 0) + 1) }
         if (index >= 0) tx.records[index] = saved
         else if (item.kind === 'model' && tx.records.some(record => record.kind === 'model' && record.provider === item.provider && record.model === item.model)) return
+        else if (item.kind === 'result' && tx.records.some(record => record.kind === 'result' && record.assetId === item.assetId)) return
         else tx.records.unshift(saved)
       })
       return read()

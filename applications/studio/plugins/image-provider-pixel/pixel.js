@@ -80,8 +80,8 @@ export function createPixel({ request = fetch, dispatcher = new EnvHttpProxyAgen
     async generate(input, config, images, signal) {
       if (!config.apiKey) throw Error('请先在图片服务设置中配置 API Key')
       const combined = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
-      const prompt = `请生成一张图片，不要只回复文字。图片比例 ${input.ratio}。\n${input.prompt}`
-      const fields = { model: config.model, prompt, n: 1, size: imageSize(input.ratio, input.resolution), response_format: 'b64_json' }
+      const automaticRatio = input.ratio === 'auto', prompt = `请生成一张图片，不要只回复文字。${automaticRatio ? '' : `图片比例 ${input.ratio}。`}\n${input.prompt}`
+      const fields = { model: config.model, prompt, n: 1, ...(automaticRatio ? {} : { size: imageSize(input.ratio, input.resolution) }), response_format: 'b64_json' }
       const headers = { Authorization: `Bearer ${config.apiKey}` }
       let body, endpoint
       if (images.length) {
