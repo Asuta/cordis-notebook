@@ -8,8 +8,11 @@ import { discoverBuiltins, inside } from '../server/plugin-discovery.js'
 import { reconcilePlugins } from '../server/host/plugin-reload.js'
 import { pluginSources } from './vite-build.js'
 import { developmentRPC } from './development-rpc.js'
+import { observeFatalDiagnostics, startDiagnosticHeartbeat } from '../shared/diagnostics.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
+observeFatalDiagnostics('development-backend')
+const stopDiagnostics = startDiagnosticHeartbeat({ scope: 'development-backend', send: message => { if (process.connected) process.send(message) } })
 const applicationsDir = process.env.APPLICATIONS_DIR || defaultApplicationsDir
 const sourceEntries = []
 // The Node runner has no HTTP listener and no browser module permissions.
@@ -124,12 +127,13 @@ const rpc = developmentRPC(process, { prepare, commit, discard, identity: () => 
 try {
   const initial = await readPlan(); plans = initial.plans
   app = await createHost({ port: 0, dataDir: process.env.DATA_DIR, applicationsDir, initialApplication: process.env.APP,
+    locationRoot: process.env.CORDIS_APPLICATION_LOCATION_ROOT || undefined,
     discoveryMode: 'development', discoverPlugins: async directory => plans.get(directory) || [] })
   process.send({ type: 'cordis-ready', port: app.server.address().port, pid: process.pid })
 } catch (error) { rpc.close(); await dispose([...plans.values()].flat()); await vite.close(); throw error }
 async function close() {
   if (closing) return
-  closing = true; rpc.close()
+  closing = true; stopDiagnostics(); rpc.close()
   try { await app.close(); await discard(); await dispose([...plans.values()].flat()) } finally { await vite.close(); process.exit(0) }
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, close)

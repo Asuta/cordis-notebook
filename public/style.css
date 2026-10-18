@@ -582,6 +582,10 @@ dialog::backdrop {
 #close-applications { border: 0; background: transparent; color: var(--theme-text); font-size: 22px; cursor: pointer; padding: 0 4px; }
 #application-picker .manager-footer { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--theme-border); }
 #application-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 24px; }
+.application-recovery { grid-column: 1 / -1; padding: 16px 18px; border: 1px solid #d7b46a; border-radius: 12px; background: #fff8e7; }
+.application-recovery strong { display: block; margin-bottom: 6px; }
+.application-recovery p { margin: 0 0 12px; color: #72551d; line-height: 1.65; overflow-wrap: anywhere; }
+.application-recovery button { border: 1px solid #aa7b16; border-radius: 6px; padding: 7px 12px; background: #9a6f16; color: white; }
 .application-card { border: 1px solid var(--theme-border); border-radius: 12px; padding: 20px; }
 .application-title { display: flex; align-items: center; gap: 10px; }
 .application-title h3 { margin: 0; }

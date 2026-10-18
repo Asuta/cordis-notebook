@@ -28,7 +28,7 @@ test('灵感画布 HTTP：上传/导入/预览、真实请求协议、结果持�
   try {
     const dataDir = join(dir, 'apps/studio/plugin-data/canvas'); await mkdir(dataDir, { recursive: true })
     await writeFile(join(dataDir, 'pixel-private.json'), JSON.stringify({ baseUrl: `http://127.0.0.1:${upstream.address().port}`, model: 'gpt-image-2', apiKey: 'fake-key' }))
-    app = await createHost({ port: 0, dataDir: dir, initialApplication: 'studio' })
+    app = await createHost({ port: 0, dataDir: dir, locationRoot: dir, initialApplication: 'studio' })
     const request = async (path, input) => {
       const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/studio${path}`, { method: input === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Application-Session': app.applications.session }, ...(input === undefined ? {} : { body: JSON.stringify(input) }) })
       assert.equal(response.status, 200, await response.clone().text()); return response.json()

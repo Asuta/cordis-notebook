@@ -59,7 +59,7 @@ const host = new ClientPlugins(root, {
   onChange: () => queueMicrotask(renderManager),
 })
 const settingsView = createSettingsView({ el, getSnapshot: () => snapshot, save: (plugin, config) => operate(() => saveConfig(plugin, config), true) })
-const applicationsView = applicationView({ el, change: id => operate(() => switchApplication(id)) })
+const applicationsView = applicationView({ el, change: id => operate(() => switchApplication(id)), recover: recovery => operate(() => recoverApplicationData(recovery)) })
 const labels = { waiting: '等待服务', 'not-applicable': '无需运行', enabled: '运行中', disabled: '已停用', starting: '启动中', stopping: '停止中', failed: '运行失败' }
 const managerListeners = new Set()
 const management = new Service(root, 'pluginManagement')
@@ -261,6 +261,13 @@ async function switchApplication(id) {
   if (leaving) return
   await stopping.run({ reason: 'application', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, async () => {
     await request('/api/applications/switch', 'POST', { id, session: pageSession })
+    await followApplication()
+  })
+}
+async function recoverApplicationData(recovery) {
+  if (leaving) return
+  await stopping.run({ reason: 'application', targets: snapshot.plugins.filter(p => p.enabled).map(p => p.id) }, async () => {
+    await request('/api/application-data-directory/recover', 'POST', { appId: recovery.appId, session: pageSession })
     await followApplication()
   })
 }

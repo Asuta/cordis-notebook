@@ -2,6 +2,7 @@ node_modules/
 .workbench/
 workbench/public/markdown.js
 data/
+.cordis-application-data.json
 work/
 *.log
 public/runtime.js

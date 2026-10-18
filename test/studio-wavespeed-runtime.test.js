@@ -34,7 +34,7 @@ test('完整 WaveSpeed HTTP：目录、分块视频、混合参考、结果卡�
     ]) {
       const path = join(dir, 'apps/studio/plugin-data', provider); await mkdir(path, { recursive: true }); await writeFile(join(path, file), JSON.stringify(value))
     }
-    app = await createHost({ port: 0, dataDir: dir, initialApplication: 'studio' })
+    app = await createHost({ port: 0, dataDir: dir, locationRoot: dir, initialApplication: 'studio' })
     const origin = () => 'http://127.0.0.1:' + app.server.address().port
     const raw = (path, body, headers = {}) => fetch(origin() + '/api/studio' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Application-Session': app.applications.session, ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     const request = async (path, body) => { const response = await raw(path, body); assert.equal(response.status, 200, await response.clone().text()); return response.json() }
@@ -91,7 +91,7 @@ test('完整 WaveSpeed HTTP：目录、分块视频、混合参考、结果卡�
     const secondId = (await request('')).jobs[1].remote.taskId
     await app.close(); app = undefined
     mock.state.complete = true
-    app = await createHost({ port: 0, dataDir: dir, initialApplication: 'studio' })
+    app = await createHost({ port: 0, dataDir: dir, locationRoot: dir, initialApplication: 'studio' })
     await until(async () => { lastState = await request(''); return lastState.jobs[1].status === 'succeeded' })
     assert.equal(lastState.jobs[1].remote.taskId, secondId)
     assert.equal(mock.requests.filter(r => r.method === 'POST' && r.url.startsWith('/api/v3/mock/')).length, 2)

@@ -151,6 +151,51 @@ test('旧任务结果收藏可以把扁平输入绑定迁移到当前模型', as
   assert.deepEqual(actual.references.map(ref => actual.bindings[ref.key]), ['/start_image', '/end_image'])
 })
 
+test('未收藏结果直接恢复当次参数，不跟随源卡修改，源卡删除后仍可恢复', async t => {
+  const { store, board } = await fixture(t), image = Object.values(store.read().assets)[0]
+  const source = board.nodes.find(node => node.id === 'g')
+  const cardSnapshot = snapshotGenerator(source, { board, types: store.types, assets: store.read().assets })
+  const generated = [{ id: 'job-parameters', boardId: board.id, nodeId: 'g', resultNodeId: 'result-parameters', resultAssetIds: [image.id], cardSnapshot, createdAt: 1 }]
+  const result = await store.edit(board.id, board.revision, [{ type: 'add', node: { id: 'result-parameters', type: 'image', assetId: image.id, sourceNodeId: 'g' } }, { type: 'update', id: 'g', patch: { prompt: '后来的提示词', modelParameters: {} } }])
+  const library = createLibrary(store, { read: () => generated }), before = store.read()
+  const parameters = library.resultParameters({ boardId: board.id, nodeId: 'result-parameters' })
+  assert.equal(parameters.node.prompt, '主提示词')
+  assert.equal(parameters.node.modelParameters['wavespeed:mock/video'].duration, 5)
+  assert.equal(parameters.node.references.length, 2)
+  assert.equal(parameters.node.textReferences.length, 3)
+  assert.equal(Object.hasOwn(parameters.node, 'id'), false)
+  assert.deepEqual(store.read(), before, '读取参数不能自动收藏或修改画板')
+  const removed = await store.edit(board.id, result.board.revision, [{ type: 'remove', ids: ['g'] }])
+  const recovered = library.resultParameters({ boardId: board.id, nodeId: 'result-parameters' })
+  const restored = await store.edit(board.id, removed.board.revision, [{ type: 'add', node: { ...recovered.node, id: 'restored-parameters' } }])
+  assert.equal(input(store, restored.board, 'restored-parameters').prompt, input(store, board, 'g').prompt)
+  assert.equal(library.read().results.length, 0)
+})
+
+test('全局尾缀编辑同步所有画板的卡片内容，保留独立开关和历史快照', async t => {
+  const { store, board } = await fixture(t), generated = [], library = createLibrary(store, { read: () => generated })
+  const template = (await library.save({ kind: 'suffix', title: '固定镜头', text: '旧尾缀内容' })).suffixes[0]
+  const suffix = { id: template.id, title: template.title, text: template.text, enabled: true }
+  const updated = await store.edit(board.id, board.revision, [{ type: 'update', id: 'g', patch: { promptSuffixes: [suffix] } }])
+  const frozen = snapshotGenerator(updated.board.nodes.find(node => node.id === 'g'), { board: updated.board, types: store.types, assets: store.read().assets })
+  generated.push({ id: 'historic', nodeId: 'g', cardSnapshot: structuredClone(frozen) })
+  const favorite = (await library.save({ kind: 'card', title: '历史参数卡', boardId: board.id, nodeId: 'g', revision: updated.board.revision })).cards[0]
+  const other = await store.addBoard('另一个画板')
+  await store.edit(other.id, other.revision, [{ type: 'add', node: { id: 'other-g', type: 'generator', promptSuffixes: [{ ...suffix, enabled: false }] } }])
+  const saved = await library.save({ kind: 'suffix', id: template.id, updatedAt: template.updatedAt, title: '新的镜头模板', text: '新尾缀内容' })
+  assert.equal(saved.suffixes[0].text, '新尾缀内容')
+  const state = store.read(), first = state.boards.find(item => item.id === board.id), second = state.boards.find(item => item.id === other.id)
+  assert.deepEqual(first.nodes.find(node => node.id === 'g').promptSuffixes, [{ ...suffix, title: '新的镜头模板', text: '新尾缀内容' }])
+  assert.equal(second.nodes[0].promptSuffixes[0].enabled, false)
+  assert.equal(second.nodes[0].promptSuffixes[0].text, '新尾缀内容')
+  assert.match(input(store, first, 'g').prompt, /新尾缀内容$/)
+  assert.equal(generated[0].cardSnapshot.promptSuffixes[0].text, '旧尾缀内容')
+  assert.equal(library.read().cards.find(item => item.id === favorite.id).node.promptSuffixes[0].text, '旧尾缀内容')
+  const beforeConflict = store.read()
+  await assert.rejects(library.save({ kind: 'suffix', id: template.id, updatedAt: template.updatedAt, title: '过期编辑', text: '不应保存' }), error => error.status === 409)
+  assert.deepEqual(store.read(), beforeConflict)
+})
+
 test('收藏快照跨画板恢复且重启保留，提示词可编辑并防止覆盖其他页面，历史只来自真实任务并去重', async t => {
   const { store, board, dir } = await fixture(t), generated = []
   const library = createLibrary(store, { read: () => generated })
@@ -160,6 +205,9 @@ test('收藏快照跨画板恢复且重启保留，提示词可编辑并防止�
   let saved = await library.save({ kind: 'prompt', title: '人物提示词', prompt: '原提示词' }), prompt = saved.prompts[0]
   saved = await library.save({ kind: 'prompt', id: prompt.id, updatedAt: prompt.updatedAt, title: '修改后的名称', prompt: '编辑后的提示词' })
   await assert.rejects(library.save({ kind: 'prompt', id: prompt.id, updatedAt: prompt.updatedAt, title: '旧页面', prompt: '不能覆盖' }), error => error.status === 409)
+  prompt = saved.prompts[0]
+  saved = await library.save({ action: 'rename', id: prompt.id, updatedAt: prompt.updatedAt, title: '收藏库重命名' })
+  assert.equal(saved.prompts[0].title, '收藏库重命名')
   saved = await library.save({ kind: 'card', title: '视频模板', boardId: board.id, nodeId: 'g', revision: board.revision })
   const template = saved.cards[0]; assert.equal(Object.hasOwn(template.node, 'id'), false); assert.equal(template.node.textReferences.length, 3)
   const another = await store.addBoard('另一个画板')
@@ -168,7 +216,7 @@ test('收藏快照跨画板恢复且重启保留，提示词可编辑并防止�
   assert.deepEqual(input(store, restored.board, 'restored').assetIds, input(store, board, 'g').assetIds)
   await library.save({ kind: 'model', provider: 'wavespeed', model: 'mock/video', title: '视频模型' })
   const reopened = await createStore(dir), persisted = createLibrary(reopened, { read: () => generated }).read()
-  assert.equal(persisted.cards[0].node.cardHeight, 1800); assert.equal(persisted.prompts[0].prompt, '编辑后的提示词'); assert.equal(persisted.models[0].model, 'mock/video')
+  assert.equal(persisted.cards[0].node.cardHeight, 1800); assert.equal(persisted.prompts[0].prompt, '编辑后的提示词'); assert.equal(persisted.prompts[0].title, '收藏库重命名'); assert.equal(persisted.models[0].model, 'mock/video')
   await library.save({ action: 'delete', id: template.id }); assert.equal(library.read().cards.length, 0)
 })
 

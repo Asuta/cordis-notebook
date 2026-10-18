@@ -3,12 +3,14 @@ import { createModelForm } from './model-form.js'
 import { createReferenceUI } from './references-ui.js'
 import { createLibraryUI } from './library-ui.js'
 import { createCardLayout } from './card-layout.js'
+import { createPromptOptimizer } from './prompt-optimizer.js'
 
 export default function (ctx, sdk) {
   const s = ctx.canvasSession, view = ctx.canvasUI
   const { el, button, safe, field, flush, edit, board, api, refresh } = view
   const details = new Map(), form = createModelForm(view, s), references = createReferenceUI(ctx, view, s, sdk)
   const library = createLibraryUI(ctx, view, s, sdk), layout = createCardLayout(ctx, view, s, sdk)
+  const promptOptimizer = createPromptOptimizer(ctx, view, s, sdk)
   let stopped = false, submissions = Promise.resolve()
   ctx.effect(() => () => { stopped = true; details.clear() })
   function getModel(provider, id, retry = false) {
@@ -105,7 +107,7 @@ export default function (ctx, sdk) {
         promptArea = el('div', { class: 'studio-prompt-area' })
         promptArea.append(promptInput, preview)
       }
-      body.append(promptLabel, promptArea, library.suffixBar(node))
+      body.append(promptLabel, promptArea, promptOptimizer.bar(node), library.suffixBar(node))
       if (model && !model.fields.some(item => item.path === '/prompt')) body.append(el('small', { class: 'studio-no-prompt' }, '此模型不接受提示词，请清空文字并断开文字输入。'))
       if (provider?.modelCatalog) { if (model) body.append(form.render(node, provider, model, () => updateRun(), layout, folded)) }
       else {

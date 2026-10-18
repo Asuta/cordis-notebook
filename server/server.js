@@ -7,21 +7,35 @@ import { Applications } from './host/applications.js'
 import { discoverApplications, defaultApplicationsDir } from './application-discovery.js'
 import { defaultPluginsDir, containedFile } from './plugin-discovery.js'
 import { capabilityCatalog } from '../shared/capabilities.js'
+import { chooseDataDirectory, defaultDataDirectory } from './host/data-location.js'
 
 const rootDir = fileURLToPath(new URL('../', import.meta.url))
 // Single-directory adapter for plugin development and existing isolated tests.
-export function createApp({ port = 3210, file, dataDir = file ? dirname(file) : resolve(rootDir, 'data'), pluginsDir = defaultPluginsDir } = {}) {
-  return createHost({ port, dataDir, file, standalone: { id: 'standalone', name: '插件应用', pluginsDir, default: true } })
+export function createApp({ port = 3210, file, dataDir, pluginsDir = defaultPluginsDir } = {}) {
+  return createHost({ port, dataDir: dataDir || (file ? dirname(file) : resolve(rootDir, 'data')), file, standalone: { id: 'standalone', name: '插件应用', pluginsDir, default: true } })
 }
-export async function createHost({ port = 3210, dataDir = resolve(rootDir, 'data'), applicationsDir = defaultApplicationsDir, initialApplication, standalone, file, discoveryMode = 'runtime', discoverPlugins } = {}) {
+export async function createHost({ port = 3210, dataDir, applicationsDir = defaultApplicationsDir, initialApplication, standalone, file, discoveryMode = 'runtime', discoverPlugins, locationRoot = rootDir } = {}) {
+  dataDir ||= defaultDataDirectory(locationRoot)
   const catalog = standalone ? [standalone] : await discoverApplications(applicationsDir)
   const ctx = new Context(); let applications
   try {
     await ctx.plugin(Http, { port }); await ctx.http.ready
-    applications = new Applications(ctx.http, { applications: catalog, dataDir, standalone: !!standalone, file, discoveryMode, discoverPlugins })
+    applications = new Applications(ctx.http, { applications: catalog, dataDir, standalone: !!standalone, file, discoveryMode, discoverPlugins, locationRoot })
     const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
     const manage = handler => request => applications.withCurrent(request, runtime => handler(runtime.manager, request))
     route('GET', /^\/api\/applications$/, () => applications.describe())
+    route('GET', /^\/api\/application-data-directory$/, ({ req }) => { applications.checkSession(req, '/api/application-data-directory'); return applications.dataDirectoryInfo() })
+    route('POST', /^\/api\/application-data-directory\/pick$/, async ({ req }) => { applications.checkSession(req, '/api/application-data-directory/pick', true); applications.dataDirectoryInfo(); return { path: await chooseDataDirectory() } })
+    route('POST', /^\/api\/application-data-directory$/, async ({ req }) => {
+      applications.checkSession(req, '/api/application-data-directory', true)
+      const input = await body(req)
+      return applications.relocateDataDirectory(input.path, input.action, input.session || applications.session)
+    })
+    route('POST', /^\/api\/application-data-directory\/recover$/, async ({ req }) => {
+      applications.checkSession(req, '/api/application-data-directory/recover', true)
+      const input = await body(req)
+      return applications.recoverDataDirectory(input.appId, input.session || applications.session)
+    })
     route('POST', /^\/api\/applications\/switch$/, async ({ req }) => { const input = await body(req); return applications.switch(input.id, input.session) })
     route('GET', /^\/api\/plugins$/, () => applications.snapshot())
     route('GET', /^\/api\/capabilities$/, manage(manager => capabilityCatalog(manager.serialize().plugins)))

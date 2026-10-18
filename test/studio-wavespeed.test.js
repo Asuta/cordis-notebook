@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -32,6 +32,13 @@ test('模型目录覆盖所有图片视频类型，搜索分页、缓存合并�
   assert.equal((await catalog.list({ type: 'image-to-image' })).total, 1)
   assert.equal((await catalog.detail('mock/no-schema')).supported, false)
   await catalog.list({ refresh: true }); assert.equal(calls, 2)
+  const staleCache = JSON.parse(await readFile(join(dir, 'models-cache.json'), 'utf8')); staleCache.updatedAt = 0
+  await writeFile(join(dir, 'models-cache.json'), JSON.stringify(staleCache))
+  let staleCalls = 0
+  const stale = await createCatalog(dir, config, { api() { staleCalls++; throw Error('offline') } }, writeSnapshot)
+  assert.equal((await stale.list()).catalogTotal, 70)
+  await until(() => staleCalls === 1); assert.equal(staleCalls, 1)
+  staleCache.updatedAt = Date.now(); await writeFile(join(dir, 'models-cache.json'), JSON.stringify(staleCache))
   const cached = await createCatalog(dir, config, { api() { throw Error('新鲜缓存不应联网') } }, writeSnapshot)
   assert.equal((await cached.list()).catalogTotal, 70)
   await config.save({ apiKey: 'other-key' })

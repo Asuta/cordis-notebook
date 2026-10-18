@@ -51,10 +51,39 @@ export function createLibrary(documents, jobs) {
     }
     definition.validate(node, state.assets); return node
   }
+  function resultJob(board, node) {
+    return [...jobs.read()].sort((left, right) => right.createdAt - left.createdAt).find(job =>
+      (!job.boardId || job.boardId === board.id) && job.nodeId === node.sourceNodeId &&
+      (job.resultNodeId === node.id || job.resultAssetIds?.includes(node.assetId) || job.assetIds?.includes(node.assetId) || job.assetId === node.assetId))
+  }
+  function resultParameters(input) {
+    if (!input || typeof input.boardId !== 'string' || typeof input.nodeId !== 'string') fail('参数卡请求无效')
+    const state = documents.read(), board = state.boards.find(board => board.id === input.boardId)
+    const result = board?.nodes.find(node => node.id === input.nodeId && ['image', 'video'].includes(node.type) && node.sourceNodeId && state.assets[node.assetId])
+    if (!result) fail('生成结果不存在或素材不可用')
+    const job = resultJob(board, result)
+    const favorite = records.read().find(item => item.kind === 'result' && item.assetId === result.assetId)
+    if (!job && !favorite) fail('找不到这张结果的生成参数')
+    const sourceTitle = board.nodes.find(node => node.id === result.sourceNodeId)?.title || favorite?.sourceTitle || result.title
+    const node = generatorFromJob(job || { cardSnapshot: favorite.node }, { title: result.title, sourceTitle }, state)
+    return { node, sourceTitle }
+  }
   return {
     read,
+    resultParameters,
     async save(input) {
       if (!input || typeof input !== 'object' || Array.isArray(input)) fail('收藏请求无效')
+      if (input.action === 'rename') {
+        const title = text(input.title, 120, '收藏名称')
+        await records.change(tx => {
+          const record = tx.records.find(item => item.id === input.id)
+          if (!record) fail('收藏不存在')
+          if (input.updatedAt !== record.updatedAt) throw Object.assign(Error('收藏已在其他页面修改，请重新打开'), { status: 409 })
+          record.title = title
+          record.updatedAt = Math.max(Date.now(), record.updatedAt + 1)
+        })
+        return read()
+      }
       if (input.action === 'delete') {
         await records.change(tx => { const index = tx.records.findIndex(item => item.id === input.id); if (index < 0) fail('收藏不存在'); tx.records.splice(index, 1) })
         return read()
@@ -75,7 +104,7 @@ export function createLibrary(documents, jobs) {
       } else if (input.kind === 'result') {
         const state = documents.read(), board = state.boards.find(board => board.id === input.boardId), node = board?.nodes.find(node => node.id === input.nodeId && ['image', 'video'].includes(node.type) && node.sourceNodeId)
         if (!node || board.revision !== input.revision || !state.assets[node.assetId]) throw Object.assign(Error('生成结果已变化，请重新收藏'), { status: 409 })
-        const job = [...jobs.read()].sort((left, right) => right.createdAt - left.createdAt).find(job => job.nodeId === node.sourceNodeId && (job.resultNodeId === node.id || job.resultAssetIds?.includes(node.assetId) || job.assetId === node.assetId))
+        const job = resultJob(board, node)
         if (!job) fail('找不到这张结果的生成参数')
         const source = board.nodes.find(item => item.id === node.sourceNodeId)
         const resultTitle = input.title || node.title
@@ -91,6 +120,18 @@ export function createLibrary(documents, jobs) {
         else if (item.kind === 'model' && tx.records.some(record => record.kind === 'model' && record.provider === item.provider && record.model === item.model)) return
         else if (item.kind === 'result' && tx.records.some(record => record.kind === 'result' && record.assetId === item.assetId)) return
         else tx.records.unshift(saved)
+        if (index >= 0 && item.kind === 'suffix') {
+          // Update live cards in the same transaction; historical job/favorite snapshots stay frozen.
+          for (const { id } of documents.read().boards) {
+            const board = tx.board(id), operations = []
+            for (const node of board.nodes) {
+              if (node.type !== 'generator' || !node.promptSuffixes?.some(suffix => suffix.id === saved.id && (suffix.text !== saved.text || suffix.title !== saved.title))) continue
+              const promptSuffixes = node.promptSuffixes.map(suffix => suffix.id === saved.id ? { ...suffix, title: saved.title, text: saved.text } : suffix)
+              operations.push({ type: 'update', id: node.id, patch: { promptSuffixes } })
+            }
+            if (operations.length) tx.edit(id, operations)
+          }
+        }
       })
       return read()
     },

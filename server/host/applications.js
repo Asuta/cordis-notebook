@@ -6,23 +6,24 @@ import { Plugins } from './plugins.js'
 import { fail } from './http.js'
 import { discoverBuiltins } from '../plugin-discovery.js'
 import { writeSnapshot } from '../../shared/persistence.js'
+import { ensureApplicationDataIdentity, migrateDataDirectory, readApplicationDataDirectory, removeApplicationDataDirectory, validateAttachedApplicationDataDirectory, writeApplicationDataDirectory } from './data-location.js'
 
 export class Applications {
-  constructor(http, { applications, dataDir, standalone = false, file, discoveryMode = 'runtime', discoverPlugins = discoverBuiltins }) {
-    Object.assign(this, { http, applications, dataDir, standalone, file, discoveryMode, discoverPlugins })
-    this.current = null; this.session = randomUUID(); this.phase = 'idle'; this.error = ''
+  constructor(http, { applications, dataDir, standalone = false, file, discoveryMode = 'runtime', discoverPlugins = discoverBuiltins, locationRoot }) {
+    Object.assign(this, { http, applications, dataDir, standalone, file, discoveryMode, discoverPlugins, locationRoot })
+    this.current = null; this.session = randomUUID(); this.phase = 'idle'; this.error = ''; this.recovery = null
     this.queue = Promise.resolve(); this.inflight = new Set(); this.closed = false
   }
   describe() {
     return { session: this.session, current: this.current ? this.publicApp(this.current.app) : null,
-      phase: this.phase, error: this.error,
+      phase: this.phase, error: this.error, recovery: this.recovery ? structuredClone(this.recovery) : null,
       applications: this.applications.map(app => this.publicApp(app)),
     }
   }
   publicApp(app) {
     return { id: app.id, name: app.name, description: app.description || '', error: app.error || '',
       icon: app.icon ? `/applications/${app.id}/icon` : null,
-      legacyBrowserStorage: !!app.legacyBrowserStorage }
+      legacyBrowserStorage: !!app.legacyBrowserStorage, manageData: !!app.manageData }
   }
   snapshot() {
     return { ...(this.current?.manager.serialize() || { plugins: [], revision: 0 }), application: this.describe() }
@@ -53,8 +54,26 @@ export class Applications {
   }
   async applicationData(app) {
     if (this.standalone) { await mkdir(this.dataDir, { recursive: true }); return this.dataDir }
+    const configured = this.locationRoot ? await readApplicationDataDirectory(this.locationRoot, app.id) : null
+    if (configured) {
+      const recovery = { appId: app.id, appName: app.name, configuredPath: configured, defaultPath: join(this.dataDir, 'apps', app.id) }
+      let info
+      try { info = await stat(configured) }
+      catch (error) {
+        if (error.code !== 'ENOENT') Object.assign(error, { recovery })
+        if (error.code === 'ENOENT') throw Object.assign(Error(`应用数据目录不存在或不是文件夹：${configured}`), { status: 500, recovery })
+        throw error
+      }
+      if (!info.isDirectory()) throw Object.assign(Error(`应用数据目录不存在或不是文件夹：${configured}`), { status: 500, recovery })
+      try { await ensureApplicationDataIdentity(configured, app.id) }
+      catch (error) { Object.assign(error, { recovery }); throw error }
+      return configured
+    }
     const directory = join(this.dataDir, 'apps', app.id)
-    if (await stat(directory).catch(e => { if (e.code !== 'ENOENT') throw e })) return directory
+    if (await stat(directory).catch(e => { if (e.code !== 'ENOENT') throw e })) {
+      await ensureApplicationDataIdentity(directory, app.id)
+      return directory
+    }
     await mkdir(join(this.dataDir, 'apps'), { recursive: true })
     // Copy-once migration, then atomic publication. Never overwrite or delete old user data.
     const staging = join(this.dataDir, 'apps', '.' + app.id + '-' + randomUUID())
@@ -65,6 +84,7 @@ export class Applications {
       if (await stat(source).catch(e => { if (e.code !== 'ENOENT') throw e })) await cp(source, join(staging, name), { recursive: true, errorOnExist: true, force: false })
     }
     await rename(staging, directory)
+    await ensureApplicationDataIdentity(directory, app.id)
     return directory
   }
   async openRuntime(app, entries, dataDir) {
@@ -103,7 +123,7 @@ export class Applications {
     const id = initialId ?? (saved ? saved.active : this.applications.find(app => app.default && !app.error)?.id ?? null)
     if (!id) return
     try { await this.switch(id, this.session) }
-    catch (error) { if (this.standalone) throw error; this.error = error.message }
+    catch (error) { if (this.standalone) throw error; this.error = error.message; this.recovery = error.recovery || null }
   }
   switch(id, expectedSession) {
     const run = this.queue.then(() => this.change(id, expectedSession))
@@ -120,7 +140,7 @@ export class Applications {
     const entries = app ? await this.discoverPlugins(app.pluginsDir, { mode: this.discoveryMode }) : []
     const dataDir = app ? await this.applicationData(app) : null
     const previous = this.current
-    this.phase = 'switching'; this.error = ''; this.notify()
+    this.phase = 'switching'; this.error = ''; this.recovery = null; this.notify()
     try {
       await Promise.allSettled([...this.inflight])
       if (previous?.manager.settings.pending || previous?.manager.pendingSwitch) throw fail(409, '当前应用还有未完成的配置或插件切换，请完成后重试')
@@ -135,11 +155,76 @@ export class Applications {
           try { this.current = await this.openRuntime(previous.app, previous.entries, previous.dataDir) }
           catch (restore) { error.message += `；恢复上一应用失败：${restore.message}` }
         }
+        this.recovery = error.recovery || null
         throw error
       }
       return { ...this.describe(), phase: 'idle' }
     } catch (error) { this.error = '打开应用失败：' + error.message; throw fail(error.status || 500, this.error) }
     finally { this.phase = 'idle'; this.notify() }
+  }
+  relocateDataDirectory(target, mode, expectedSession) {
+    const run = this.queue.then(() => this.changeDataDirectory(target, mode, expectedSession))
+    this.queue = run.catch(() => {}); return run
+  }
+  recoverDataDirectory(appId, expectedSession) {
+    const run = this.queue.then(() => this.recoverDataDirectoryNow(appId, expectedSession))
+    this.queue = run.catch(() => {}); return run
+  }
+  async recoverDataDirectoryNow(appId, expectedSession) {
+    if (this.closed || expectedSession !== this.session) throw fail(409, '页面状态已变化，请重新载入')
+    if (this.standalone) throw fail(400, '单插件开发模式不支持切换数据目录')
+    if (this.phase !== 'idle') throw fail(409, '应用正在切换，请稍后重试')
+    const app = this.applications.find(app => app.id === appId)
+    if (!app) throw fail(404, '应用不存在')
+    if (!app.manageData) throw fail(400, '当前应用不支持单独设置数据目录')
+    const configured = this.locationRoot ? await readApplicationDataDirectory(this.locationRoot, app.id) : null
+    if (!configured) throw fail(400, '当前应用没有可恢复的自定义数据目录')
+    await removeApplicationDataDirectory(this.locationRoot, app.id)
+    this.error = ''; this.recovery = null
+    return this.change(app.id, this.session)
+  }
+  dataDirectoryInfo() {
+    const current = this.current
+    if (!current) throw fail(404, '当前没有打开应用')
+    if (!current.app.manageData) throw fail(400, '当前应用不支持单独设置数据目录')
+    return {
+      app: { id: current.app.id, name: current.app.name }, path: current.dataDir,
+      defaultPath: join(this.dataDir, 'apps', current.app.id), standalone: this.standalone,
+    }
+  }
+  async changeDataDirectory(target, mode, expectedSession) {
+    if (this.closed || expectedSession !== this.session) throw fail(409, '页面状态已变化，请重新载入')
+    if (this.standalone) throw fail(400, '单插件开发模式不支持切换数据目录')
+    if (!['migrate', 'attach'].includes(mode) || typeof target !== 'string') throw fail(400, '数据目录操作无效')
+    if (this.phase !== 'idle') throw fail(409, '应用正在切换，请稍后重试')
+    const previous = this.current
+    if (!previous) throw fail(404, '当前没有打开应用')
+    if (!previous.app.manageData) throw fail(400, '当前应用不支持单独设置数据目录')
+    this.phase = 'switching'; this.error = ''; this.notify()
+    const previousDataDir = previous.dataDir, previousSession = this.session
+    let current = null, result
+    try {
+      await Promise.allSettled([...this.inflight])
+      if (previous?.manager.settings.pending || previous?.manager.pendingSwitch) throw fail(409, '当前应用还有未完成的配置或插件切换，请完成后重试')
+      this.current = null; this.session = randomUUID()
+      await previous.close()
+      const checked = mode === 'migrate' ? await migrateDataDirectory(previousDataDir, target) : await validateAttachedApplicationDataDirectory(target, previousDataDir, previous.app.id)
+      await ensureApplicationDataIdentity(checked.path, previous.app.id)
+      current = await this.openRuntime(previous.app, previous.entries, checked.path)
+      await writeApplicationDataDirectory(this.locationRoot, previous.app.id, checked.path)
+      this.current = current
+      result = { ...this.describe(), app: { id: previous.app.id, name: previous.app.name }, path: checked.path, defaultPath: join(this.dataDir, 'apps', previous.app.id), files: checked.files }
+    } catch (error) {
+      await current?.close().catch(() => {})
+      this.current = null
+      try { this.current = await this.openRuntime(previous.app, previous.entries, previousDataDir) }
+      catch (restore) { error.message += `；恢复原数据目录失败：${restore.message}` }
+      this.session = previousSession
+      throw fail(error.status || 500, '切换应用数据目录失败：' + error.message)
+    } finally {
+      this.phase = 'idle'; this.notify()
+    }
+    return result
   }
   async close() {
     this.closed = true; await this.queue

@@ -11,16 +11,21 @@ import { applyOperation, createTypes, generationInput } from './helpers/studio-f
 import { copySelection } from '../applications/studio/plugins/canvas/copy.js'
 import { normalizeModels } from '../applications/studio/plugins/image-provider-wavespeed/schema.js'
 import { modelRows } from './helpers/studio-wavespeed.js'
+import { snapshotGenerator } from '../applications/studio/plugins/image-generation/snapshot.js'
 
-async function setup(t, { models = {}, systemDark = false, library = null } = {}) {
+async function setup(t, { models = {}, systemDark = false, library = null, libraryService = null, llmConfig = null, promptOptimizations = null } = {}) {
   const window = new Window({ settings: { disableCSSFileLoading: true } }), previous = { window: globalThis.window, document: globalThis.document, FileReader: globalThis.FileReader }
   window.matchMedia = query => ({ matches: query === '(prefers-color-scheme: dark)' && systemDark, media: query, addEventListener() {}, removeEventListener() {} })
   globalThis.window = window; globalThis.document = window.document; globalThis.FileReader = window.FileReader
-  const cleanups = [], hooks = new Map(), tools = new Map()
-  const board = newBoard('测试画板'), state = { boards: [board], assets: {}, jobs: [], config: { hasKey: true, model: 'test-model', baseUrl: 'https://example.com' } }
+  const cleanups = [], hooks = new Map(), tools = new Map(), editBatches = []
+  const board = newBoard('测试画板'), state = {
+    boards: [board], assets: {}, jobs: [], config: { hasKey: true, model: 'test-model', baseUrl: 'https://example.com' },
+    llmConfig: llmConfig || { format: 'openai-responses', defaultModelId: null, models: [] }, promptOptimizations: promptOptimizations || { templates: [] },
+  }
   const generated = [], toasts = []
   const ctx = { effect: fn => cleanups.push(fn()), on: (name, fn) => hooks.set(name, fn) }
   const sdk = {
+    application: { id: 'studio', name: '灵感画布', manageData: true },
     provide(name, service) { ctx[name] = service; return service },
     el(tag, props = {}, text) { const node = window.document.createElement(tag); for (const [key, value] of Object.entries(props)) { if (key === 'class') node.className = value; else if (key.startsWith('aria-') || key.startsWith('data-')) node.setAttribute(key, value); else node[key] = value }; if (text !== undefined) node.textContent = text; return node },
     mount: (name, node) => window.document.body.append(node), toast: message => toasts.push(message),
@@ -29,7 +34,48 @@ async function setup(t, { models = {}, systemDark = false, library = null } = {}
     async request(path, method, body) {
       if (path === '/api/studio') return structuredClone(state)
       if (path === '/api/studio/copy') return copySelection(state.boards[0], body.nodeIds, createTypes(), state.assets)
-      if (path === '/api/studio/generation-library') return library ? structuredClone(library) : { prompts: [], models: [], cards: [], results: [], suffixes: [], history: [] }
+      if (path === '/api/studio/generation-library') {
+        if (libraryService) return libraryService({ method, body, state })
+        return library ? structuredClone(library) : { prompts: [], models: [], cards: [], results: [], suffixes: [], history: [] }
+      }
+      if (path === '/api/studio/result-parameters') {
+        const sourceBoard = state.boards.find(board => board.id === body.boardId), result = sourceBoard?.nodes.find(node => node.id === body.nodeId)
+        const job = state.jobs.find(job => job.resultNodeId === result?.id)
+        if (!job?.cardSnapshot) throw Error('找不到这张结果的生成参数')
+        const node = structuredClone(job.cardSnapshot)
+        delete node.id; delete node.x; delete node.y
+        return { node, sourceTitle: job.cardSnapshot.title }
+      }
+      if (path === '/api/studio/llm/config') {
+        if (method !== 'POST') return structuredClone(state.llmConfig)
+        const models = state.llmConfig.models
+        if (body.action === 'delete') {
+          state.llmConfig.models = models.filter(item => item.id !== body.id)
+          if (state.llmConfig.defaultModelId === body.id) state.llmConfig.defaultModelId = state.llmConfig.models[0]?.id || null
+        } else if (body.action === 'default') state.llmConfig.defaultModelId = body.id
+        else {
+          const item = { id: body.id || 'llm-config-test', name: body.name, baseUrl: body.baseUrl, model: body.model, hasKey: true }
+          const index = models.findIndex(model => model.id === item.id)
+          if (index >= 0) models[index] = item; else models.push(item)
+          if (body.default || !state.llmConfig.defaultModelId) state.llmConfig.defaultModelId = item.id
+        }
+        return structuredClone(state.llmConfig)
+      }
+      if (path === '/api/studio/prompt-optimizations') {
+        if (method !== 'POST') return structuredClone(state.promptOptimizations)
+        if (body.action === 'delete') state.promptOptimizations.templates = state.promptOptimizations.templates.filter(item => item.id !== body.id)
+        else {
+          const item = { id: body.id || 'optimization-' + state.promptOptimizations.templates.length, title: body.title, instruction: body.instruction, createdAt: 1, updatedAt: 2 }
+          const index = state.promptOptimizations.templates.findIndex(template => template.id === item.id)
+          if (index >= 0) state.promptOptimizations.templates[index] = item; else state.promptOptimizations.templates.push(item)
+        }
+        return structuredClone(state.promptOptimizations)
+      }
+      if (path === '/api/studio/prompt-optimize') {
+        state.lastOptimizeRequest = structuredClone(body)
+        return { prompt: '优化后的主提示词', originalPrompt: body.prompt, template: { id: body.templateId, title: '英文' }, model: { id: 'llm-config-test', name: '测试模型', model: 'gpt-test' } }
+      }
+      if (path === '/api/studio/llm/test') return { ok: true, message: 'OK' }
       if (path.startsWith('/api/studio/providers/wavespeed/model?')) {
         const id = new URL(path, 'http://localhost').searchParams.get('id')
         if (!models[id]) throw Error('测试模型不存在')
@@ -38,6 +84,7 @@ async function setup(t, { models = {}, systemDark = false, library = null } = {}
       if (path.startsWith('/api/studio/providers/wavespeed/models?')) return { items: Object.values(models), total: Object.keys(models).length, catalogTotal: Object.keys(models).length, types: [], offset: 0, limit: 30 }
       if (path === '/api/studio/edit') {
         if (body.revision !== state.boards[0].revision) throw Object.assign(Error('画布已变化'), { status: 409 })
+        editBatches.push(structuredClone(body.operations))
         const inverse = []
         for (const op of body.operations) { const result = applyOperation(state.boards[0], op, state.assets); state.boards[0] = result.board; inverse.unshift(result.inverse) }
         return { board: structuredClone(state.boards[0]), inverse }
@@ -50,6 +97,11 @@ async function setup(t, { models = {}, systemDark = false, library = null } = {}
         state.assets[asset.id] = asset; return structuredClone(asset)
       }
       if (path === '/api/studio/import') { const asset = { id: 'imported-image', name: '参考图', width: 8, height: 6 }; state.assets[asset.id] = asset; return structuredClone(asset) }
+      if (path === '/api/application-data-directory') {
+        if (method === 'POST') { state.dataDirectoryAction = { action: body.action, path: body.path }; return { path: body.path } }
+        return { app: { id: 'studio', name: '灵感画布' }, path: 'C:/cordis/data/apps/studio', defaultPath: 'C:/cordis/data/apps/studio', standalone: false }
+      }
+      if (path === '/api/application-data-directory/pick') return { path: 'C:/cordis/studio-copy' }
       throw Error('未处理请求：' + path)
     },
   }
@@ -71,7 +123,7 @@ async function setup(t, { models = {}, systemDark = false, library = null } = {}
     await modules[id](child, childSdk)
   }
   for (const id of Object.keys(modules)) await start(id)
-  return { window, state, tools, hooks, generated, toasts, ctx, start, stop: id => running.get(id)() }
+  return { window, state, tools, hooks, generated, toasts, editBatches, ctx, start, stop: id => running.get(id)() }
 }
 
 async function waitUntil(predicate) {
@@ -111,6 +163,64 @@ test('深色模式跟随系统、可切换并记住用户选择', async t => {
   root = window.document.querySelector('.studio-app'); toggle = window.document.querySelector('.studio-theme-toggle')
   assert.equal(root.dataset.theme, 'light')
   assert.equal(toggle.getAttribute('aria-pressed'), 'false')
+})
+
+test('应用设置页承载数据目录，不再占用宿主顶栏', async t => {
+  const { window } = await setup(t)
+  const document = window.document, entry = document.querySelector('.studio-app-settings-entry')
+  assert.equal(document.querySelector('#manage-data'), null)
+  assert.equal(entry.textContent, '⚙ 应用设置')
+  await entry.onclick()
+  const dialog = document.querySelector('.studio-app-settings')
+  await waitUntil(() => dialog.querySelector('#studio-app-data-path').textContent.includes('data/apps/studio'))
+  assert.equal(dialog.open, true)
+  assert.match(dialog.textContent, /仅当前应用/)
+  assert.match(dialog.textContent, /笔记、画图和项目状态不会随这里切换/)
+  dialog.getBoundingClientRect = () => ({ left: 100, top: 100, right: 600, bottom: 500, width: 500, height: 400, x: 100, y: 100 })
+  dialog.dispatchEvent(new window.MouseEvent('click', { bubbles: true, clientX: 250, clientY: 250 }))
+  assert.equal(dialog.open, true, '点击弹窗内部留白不应关闭')
+  dialog.dispatchEvent(new window.MouseEvent('click', { bubbles: true, clientX: 750, clientY: 250 }))
+  assert.equal(dialog.open, false, '点击弹窗外仍应关闭')
+})
+
+test('提示词优化按钮使用默认模型，预览后才替换主提示词', async t => {
+  const { window, state, tools } = await setup(t, {
+    llmConfig: { format: 'openai-responses', defaultModelId: 'llm-one', models: [{ id: 'llm-one', name: '主模型', baseUrl: 'https://api.example.com/v1', model: 'gpt-test', hasKey: true }] },
+    promptOptimizations: { templates: [{ id: 'english', title: '改成英文', instruction: '把提示词全部改成英文', createdAt: 1, updatedAt: 2 }] },
+  })
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: {
+    id: 'g', type: 'generator', prompt: '一段主提示词', promptSuffixes: [{ id: 'fixed', title: '固定镜头', text: '固定镜头，无 bgm', enabled: true }],
+  } }] })
+  await waitUntil(() => window.document.querySelector('[data-node="g"] .studio-prompt-optimizer'))
+  const optimize = window.document.querySelector('[data-node="g"] .studio-prompt-optimizer')
+  assert.equal(optimize.textContent, '改成英文')
+  await optimize.onclick()
+  await waitUntil(() => window.document.querySelector('.studio-optimizer-preview').open)
+  assert.equal(state.lastOptimizeRequest.prompt, '一段主提示词', '优化只应发送主提示词，不包含固定尾缀')
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g').prompt, '一段主提示词', '预览阶段不应修改卡片')
+  const dialog = window.document.querySelector('.studio-optimizer-preview')
+  assert.match(dialog.textContent, /一段主提示词/)
+  assert.match(dialog.textContent, /优化后的主提示词/)
+  await [...dialog.querySelectorAll('button')].find(button => button.textContent === '使用优化结果').onclick()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'g').prompt === '优化后的主提示词')
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g').promptSuffixes[0].text, '固定镜头，无 bgm')
+  assert.equal(dialog.open, false)
+})
+
+test('应用设置展示多个大模型且默认模型用于优化', async t => {
+  const { window } = await setup(t, {
+    llmConfig: { format: 'openai-responses', defaultModelId: 'model-two', models: [
+      { id: 'model-one', name: '备用模型', baseUrl: 'https://one.example.com/v1', model: 'model-one', hasKey: true },
+      { id: 'model-two', name: '默认模型', baseUrl: 'https://two.example.com/v1', model: 'model-two', hasKey: true },
+    ] },
+  })
+  await window.document.querySelector('.studio-app-settings-entry').onclick()
+  const dialog = window.document.querySelector('.studio-app-settings')
+  await waitUntil(() => /默认模型：默认模型/.test(dialog.textContent))
+  assert.match(dialog.textContent, /备用模型/)
+  assert.match(dialog.textContent, /https:\/\/one\.example\.com\/v1/)
+  assert.match(dialog.textContent, /管理优化按钮/)
+  assert.doesNotMatch(dialog.textContent, /sk-secret/)
 })
 
 test('模型参数快速输入后立即生成使用最新值，change 与 blur 同时保存只写一次', async t => {
@@ -364,7 +474,7 @@ test('参考区可先新建多个空槽位，再点槽位从素材库填入；�
   assert.deepEqual(generationInput(state.boards[0], 'g').assetIds, [asset.id])
   await waitUntil(() => window.document.querySelectorAll('.studio-reference-row.is-empty').length === 1)
   assert.ok(window.document.querySelector('.studio-picker-grid .is-upload'), '选择框提供本地上传入口')
-  assert.equal(window.document.querySelector('.studio-asset-picker input[type=file]').accept, 'image/png,image/jpeg,image/webp,video/mp4,video/webm')
+  assert.equal(window.document.querySelector('.studio-asset-picker input[type=file]').accept, 'image/png,image/jpeg,image/webp')
   const rows = () => [...window.document.querySelectorAll('.studio-reference-row')], [first, second] = rows()
   first.getBoundingClientRect = () => ({ top: 100, height: 40, bottom: 140 })
   second.getBoundingClientRect = () => ({ top: 146, height: 40, bottom: 186 })
@@ -424,12 +534,12 @@ test('灵感卡片选择显示上下文工具，批量排列及带内部连线�
   stage.focus()
   stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))
   assert.equal(context.hidden, false)
-  assert.match(context.textContent, /已选 2 张卡片.*水平排列.*垂直排列/)
+  assert.match(context.textContent, /已选 2 张卡片.*整理为网格/)
   const original = structuredClone(state.boards[0].nodes)
   const click = text => [...window.document.querySelectorAll('button')].find(b => b.textContent === text).onclick()
-  await click('垂直排列')
-  assert.equal(state.boards[0].nodes[1].y, 270)
-  assert.equal(state.boards[0].nodes[1].x, 0)
+  await click('整理为网格')
+  assert.equal(state.boards[0].nodes[1].x, 336)
+  assert.equal(state.boards[0].nodes[1].y, 0)
   assert.equal(state.boards[0].nodes[1].prompt, '提示词')
   await click('↶')
   assert.deepEqual(state.boards[0].nodes, original)
@@ -442,7 +552,7 @@ test('灵感卡片选择显示上下文工具，批量排列及带内部连线�
   assert.equal(state.boards[0].edges.length, 1)
   window.document.querySelector('.studio-text').dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }))
   assert.match(context.textContent, /文字灵感.*编辑文字/)
-  assert.doesNotMatch(context.textContent, /水平排列|垂直排列/)
+  assert.doesNotMatch(context.textContent, /整理为网格|整理子集/)
 })
 
 test('拖动取消与无移动点击不写布局，文字组词中的 Esc 不退出编辑', async t => {
@@ -459,6 +569,7 @@ test('拖动取消与无移动点击不写布局，文字组词中的 Esc 不退
   pointer('pointerdown', window.document.querySelector('.studio-card-head'), 40, 40)
   pointer('pointerup', stage, 40, 40)
   assert.deepEqual(state.boards[0], original, '单击标题只选择卡片，不写坐标和撤销步骤')
+  assert.equal(window.document.querySelector('.studio-context-tools').hidden, false, '无移动的单击选中后应立即显示卡片工具')
   const input = window.document.querySelector('textarea'); input.focus()
   const composingEscape = new window.KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
   input.dispatchEvent(composingEscape)
@@ -507,6 +618,90 @@ test('空白左键框选、卡片中键拖动与空白中键平移正确分流',
   pointer('pointerup', stage, 120, 90)
   stage.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true }))
   assert.deepEqual(ctx.canvasSession.viewport, { x: 70, y: 20, zoom: 1 }, 'Space + 左键继续平移画布')
+})
+
+test('滚轮和 Ctrl+滚轮围绕指针缩放，整理画布可单步撤销', async t => {
+  const { window, state, ctx, tools } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'text', type: 'text', x: 20, y: 300, text: '输入' } },
+    { type: 'add', node: { id: 'g', type: 'generator', x: 500, y: 100, prompt: '生成' } },
+    { type: 'connect', id: 'edge', from: 'text', to: 'g' },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="g"]'))
+  ctx.canvasSession.viewport = { x: 0, y: 0, zoom: 1 }
+  const stage = window.document.querySelector('.studio-stage'), wheel = (ctrlKey, deltaY) => {
+    const event = new window.Event('wheel', { bubbles: true, cancelable: true })
+    Object.defineProperties(event, { ctrlKey: { value: ctrlKey }, metaKey: { value: false }, deltaY: { value: deltaY }, deltaX: { value: 0 }, clientX: { value: 200 }, clientY: { value: 160 } })
+    stage.dispatchEvent(event); return event
+  }
+  assert.equal(wheel(false, 90).defaultPrevented, true)
+  assert.ok(ctx.canvasSession.viewport.zoom < 1)
+  const zoomedOut = ctx.canvasSession.viewport.zoom
+  wheel(true, -80)
+  assert.ok(ctx.canvasSession.viewport.zoom > zoomedOut)
+  const before = state.boards[0].nodes.map(node => [node.id, node.x, node.y])
+  await [...window.document.querySelectorAll('.studio-action-dock button')].find(button => button.textContent === '整理画布').onclick()
+  const arranged = state.boards[0].nodes
+  assert.ok(arranged.find(node => node.id === 'text').x < arranged.find(node => node.id === 'g').x)
+  await [...window.document.querySelectorAll('.studio-action-dock button')].find(button => button.textContent === '↶').onclick()
+  assert.deepEqual(state.boards[0].nodes.map(node => [node.id, node.x, node.y]), before)
+})
+
+test('整理画布下拉选择五种方案，记住选择并支持一次撤销，关闭菜单不修改画板', async t => {
+  const { window, state, tools, editBatches, ctx } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'text', type: 'text', x: 20, y: 300, text: '输入' } },
+    { type: 'add', node: { id: 'g', type: 'generator', x: 900, y: 100, prompt: '生成' } },
+    { type: 'add', node: { id: 'g2', type: 'generator', x: 1700, y: 900, prompt: '另一个生成卡' } },
+    { type: 'connect', id: 'edge', from: 'text', to: 'g' },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="g2"]'))
+  const document = window.document, toggle = document.querySelector('.studio-layout-toggle'), menu = document.querySelector('.studio-layout-menu')
+  const snapshot = () => structuredClone(state.boards[0].nodes), original = snapshot(), edges = structuredClone(state.boards[0].edges)
+  const stage = document.querySelector('.studio-stage'), control = document.querySelector('.studio-layout-control')
+  stage.getBoundingClientRect = () => ({ left: 100, top: 100 })
+  control.getBoundingClientRect = () => ({ left: 500, top: 700 })
+  Object.defineProperties(stage, { clientWidth: { value: 1000 }, clientHeight: { value: 700 } })
+  Object.defineProperties(menu, { offsetWidth: { value: 310 }, offsetHeight: { value: 350 } })
+  stage.scrollTop = 125; stage.scrollLeft = 80
+  await toggle.onclick()
+  assert.equal(menu.hidden, false)
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+  assert.equal(menu.style.left, '480px')
+  assert.equal(menu.style.top, '365px', '浏览器滚动容器后仍应贴近按钮显示')
+  const choices = [...menu.querySelectorAll('[role=menuitemradio]')]
+  assert.equal(choices.length, 5)
+  assert.ok(choices.every(choice => choice.querySelector('small').textContent))
+  choices[0].focus()
+  choices[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+  assert.equal(document.activeElement, choices[1])
+  choices[1].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  assert.equal(menu.hidden, true)
+  assert.equal(document.activeElement, toggle)
+  assert.deepEqual(snapshot(), original)
+  const clickUndo = () => [...document.querySelectorAll('.studio-action-dock button')].find(button => button.textContent === '↶').onclick()
+  for (const choice of choices) {
+    await toggle.onclick()
+    await choice.onclick()
+    assert.equal(menu.hidden, true)
+    assert.equal(choice.getAttribute('aria-checked'), 'true')
+    assert.equal(window.localStorage.getItem('studio-canvas-layout'), choice.dataset.layout)
+    assert.deepEqual(editBatches.at(-1).map(operation => operation.type), ['layout'])
+    assert.deepEqual(state.boards[0].edges, edges)
+    await clickUndo()
+    assert.deepEqual(snapshot(), original, '一次撤销应恢复每张卡片的位置和内容')
+  }
+  const primary = document.querySelector('.studio-layout-control button')
+  assert.match(primary.title, /紧凑瀑布流/)
+  await primary.onclick()
+  assert.equal(window.localStorage.getItem('studio-canvas-layout'), 'masonry')
+  await clickUndo()
+  await toggle.onclick()
+  document.querySelector('.studio-stage').dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 2 }))
+  assert.equal(menu.hidden, true)
+  assert.deepEqual(snapshot(), original)
+  // UI-only preference storage must not enter the saved canvas document.
+  assert.equal(ctx.canvasSession.board().layout, undefined)
 })
 
 test('生成卡片正文和图片区域可直接拖动，文字输入区保持编辑', async t => {
@@ -823,7 +1018,7 @@ for (const saved of [true, false]) test(`提示词${saved ? '已保存' : '仍�
 })
 
 test('固定尾缀显示在提示词输入框底部，保持只读且不写入提示词正文', async t => {
-  const { window, tools } = await setup(t)
+  const { window, state, tools } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'g', type: 'generator', prompt: '人物提示词', promptSuffixes: [
     { id: 'suffix', title: '固定镜头', text: '固定镜头，无bgm，动作幅度非常大', enabled: true },
     { id: 'off', title: '不启用', text: '不应显示', enabled: false },
@@ -835,6 +1030,78 @@ test('固定尾缀显示在提示词输入框底部，保持只读且不写入�
   assert.match(preview.textContent, /固定镜头，无bgm/)
   assert.doesNotMatch(preview.textContent, /不应显示/)
   assert.equal(preview.querySelector('textarea,input'), null)
+  const convert = window.document.querySelector('.studio-suffix-convert')
+  await convert.onclick()
+  await waitUntil(() => state.boards[0].nodes[0].prompt === '人物提示词\n\n固定镜头，无bgm，动作幅度非常大')
+  assert.equal(state.boards[0].nodes[0].promptSuffixes[0].enabled, false)
+})
+
+test('编辑尾缀保存后只读预览、按钮和转正文立即使用新内容', async t => {
+  let template = { id: 'suffix-camera', kind: 'suffix', title: '固定镜头', text: '旧的镜头尾缀', updatedAt: 1 }
+  const env = await setup(t, { libraryService: ({ method, body, state }) => {
+    if (method === 'POST') {
+      template = { ...template, ...body, updatedAt: 2 }
+      const node = state.boards[0].nodes.find(node => node.id === 'g')
+      state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: node.id, patch: { promptSuffixes: node.promptSuffixes.map(suffix => ({ ...suffix, title: template.title, text: template.text })) } }, state.assets).board
+    }
+    return { prompts: [], models: [], cards: [], results: [], suffixes: [structuredClone(template)], history: [] }
+  } })
+  const { window, tools, state } = env
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'g', type: 'generator', prompt: '主提示词', promptSuffixes: [{ id: template.id, title: template.title, text: template.text, enabled: true }] } }] })
+  await waitUntil(() => window.document.querySelector('.studio-suffix-manage'))
+  await window.document.querySelector('.studio-suffix-manage').onclick()
+  await [...window.document.querySelectorAll('.studio-suffix-record button')].find(button => button.textContent === '编辑').onclick()
+  const editor = window.document.querySelector('.studio-library-editor')
+  editor.querySelector('input').value = '新的镜头模板'
+  editor.querySelector('textarea').value = '新的镜头尾缀，不要背景音乐'
+  await [...editor.querySelectorAll('button')].find(button => button.textContent === '保存尾缀').onclick()
+  assert.equal(editor.open, false)
+  const preview = window.document.querySelector('.studio-prompt-suffix-preview')
+  assert.match(preview.textContent, /新的镜头尾缀，不要背景音乐/)
+  assert.doesNotMatch(preview.textContent, /旧的镜头尾缀/)
+  assert.equal(window.document.querySelector('.studio-prompt-suffix').textContent, '新的镜头模板')
+  window.document.querySelector('.studio-suffix-list').closest('dialog').close()
+  await window.document.querySelector('.studio-suffix-convert').onclick()
+  assert.equal(state.boards[0].nodes[0].prompt, '主提示词\n\n新的镜头尾缀，不要背景音乐')
+  assert.equal(state.boards[0].nodes[0].promptSuffixes[0].enabled, false)
+})
+
+test('未收藏的图片和视频结果显示参数卡入口，点击或拖出恢复当次参数且保持视角', async t => {
+  const { window, state, tools, ctx, generated } = await setup(t)
+  state.assets.image = { id: 'image', kind: 'image', name: '结果.png', width: 64, height: 48 }
+  state.assets.video = { id: 'video', kind: 'video', name: '结果.mp4', width: 480, height: 640, duration: 5, extension: 'mp4' }
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'g', type: 'generator', prompt: '生成时的提示词', references: [{ id: 'reference', assetId: 'image' }], textReferences: [{ id: 'text-ref', title: '文字', text: '外部文字' }] } },
+    { type: 'add', node: { id: 'image-result', type: 'image', assetId: 'image', sourceNodeId: 'g', x: 600, y: 100 } },
+    { type: 'add', node: { id: 'video-result', type: 'video', assetId: 'video', sourceNodeId: 'g', x: 1000, y: 100 } },
+  ] })
+  const cardSnapshot = snapshotGenerator(state.boards[0].nodes[0], { board: state.boards[0], types: createTypes(), assets: state.assets })
+  for (const id of ['image-result', 'video-result']) state.jobs.push({ id: 'job-' + id, boardId: state.boards[0].id, nodeId: 'g', resultNodeId: id, status: 'succeeded', cardSnapshot: structuredClone(cardSnapshot) })
+  await tools.get('studio_edit')({ revision: state.boards[0].revision, operations: [{ type: 'update', id: 'g', patch: { prompt: '现在已经修改的提示词' } }] })
+  const video = window.document.querySelector('[data-node="video-result"] video')
+  ctx.canvasSession.viewport = { x: 123, y: -456, zoom: .5 }
+  await waitUntil(() => window.document.querySelectorAll('.studio-result-parameter').length === 2)
+  await window.document.querySelector('[data-node="image-result"] .studio-result-parameter').onclick({ stopPropagation() {} })
+  let restored = state.boards[0].nodes.at(-1)
+  assert.equal(restored.type, 'generator')
+  assert.equal(restored.prompt, '生成时的提示词')
+  assert.equal(restored.references[0].assetId, 'image')
+  assert.equal(restored.textReferences[0].text, '外部文字')
+  const values = new Map(), dataTransfer = { setData(type, value) { values.set(type, value) }, getData(type) { return values.get(type) || '' }, files: [], get types() { return [...values.keys()] } }
+  const drag = window.document.querySelector('[data-node="video-result"] .studio-result-parameter')
+  drag.ondragstart({ stopPropagation() {}, dataTransfer })
+  assert.equal(state.boards[0].nodes.length, 4, '开始拖动时不能创建卡片')
+  const event = new window.Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperties(event, { dataTransfer: { value: dataTransfer }, clientX: { value: 500 }, clientY: { value: 250 } })
+  window.document.querySelector('.studio-stage').dispatchEvent(event)
+  await waitUntil(() => state.boards[0].nodes.length === 5)
+  restored = state.boards[0].nodes.at(-1)
+  assert.equal(restored.prompt, '生成时的提示词')
+  assert.deepEqual({ x: restored.x, y: restored.y }, { x: 754, y: 1412 })
+  assert.deepEqual(ctx.canvasSession.viewport, { x: 123, y: -456, zoom: .5 })
+  assert.equal(window.document.querySelector('[data-node="video-result"] video'), video, '添加参数卡不能刷新已有视频')
+  assert.equal(window.document.querySelectorAll('[data-node="video-result"] .studio-result-parameter').length, 1)
+  assert.equal(generated.length, 0, '恢复参数卡不能自动生成')
 })
 
 test('生成视频首次播放后写入播放状态，导入视频不显示未播放标记', async t => {
@@ -873,6 +1140,89 @@ test('从输出圆点拖到目标卡片任意位置即可完成连线', async t 
   assert.equal(window.document.querySelector('[data-node="g"]').classList.contains('is-connect-target'), true)
   window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 31, clientX: 460, clientY: 60 }))
   await waitUntil(() => state.boards[0].edges.some(edge => edge.from === 'text' && edge.to === 'g'))
+})
+
+test('参数卡输入圆点支持反向拖拽和点击连线', async t => {
+  const { window, state, tools } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'text', type: 'text', x: 0, y: 0, text: '上游文字' } },
+    { type: 'add', node: { id: 'g1', type: 'generator', x: 400, y: 0, prompt: '生成一' } },
+    { type: 'add', node: { id: 'g2', type: 'generator', x: 800, y: 0, prompt: '生成二' } },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="g2"] [data-input]'))
+  const textCard = window.document.querySelector('[data-node="text"]')
+  window.document.elementFromPoint = () => textCard
+  const first = window.document.querySelector('[data-node="g1"] [data-input]')
+  first.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 41, clientX: 400, clientY: 40 }))
+  window.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, button: 0, pointerId: 41, clientX: 100, clientY: 40 }))
+  assert.equal(textCard.classList.contains('is-connect-target'), true)
+  window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 41, clientX: 100, clientY: 40 }))
+  await waitUntil(() => state.boards[0].edges.some(edge => edge.from === 'text' && edge.to === 'g1'))
+
+  const second = window.document.querySelector('[data-node="g2"] [data-input]')
+  second.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 42, clientX: 800, clientY: 40 }))
+  window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 42, clientX: 800, clientY: 40 }))
+  window.document.querySelector('[data-node="text"]').dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 43, clientX: 100, clientY: 40 }))
+  await waitUntil(() => state.boards[0].edges.some(edge => edge.from === 'text' && edge.to === 'g2'))
+})
+
+test('单参数卡 Ctrl+A 选择直接产物，并可整理为右侧近方形网格', async t => {
+  const { window, state, tools, editBatches } = await setup(t)
+  for (const id of ['a1', 'a2', 'a3', 'a4']) state.assets[id] = { id, name: id + '.png', kind: 'image', width: 288, height: 360 }
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'g', type: 'generator', x: 500, y: 100, prompt: '批量生成' } },
+    { type: 'add', node: { id: 'r1', type: 'image', x: 1000, y: 100, assetId: 'a1', sourceNodeId: 'g' } },
+    { type: 'add', node: { id: 'r2', type: 'image', x: 1200, y: 300, assetId: 'a2', sourceNodeId: 'g' } },
+    { type: 'add', node: { id: 'r3', type: 'image', x: 1400, y: 500, assetId: 'a3', sourceNodeId: 'g' } },
+    { type: 'add', node: { id: 'other', type: 'image', x: 0, y: 900, assetId: 'a4' } },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="g"] .studio-card-head'))
+  const head = window.document.querySelector('[data-node="g"] .studio-card-head')
+  head.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 51, clientX: 520, clientY: 120 }))
+  window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 51, clientX: 520, clientY: 120 }))
+  const stage = window.document.querySelector('.studio-stage'), context = window.document.querySelector('.studio-context-tools')
+  stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))
+  const selected = id => window.document.querySelector(`[data-node="${id}"]`).classList.contains('selected')
+  for (const id of ['g', 'r1', 'r2', 'r3']) assert.equal(selected(id), true)
+  assert.equal(selected('other'), false)
+  assert.match(context.textContent, /已选 4 张卡片.*整理子集/)
+  await [...window.document.querySelectorAll('button')].find(button => button.textContent === '整理子集').onclick()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'r3').y === 508)
+  assert.deepEqual(editBatches.at(-1).map(operation => operation.type), ['layout'])
+  const positions = Object.fromEntries(state.boards[0].nodes.map(node => [node.id, { x: node.x, y: node.y }]))
+  assert.deepEqual(positions, {
+    g: { x: 500, y: 100 }, r1: { x: 908, y: 100 }, r2: { x: 1244, y: 100 }, r3: { x: 908, y: 508 }, other: { x: 0, y: 900 },
+  })
+})
+
+test('移动参数卡后整理子集使用最新位置', async t => {
+  const { window, state, tools } = await setup(t)
+  for (const id of ['a1', 'a2', 'a3']) state.assets[id] = { id, name: id + '.png', kind: 'image', width: 288, height: 360 }
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'g', type: 'generator', x: 500, y: 100, prompt: '移动后整理' } },
+    { type: 'add', node: { id: 'r1', type: 'image', x: 900, y: 100, assetId: 'a1', sourceNodeId: 'g' } },
+    { type: 'add', node: { id: 'r2', type: 'image', x: 1200, y: 100, assetId: 'a2', sourceNodeId: 'g' } },
+    { type: 'add', node: { id: 'r3', type: 'image', x: 900, y: 500, assetId: 'a3', sourceNodeId: 'g' } },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="g"] .studio-card-head'))
+  const stage = window.document.querySelector('.studio-stage'), head = window.document.querySelector('[data-node="g"] .studio-card-head')
+  const pointer = (type, target, x, y) => target.dispatchEvent(new window.PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerId: 61, clientX: x, clientY: y }))
+  pointer('pointerdown', head, 500, 100)
+  pointer('pointerup', window, 500, 100)
+  assert.equal(window.document.querySelector('.studio-context-tools').hidden, false)
+  pointer('pointerdown', head, 500, 100)
+  pointer('pointermove', stage, 600, 150)
+  pointer('pointerup', window, 600, 150)
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'g').x === 600)
+  const generator = state.boards[0].nodes.find(node => node.id === 'g')
+  assert.deepEqual({ x: generator.x, y: generator.y }, { x: 600, y: 150 })
+  stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))
+  await waitUntil(() => /整理子集/.test(window.document.querySelector('.studio-context-tools').textContent))
+  await [...window.document.querySelectorAll('button')].find(button => button.textContent === '整理子集').onclick()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'r1').y === 150)
+  const moved = state.boards[0].nodes.find(node => node.id === 'g'), first = state.boards[0].nodes.find(node => node.id === 'r1')
+  assert.equal(first.x - moved.x, 408, '产物应基于参数卡移动后的 x 坐标展开')
+  assert.equal(first.y, moved.y)
 })
 
 test('Ctrl+C 只记录整组副本，Ctrl+V 在鼠标位置粘贴并保留组内连线', async t => {
@@ -950,6 +1300,7 @@ test('结果收藏展示真实视频而非参考图，悬停显示生成参数',
   await waitUntil(() => !window.document.querySelector('.studio-library-panel').hidden && window.document.querySelector('.studio-saved-card'))
   const card = window.document.querySelector('.studio-saved-card'), preview = card.querySelector('.studio-result-favorite-preview')
   assert.match(preview.querySelector('video').getAttribute('src'), /\/videos\/result-video/)
+  assert.equal(preview.querySelector('video').controls, true)
   assert.equal(preview.querySelector('img'), null, '不能把生成卡片的参考图当作结果预览')
   assert.equal(preview.querySelector('.studio-result-favorite-kind').textContent, '▷ 视频')
   card.dispatchEvent(new window.Event('pointerenter'))
@@ -958,6 +1309,23 @@ test('结果收藏展示真实视频而非参考图，悬停显示生成参数',
   assert.match(info.textContent, /真实结果的提示词/)
   assert.match(info.textContent, /duration/)
   assert.match(info.textContent, /480 × 704 · 5.2 秒/)
+})
+
+test('参考素材选择器按模型槽位过滤类型，并支持点击背景关闭', async t => {
+  const { window, state, tools, ctx } = await setup(t, { models: dynamicModels() })
+  state.assets.image = ctx.canvasSession.rememberAsset({ id: 'image', kind: 'image', name: '参考图.png', width: 64, height: 48 })
+  state.assets.video = ctx.canvasSession.rememberAsset({ id: 'video', kind: 'video', name: '参考视频.mp4', width: 64, height: 48, duration: 2 })
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'g', type: 'generator', provider: 'wavespeed', model: 'mock/edit', prompt: '测试', references: [{ id: 'slot', assetId: null }], referenceOrder: ['direct:slot'] } }] })
+  await waitUntil(() => window.document.querySelector('[data-node="g"] .studio-reference-thumb.is-empty'))
+  await waitUntil(() => /图片 ·/.test(window.document.querySelector('[data-node="g"] .studio-selected-model')?.textContent || ''))
+  const empty = window.document.querySelector('[data-node="g"] .studio-reference-thumb.is-empty')
+  await empty.onclick()
+  const picker = window.document.querySelector('.studio-asset-picker')
+  assert.equal(picker.open, true)
+  const names = [...picker.querySelectorAll('.studio-picker-item:not(.is-upload)')].map(item => item.textContent)
+  assert.deepEqual(names, ['参考图.png'], JSON.stringify({ assets: Object.keys(ctx.canvasSession.state.assets), text: picker.textContent }))
+  picker.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  assert.equal(picker.open, false)
 })
 
 test('单张图片参考会默认选择模型的首帧输入', async t => {

@@ -56,7 +56,7 @@ pnpm export:app drawing work/drawing-release
 
 `pnpm start` / `pnpm start:runtime` 仍使用各插件 dist。正式构建的前端由 Vite 打包，后端由 esbuild 打包；修改源码后重新构建，修改后端或清单后还需重启服务并刷新浏览器。导出只含应用清单、图标及插件清单和 dist，不包含用户数据；宿主单独提供。
 
-支持环境变量 PORT、DATA_DIR、APPLICATIONS_DIR、APP。APP 指定本次启动的应用，成功后保存为最后选择；没有 .env 自动加载。旧 PLUGINS_DIR / createApp() 保留为单目录开发测试入口，默认使用应用宿主 createHost()。
+支持环境变量 PORT、DATA_DIR、APPLICATIONS_DIR、APP。DATA_DIR 指定宿主数据根目录。APP 指定本次启动的应用，成功后保存为最后选择；没有 .env 自动加载。旧 PLUGINS_DIR / createApp() 保留为单目录开发测试入口，默认使用应用宿主 createHost()。
 
 ## 数据与升级
 
@@ -69,6 +69,8 @@ data/
 ```
 
 首次打开笔记应用时，将旧根目录的笔记、插件配置、plugin-data 与旧图片目录复制到 data/apps/notebook/。保留原件，不改变笔记内容格式，不覆盖已有应用数据目录。后续写入新目录。备份整个 data/；不要让多个服务进程写同一份数据。
+
+「灵感画布」左侧栏的「应用设置」中提供该应用自己的数据目录，只控制 `data/apps/studio/`。迁移会先复制到目标旁的暂存目录，校验 JSON、图片和视频后切换；接入已有目录会直接使用所选应用目录。两种方式都不会移动笔记、画图、应用选择或宿主配置，原应用目录保留作备份。应用目录映射保存在项目根目录的 `.cordis-application-data.json`，不要与数据备份一起清理。
 
 浏览器草稿通过 sdk.storage.local/session 按应用和插件区分。笔记应用一次性导入旧草稿、当前笔记选择及自由页面视图，保留旧键。Git 不备份数据或浏览器草稿。
 

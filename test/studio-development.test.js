@@ -23,7 +23,7 @@ test('七插件从源码启动，视图和 Pixel 更新不重启宿主，原画�
   await mkdir(legacy, { recursive: true })
   // A local-only endpoint and credential prevent any paid external request.
   await writeFile(join(legacy, 'pixel-private.json'), JSON.stringify({ apiKey: 'local-test', model: 'mock', baseUrl: `http://127.0.0.1:${upstream.address().port}` }))
-  dev = await startDevelopment({ port: 0, applicationsDir: apps, dataDir, cacheDir: join(directory, 'cache'), initialApplication: 'studio', dependencyFiles: [], onEvent: event => events.push(event) })
+  dev = await startDevelopment({ port: 0, applicationsDir: apps, dataDir, locationRoot: directory, cacheDir: join(directory, 'cache'), initialApplication: 'studio', dependencyFiles: [], onEvent: event => events.push(event) })
   const base = `http://127.0.0.1:${dev.vite.httpServer.address().port}`, pid = dev.backendPid
   const json = async path => { const response = await fetch(base + path); assert.equal(response.ok, true, await response.clone().text()); return response.json() }
   let before = await json('/api/studio')

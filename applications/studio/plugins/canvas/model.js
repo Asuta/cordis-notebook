@@ -36,6 +36,7 @@ function historyState(board, op) {
       const current = node(op.id)
       return current && { type: current.type, fields: Object.fromEntries([...Object.keys(op.patch), ...(op.unset || [])].map(key => [key, current[key]])) }
     }
+    case 'layout': return { nodes: op.nodes.map(item => ({ id: item.id, x: node(item.id)?.x, y: node(item.id)?.y })) }
     case 'remove': return { nodes: op.ids.map(node), edges: board.edges.filter(e => op.ids.includes(e.from) || op.ids.includes(e.to)) }
     case 'restore': return { nodes: board.nodes.map(n => ({ id: n.id, type: n.type })), edges: board.edges }
     case 'connect': return { edges: board.edges, from: node(op.from)?.type ?? null, to: node(op.to)?.type ?? null }
@@ -83,6 +84,21 @@ export function applyOperation(board, operation, assets, types) {
       if (missing.length) inverse.unset = missing
       Object.assign(node, op.patch)
       for (const key of unset) delete node[key]
+      break
+    }
+    case 'layout': {
+      if (!Array.isArray(op.nodes) || !op.nodes.length || op.nodes.some(item => !item || !next.nodes.some(node => node.id === item.id) || !item.patch || Object.keys(item.patch).some(key => key !== 'x' && key !== 'y'))) invalid('画布整理内容无效')
+      const ids = new Set()
+      for (const item of op.nodes) {
+        if (ids.has(item.id)) invalid('画布整理内容重复')
+        ids.add(item.id)
+        for (const coordinate of [item.patch.x, item.patch.y]) if (coordinate !== undefined && (!Number.isFinite(coordinate) || Math.abs(coordinate) > 100000)) invalid('画布整理坐标无效')
+      }
+      inverse = { type: 'layout', nodes: op.nodes.map(item => {
+        const before = board.nodes.find(node => node.id === item.id)
+        return { id: item.id, patch: { x: before.x, y: before.y } }
+      }) }
+      for (const item of op.nodes) Object.assign(next.nodes.find(node => node.id === item.id), item.patch)
       break
     }
     case 'remove': {

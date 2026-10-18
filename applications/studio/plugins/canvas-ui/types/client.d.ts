@@ -22,6 +22,7 @@ export interface CanvasUI {
   endEditing(input: HTMLElement): void
   register(owner: Context, definition: CardView): () => unknown
   menu(owner: Context, definition: { id: string; label: string; order?: number; className?: string; run(): unknown }): () => unknown
+  settings(owner: Context, definition: { id: string; title: string; description?: string; scope?: string; render?(container: HTMLElement): void | (() => void); refresh?(): unknown }): () => unknown
   extend(owner: Context, id: string, extension: { refresh?(): void; card?(node: CanvasNode, card: HTMLElement, view: CanvasUI): void; dispose?(): void }): () => unknown
   render(): void
   board(): CanvasBoard

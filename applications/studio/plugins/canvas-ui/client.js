@@ -1,5 +1,8 @@
-import { cardBounds, fitView, arrangeCards, moveDelta, overlayPosition } from './geometry.js'
+import { cardBounds, fitView, arrangeGrid, moveDelta, overlayPosition } from './geometry.js'
+import { arrangeCanvas, canvasLayouts } from './layouts.js'
+import { createLayoutMenu } from './layout-menu.js'
 import { createMediaViewer } from './media-viewer.js'
+import { createApplicationSettings } from './settings.js'
 export default async function (ctx, sdk) {
   const s = ctx.canvasSession, el = sdk.el, uuid = () => crypto.randomUUID();
   const { board, api, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
@@ -89,11 +92,11 @@ export default async function (ctx, sdk) {
     selected.clear();
     selected.add(id);
     render();
-    if (options.fit !== false) fit();
+    if (options.fit === true) fit();
     return id;
   }
   async function connect(from, to) {
-    connecting = null;
+    stopConnecting();
     await flush();
     await edit([{ type: "connect", id: uuid(), from, to }]);
     notice.textContent = "已连接输入";
@@ -125,7 +128,8 @@ export default async function (ctx, sdk) {
   const undoButton = button("↶", () => historyStep(true)), redoButton = button("↷", () => historyStep(false));
   undoButton.title = "撤销 Ctrl+Z";
   redoButton.title = "重做 Ctrl+Shift+Z";
-  dock.append(undoButton, redoButton);
+  const tidyControl = createLayoutMenu({ ctx, sdk, el, button, stage, run: tidyCanvas });
+  dock.append(tidyControl, undoButton, redoButton);
   toolbar.append(
     boardTitle,
     notice,
@@ -154,15 +158,20 @@ export default async function (ctx, sdk) {
   zoomLabel.onchange = () => zoom(Number(zoomLabel.value) / 100);
   const focusButton = button("聚焦所选", () => focusView(true)), returnButton = button("返回视图", returnView);
   controls.append(button("−", () => zoom(s.viewport.zoom / 1.2)), zoomLabel, button("＋", () => zoom(s.viewport.zoom * 1.2)), button("适应画布", () => focusView(false)), focusButton, returnButton);
-  const hint = el("div", { class: "studio-canvas-hint" }, "中键空白拖动平移 · 左键框选 · 滚轮缩放 · Esc 退出编辑/选择");
+  const hint = el("div", { class: "studio-canvas-hint" }, "中键拖动平移 · 左键框选 · 滚轮缩放 · Esc 退出编辑/选择");
   bottomControls.append(dock, controls);
   world.append(svg, cards);
   stage.append(world, empty, selectionBox, contextTools, bottomControls, hint);
   main.append(toolbar, stage);
   root.append(side, main);
   sdk.mount("app", root);
+  const applicationSettings = createApplicationSettings({ ctx, sdk, el, button, root, side });
   function transform() {
     world.style.transform = `translate(${s.viewport.x}px,${s.viewport.y}px) scale(${s.viewport.zoom})`;
+    const inverseZoom = 1 / s.viewport.zoom;
+    world.style.setProperty('--studio-inverse-zoom', String(inverseZoom));
+    world.style.setProperty('--studio-wire-width', `${3 * inverseZoom}px`);
+    world.style.setProperty('--studio-wire-hover-width', `${4 * inverseZoom}px`);
     const percent = Math.round(s.viewport.zoom * 100);
     customZoom.textContent = percent + "%";
     zoomLabel.value = [15, 25, 50, 75, 100, 125, 150, 200, 300].includes(percent) ? String(percent) : "custom";
@@ -212,11 +221,45 @@ export default async function (ctx, sdk) {
     selected.clear();
     render();
   }
-  async function arrange(direction) {
+  async function arrangeSelection() {
     await flush();
-    const operations = arrangeCards(selectedNodes(), direction, cardSize);
+    const operations = arrangeGrid(selectedNodes(), cardSize);
     if (operations.length > 100) throw Error("请每次选择不超过 100 张卡片进行排列。");
     if (operations.length) await edit(operations);
+  }
+  function directOutputs(node) {
+    return board().nodes.filter(child => child.sourceNodeId === node.id);
+  }
+  function selectedSubsetGenerator(nodes) {
+    const generators = nodes.filter(node => node.type === 'generator');
+    if (generators.length !== 1) return null;
+    const generator = generators[0], products = directOutputs(generator);
+    if (nodes.length === 1) return generator.id;
+    const subset = new Set([generator.id, ...products.map(product => product.id)]);
+    return products.length && nodes.every(node => subset.has(node.id)) && products.every(product => selected.has(product.id)) ? generator.id : null;
+  }
+  async function organizeSubset(nodeId) {
+    await flush();
+    const node = board().nodes.find(item => item.id === nodeId && item.type === 'generator');
+    if (!node) return;
+    const products = directOutputs(node);
+    if (products.length < 2) return;
+    const operations = arrangeGrid(products, cardSize, { startX: node.x + cardSize(node).width + 120, startY: node.y });
+    if (operations.length) await edit([{ type: 'layout', nodes: operations }]);
+    selected.clear();
+    selected.add(node.id);
+    products.forEach(product => selected.add(product.id));
+    updateSelectionTools();
+    notice.textContent = `已整理 ${products.length} 张生成产物`;
+  }
+  async function tidyCanvas(algorithm) {
+    await flush();
+    const operations = arrangeCanvas(board().nodes, board().edges, cardSize, algorithm);
+    if (operations.length) await edit([{ type: 'layout', nodes: operations }], { repaint: false });
+    selected.clear();
+    render();
+    fit();
+    notice.textContent = `${canvasLayouts.find(layout => layout.id === algorithm).label} · 已整理 ${board().nodes.length} 张卡片`;
   }
   async function duplicateSelection() {
     await flush();
@@ -244,7 +287,9 @@ export default async function (ctx, sdk) {
     contextTools.style.top = position2.y + "px";
   }
   function updateSelectionTools() {
-    const nodes = selectedNodes(), signature = JSON.stringify([s.boardId, s.editing, nodes.map((n) => [n.id, n.type, n.title])]);
+    const nodes = selectedNodes(), subset = selectedSubsetGenerator(nodes);
+    const subsetProducts = subset ? directOutputs(nodes.find(node => node.id === subset)) : [];
+    const signature = JSON.stringify([s.boardId, s.editing, nodes.map((n) => [n.id, n.type, n.title]), subset ? subsetProducts.map(node => node.id) : null]);
     for (const card of cards.children) card.classList.toggle("selected", selected.has(card.dataset.node));
     focusButton.disabled = !nodes.length;
     returnButton.disabled = !returnViews.has(s.boardId);
@@ -257,9 +302,17 @@ export default async function (ctx, sdk) {
         if (nodes.length === 1) {
           const node = nodes[0];
           for (const action of renderers.get(node.type)?.actions || []) contextTools.append(button(action.label, () => action.run(node, view)));
-        } else contextTools.append(button("水平排列", () => arrange("horizontal")), button("垂直排列", () => arrange("vertical")));
+        }
+        if (subset) {
+          const subsetButton = button("整理子集", () => organizeSubset(subset));
+          subsetButton.disabled = subsetProducts.length < 2;
+          subsetButton.title = subsetButton.disabled ? '至少需要两个直接生成产物' : '将直接生成产物在参数卡右侧整理成近方形网格';
+          contextTools.append(subsetButton);
+        }
+        if (nodes.length > 1) contextTools.append(button("整理为网格", arrangeSelection));
         contextTools.append(button("创建副本", duplicateSelection), button("删除所选", removeSelection, "studio-danger"));
       }
+      paintWires();
     }
     placeContextTools();
   }
@@ -271,13 +324,17 @@ export default async function (ctx, sdk) {
     const distance = Math.max(70, Math.abs(to.x - from.x) * 0.45);
     return `M ${from.x} ${from.y} C ${from.x + distance} ${from.y}, ${to.x - distance} ${to.y}, ${to.x} ${to.y}`;
   }
+  function portPoint(node, side) {
+    return { x: node.x + (side === "output" ? cardSize(node).width : 0), y: node.y + 40 };
+  }
   function paintWires() {
     svg.replaceChildren();
     for (const edge of board().edges) {
       const a = board().nodes.find((n) => n.id === edge.from), b = board().nodes.find((n) => n.id === edge.to);
       const path = document.createElementNS(svg.namespaceURI, "path");
-      path.setAttribute("d", wirePath({ x: a.x + 288, y: a.y + 38 }, { x: b.x, y: b.y + 38 }));
+      path.setAttribute("d", wirePath(portPoint(a, "output"), portPoint(b, "input")));
       path.dataset.edge = edge.id;
+      path.classList.toggle("is-selected", selected.has(edge.from) && selected.has(edge.to));
       path.onclick = safe(async (event) => {
         event.stopPropagation();
         await edit([{ type: "disconnect", id: edge.id }]);
@@ -292,7 +349,8 @@ export default async function (ctx, sdk) {
       if (!source) continue;
       const path = document.createElementNS(svg.namespaceURI, "path");
       path.classList.add("studio-result-wire");
-      path.setAttribute("d", wirePath({ x: source.x + 288, y: source.y + 38 }, { x: result.x, y: result.y + 38 }));
+      path.classList.toggle("is-selected", selected.has(source.id) && selected.has(result.id));
+      path.setAttribute("d", wirePath(portPoint(source, "output"), portPoint(result, "input")));
       const title = document.createElementNS(svg.namespaceURI, "title");
       title.textContent = "生成结果来源";
       path.append(title);
@@ -453,18 +511,26 @@ export default async function (ctx, sdk) {
     // The server remains the authority when a view is still loading type metadata.
     return !sourceType || !targetType ? true : !!targetType.accepts?.includes(sourceType.output);
   }
-  function connectPreview(from, point) {
-    const source = board().nodes.find((node) => node.id === from);
-    if (!source) return;
+  function connectionPair(mode, origin, target) {
+    if (!origin || !target) return null;
+    return mode === "forward" ? { from: origin, to: target } : { from: target, to: origin };
+  }
+  function connectPreview(state, point) {
+    const origin = board().nodes.find((node) => node.id === state.origin);
+    if (!origin) return;
     let path = svg.querySelector('.studio-connect-preview');
     if (!path) {
       path = document.createElementNS(svg.namespaceURI, 'path');
       path.classList.add('studio-connect-preview');
       svg.append(path);
     }
-    path.setAttribute('d', wirePath({ x: source.x + 288, y: source.y + 38 }, point));
+    path.setAttribute('d', state.mode === "forward"
+      ? wirePath(portPoint(origin, "output"), point)
+      : wirePath(point, portPoint(origin, "input")));
   }
   function clearConnectDrag() {
+    stage.classList.remove('is-connecting');
+    delete stage.dataset.connectMode;
     if (!connectDrag) return;
     const state = connectDrag;
     connectDrag = null;
@@ -472,18 +538,25 @@ export default async function (ctx, sdk) {
     for (const card of cards.children) card.classList.remove('is-connect-target', 'is-connect-invalid');
     if (stage.hasPointerCapture?.(state.pointerId)) stage.releasePointerCapture(state.pointerId);
   }
+  function stopConnecting() {
+    connecting = null;
+    stage.classList.remove('is-connecting');
+    delete stage.dataset.connectMode;
+  }
   function updateConnectDrag(event) {
     if (!connectDrag || event.pointerId !== connectDrag.pointerId) return;
     if (Math.hypot(event.clientX - connectDrag.startX, event.clientY - connectDrag.startY) >= 4) connectDrag.moved = true;
     if (!connectDrag.moved) return;
     const element = document.elementFromPoint(event.clientX, event.clientY), card = element?.closest('[data-node]');
-    const target = card?.dataset.node || null, valid = !!target && canConnect(connectDrag.from, target);
-    connectDrag.target = valid ? target : null;
+    const target = card?.dataset.node || null;
+    const candidate = connectDrag.mode === "forward" ? { from: connectDrag.origin, to: target } : { from: target, to: connectDrag.origin };
+    const valid = canConnect(candidate.from, candidate.to);
+    connectDrag.candidate = valid ? candidate : null;
     for (const item of cards.children) {
       item.classList.toggle('is-connect-target', !!valid && item.dataset.node === target);
       item.classList.toggle('is-connect-invalid', !!target && !valid && item.dataset.node === target);
     }
-    connectPreview(connectDrag.from, coordinates(event));
+    connectPreview(connectDrag, coordinates(event));
   }
   async function copySelectedToClipboard() {
     if (!selected.size) return;
@@ -533,30 +606,26 @@ export default async function (ctx, sdk) {
     return additions[0].node;
   }
   sdk.listen(stage, "pointerdown", (event) => {
-    if (s.held || stopped || event.button > 1 || drag || event.target.closest(".studio-context-tools,.studio-bottom-controls")) return;
+    if (s.held || stopped || event.button > 1 || drag || event.target.closest(".studio-context-tools,.studio-bottom-controls,.studio-layout-menu")) return;
     const left = event.button === 0, middle = event.button === 1, card = event.target.closest("[data-node]");
     lastPointer = coordinates(event);
     if (!event.target.closest('.studio-reference-row')) clearPasteTarget();
     const pan = (space && left) || (middle && !card);
     const output = event.target.closest("[data-output]"), input = event.target.closest("[data-input]");
-    if (left && !space && output) {
-      connecting = null;
-      connectDrag = { from: output.dataset.output, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false, target: null };
+    if (left && !space && connecting && card) {
+      const pair = connectionPair(connecting.mode, connecting.origin, card.dataset.node);
+      if (pair && canConnect(pair.from, pair.to)) { stopConnecting(); void safe(() => connect(pair.from, pair.to))(); return; }
+      sdk.toast(connecting.mode === "forward" ? '这张卡片不能接收当前连线' : '这张卡片不能作为当前参数卡的输入');
+      return;
+    }
+    if (left && !space && (output || input)) {
+      stopConnecting();
+      const mode = output ? "forward" : "reverse", origin = (output || input).dataset[mode === "forward" ? "output" : "input"];
+      connectDrag = { mode, origin, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false, candidate: null };
+      stage.classList.add('is-connecting');
+      stage.dataset.connectMode = mode;
       stage.setPointerCapture?.(event.pointerId);
       event.preventDefault();
-      return;
-    }
-    if (left && !space && connecting && card && card.dataset.node !== connecting) {
-      const target = card.dataset.node;
-      if (canConnect(connecting, target)) { void safe(() => connect(connecting, target))(); return; }
-      sdk.toast('这张卡片不能接收当前连线');
-      return;
-    }
-    if (left && !space && input) {
-      if (connecting) {
-        if (canConnect(connecting, input.dataset.input)) void safe(() => connect(connecting, input.dataset.input))();
-        else { connecting = null; sdk.toast('这张卡片不能接收当前连线'); }
-      }
       return;
     }
     if (left && !space && event.target.closest("button,input,textarea,select,a,path,label,[role=button],[contenteditable=true]")) return;
@@ -574,7 +643,7 @@ export default async function (ctx, sdk) {
       }
       drag = { type: "nodes", start: coordinates(event), nodes: board().nodes.filter((n) => selected.has(n.id)).map((n) => ({ id: n.id, x: n.x, y: n.y })) };
     } else if (left && !space) {
-      if (connecting) connecting = null;
+      if (connecting) stopConnecting();
       const extend = event.shiftKey || event.ctrlKey || event.metaKey;
       drag = { type: "select", start: coordinates(event), selected: new Set(selected), extend };
       if (!drag.extend) selected.clear();
@@ -649,20 +718,27 @@ export default async function (ctx, sdk) {
       const state = connectDrag;
       if (!state.moved) {
         clearConnectDrag();
-        connecting = state.from;
-        notice.textContent = "选择接收连线的卡片";
+        connecting = { mode: state.mode, origin: state.origin };
+        stage.classList.add('is-connecting');
+        stage.dataset.connectMode = state.mode;
+        notice.textContent = state.mode === "forward" ? "选择接收连线的卡片" : "选择作为当前参数卡输入的卡片";
         return;
       }
       updateConnectDrag(event);
-      const target = connectDrag?.target;
-      clearConnectDrag(); connecting = null;
-      if (target) await connect(state.from, target);
+      const candidate = connectDrag?.candidate;
+      clearConnectDrag(); stopConnecting();
+      if (candidate) await connect(candidate.from, candidate.to);
       return;
     }
     if (connecting) {
-      const input = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-input]");
-      if (input) await connect(connecting, input.dataset.input);
+      const mode = connecting.mode;
+      const card = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-node]");
+      const pair = connectionPair(connecting.mode, connecting.origin, card?.dataset.node);
+      stopConnecting();
+      if (pair && canConnect(pair.from, pair.to)) await connect(pair.from, pair.to);
+      else if (card) sdk.toast(mode === "forward" ? '这张卡片不能接收当前连线' : '这张卡片不能作为当前参数卡的输入');
     }
+    if (!connecting) stage.classList.remove('is-connecting');
     if (!drag || event.pointerId !== drag.pointerId) return;
     movePointer(event);
     const previous = drag;
@@ -688,7 +764,6 @@ export default async function (ctx, sdk) {
             if (card) card.studioNode = JSON.stringify(rendered || node);
           }
         }
-        updateSelectionTools();
       } catch (error) {
         render();
         throw error;
@@ -696,7 +771,7 @@ export default async function (ctx, sdk) {
     } else if (previous.type === "pan" && previous.moved) await saveViewport();
     // Keep the pressed element connected for a normal click. Moving cards already
     // updates their live position, so saving that position must not rebuild media.
-    if (previous.type !== "nodes") updateSelectionTools();
+    updateSelectionTools();
   });
   sdk.listen(window, "pointerup", release);
   sdk.listen(stage, "auxclick", event => { if (event.button === 1) event.preventDefault() });
@@ -712,15 +787,16 @@ export default async function (ctx, sdk) {
   sdk.listen(stage, "lostpointercapture", cancelGesture);
   sdk.listen(window, "blur", () => {
     space = false;
-    connecting = null;
+    stopConnecting();
     clearConnectDrag();
     cancelGesture();
   });
   sdk.listen(stage, "wheel", (event) => {
-    if (event.target.closest("textarea,select,video,.studio-scroll,.studio-context-tools,.studio-bottom-controls")) return;
+    const rect = stage.getBoundingClientRect();
+    const forceZoom = event.ctrlKey || event.metaKey;
+    if (!forceZoom && event.target.closest("textarea,select,video,.studio-scroll,.studio-context-tools,.studio-bottom-controls")) return;
     event.preventDefault();
     if (drag) return;
-    const rect = stage.getBoundingClientRect();
     zoom(s.viewport.zoom * Math.exp(-event.deltaY * 1e-3), event.clientX - rect.left, event.clientY - rect.top);
   });
   sdk.listen(window, "keydown", safe(async (event) => {
@@ -734,7 +810,7 @@ export default async function (ctx, sdk) {
         cancelGesture();
         return;
       }
-      connecting = null;
+      stopConnecting();
       clearConnectDrag();
       clearPasteTarget();
       selected.clear();
@@ -742,7 +818,12 @@ export default async function (ctx, sdk) {
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
-      board().nodes.forEach((n) => selected.add(n.id));
+      const current = selectedNodes();
+      if (current.length === 1 && current[0].type === 'generator') {
+        selected.clear();
+        selected.add(current[0].id);
+        directOutputs(current[0]).forEach(node => selected.add(node.id));
+      } else board().nodes.forEach((n) => selected.add(n.id));
       updateSelectionTools();
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
@@ -841,7 +922,7 @@ export default async function (ctx, sdk) {
     },
     menu(owner, definition) {
       if (menus.has(definition.id)) throw Error("菜单重复");
-      const update = () => dock.replaceChildren(...[...menus.values()].sort((a, b) => (a.order ?? 1000) - (b.order ?? 1000) || a.id.localeCompare(b.id)).map((item) => button(item.label, item.run, item.className || "")), undoButton, redoButton);
+      const update = () => dock.replaceChildren(...[...menus.values()].sort((a, b) => (a.order ?? 1000) - (b.order ?? 1000) || a.id.localeCompare(b.id)).map((item) => button(item.label, item.run, item.className || "")), tidyControl, undoButton, redoButton);
       return owner.effect(() => {
         menus.set(definition.id, definition);
         update();
@@ -850,6 +931,9 @@ export default async function (ctx, sdk) {
           update();
         };
       });
+    },
+    settings(owner, definition) {
+      return applicationSettings.register(owner, definition)
     },
     extend(owner, id, extension) {
       if (extensions.has(id)) throw Error("界面扩展重复");
@@ -865,7 +949,7 @@ export default async function (ctx, sdk) {
   };
   s.attachView(ctx, { render, status: (value) => notice.textContent = value, dragging: () => !!drag, choose: () => {
     selected.clear();
-    connecting = null;
+    stopConnecting();
     clearConnectDrag();
     clearPasteTarget();
   }, hold: (value) => {

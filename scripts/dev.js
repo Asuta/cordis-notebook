@@ -12,6 +12,7 @@ import { inside, discoverBuiltins } from '../server/plugin-discovery.js'
 import { pluginSources } from './vite-build.js'
 import { createDevelopmentSaveGuard } from './development-save-guard.js'
 import { developmentRPC } from './development-rpc.js'
+import { describeExit, diagnosticReportArgs, observeFatalDiagnostics, startDiagnosticHeartbeat } from '../shared/diagnostics.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const viteEnvironment = fileURLToPath(new URL('../client/env.mjs', import.meta.resolve('vite')))
@@ -39,9 +40,12 @@ export async function preflightHost(entry = resolve(root, 'scripts/development-b
 /** Vite owns the public port. Backend restarts never disconnect its HMR channel. */
 export async function startDevelopment({ port = Number(process.env.PORT || 3210), dataDir = process.env.DATA_DIR || resolve(root, 'data'), applicationsDir = process.env.APPLICATIONS_DIR || defaultApplicationsDir, initialApplication = process.env.APP,
   cacheDir = process.env.CORDIS_VITE_CACHE_DIR || resolve(root, 'node_modules/.vite/cordis'), onEvent = () => {},
+  locationRoot = process.env.CORDIS_APPLICATION_LOCATION_ROOT || root,
   session = process.env.CORDIS_DEV_SESSION || randomUUID(), saveTimeout = 15000,
   dependencyFiles = [resolve(root, 'pnpm-lock.yaml'), resolve(root, 'node_modules/.modules.yaml')] } = {}) {
   await mkdir(dataDir, { recursive: true })
+  const diagnosticsDir = process.env.CORDIS_DIAGNOSTICS_DIR || resolve(dataDir, 'diagnostics')
+  await mkdir(diagnosticsDir, { recursive: true })
   const entries = [], allowed = new Set(), backendSources = new Set()
   let catalog, plugins, backend, backendPort, backendProxy, backendRPC, version = Date.now(), closing = false, timer, queue = Promise.resolve(), working = 0
   const pendingPlugins = new Set()
@@ -116,10 +120,18 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
   const initial = await discoverPlan(); applyPlan(initial)
   async function launch() {
     const child = fork(resolve(root, 'scripts/development-backend.js'), [], { cwd: root, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-      env: { ...process.env, PORT: '0', DATA_DIR: resolve(dataDir), APPLICATIONS_DIR: resolve(applicationsDir), CORDIS_DEV: '1', CORDIS_VITE_CACHE_DIR: cacheDir, ...(initialApplication ? { APP: initialApplication } : {}) } })
+      execArgv: diagnosticReportArgs(diagnosticsDir),
+      env: { ...process.env, PORT: '0', DATA_DIR: resolve(dataDir), APPLICATIONS_DIR: resolve(applicationsDir), CORDIS_APPLICATION_LOCATION_ROOT: resolve(locationRoot), CORDIS_DEV: '1', CORDIS_VITE_CACHE_DIR: cacheDir, CORDIS_DIAGNOSTICS_DIR: diagnosticsDir, ...(initialApplication ? { APP: initialApplication } : {}) } })
     backend = child
     backendRPC = developmentRPC(child)
-    child.on('message', message => { if (message?.type === 'cordis-sources') message.files.forEach(file => backendSources.add(fileKey(file))) })
+    child.on('message', message => {
+      if (message?.type === 'cordis-diagnostic') { if (process.connected) process.send(message); return }
+      if (message?.type === 'cordis-sources') message.files.forEach(file => backendSources.add(fileKey(file)))
+    })
+    child.on('exit', (code, signal) => {
+      if (closing) return
+      console.error(`[diagnostics:development-backend] 后端进程退出：${describeExit(code, signal)}`)
+    })
     await new Promise((accept, reject) => {
       const timeout = setTimeout(() => { child.kill(); reject(Error('开发后端启动超时')) }, 30000)
       const finish = error => { clearTimeout(timeout); child.off('exit', exit); child.off('error', finish); child.off('message', ready); error ? reject(error) : accept() }
@@ -399,10 +411,12 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
   } catch (error) { saveGuard?.close(); await vite?.close(); await stopBackend(); throw error }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  observeFatalDiagnostics('development')
+  const stopDiagnostics = startDiagnosticHeartbeat({ scope: 'development', send: message => { if (process.connected) process.send(message) } })
   const onEvent = event => { if (process.connected) process.send({ type: 'cordis-dev', event }) }
   const dev = await startDevelopment({ onEvent })
   let closing = false
-  const close = async () => { if (closing) return; closing = true; await dev.close(); process.exit(0) }
+  const close = async () => { if (closing) return; closing = true; stopDiagnostics(); await dev.close(); process.exit(0) }
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, close)
   process.on('message', message => { if (message?.type === 'workbench-shutdown') void close() })
   if (process.connected) process.once('disconnect', close)

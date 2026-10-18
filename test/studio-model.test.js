@@ -10,10 +10,28 @@ import { newBoard } from '../applications/studio/plugins/canvas/store.js'
 import { createStore, applyOperation, generationInput, createJobs } from './helpers/studio-fixture.js'
 import { createConfig, createPixel, imageSize } from '../applications/studio/plugins/image-provider-pixel/pixel.js'
 import { prepareReferences, referenceUploadBudget } from '../applications/studio/plugins/image-provider-pixel/references.js'
+import { layoutGraph } from '../applications/studio/plugins/canvas-ui/geometry.js'
 
 async function setup(t) { const directory = await mkdtemp(join(tmpdir(), 'cordis-studio-')); t.after(() => rm(directory, { recursive: true, force: true })); return { directory, store: await createStore(directory) } }
 const png = () => sharp({ create: { width: 8, height: 6, channels: 4, background: '#759253' } }).png().toBuffer()
 const until = async fn => { for (let i = 0; i < 200; i++) { if (fn()) return; await new Promise(resolve => setTimeout(resolve, 10)) }; assert.fail('等待任务超时') }
+
+test('画布整理按依赖从左到右分层，并可单步撤销所有坐标', () => {
+  let board = newBoard('整理'); const assets = { r: { kind: 'image' } }
+  for (const node of [
+    { id: 'a', type: 'text', x: 500, y: 400 }, { id: 'b', type: 'text', x: 20, y: 250 },
+    { id: 'g', type: 'generator', x: 180, y: 40 }, { id: 'r', type: 'image', x: 900, y: 600, assetId: 'r', sourceNodeId: 'g' },
+  ]) board = applyOperation(board, { type: 'add', node }, assets).board
+  board = applyOperation(board, { type: 'connect', id: 'e', from: 'b', to: 'g' }, assets).board
+  const size = () => ({ width: 288, height: 200 })
+  const operations = layoutGraph(board.nodes, board.edges, size, { gapX: 100, gapY: 40 })
+  assert.equal(operations.length, 4)
+  assert.ok(operations.find(op => op.id === 'b').patch.x < operations.find(op => op.id === 'g').patch.x)
+  assert.ok(operations.find(op => op.id === 'g').patch.x < operations.find(op => op.id === 'r').patch.x)
+  const changed = applyOperation(board, { type: 'layout', nodes: operations }, assets)
+  assert.notDeepEqual(changed.board.nodes.map(node => [node.id, node.x, node.y]), board.nodes.map(node => [node.id, node.x, node.y]))
+  assert.deepEqual(applyOperation(changed.board, changed.inverse, assets).board.nodes.map(node => [node.id, node.x, node.y]), board.nodes.map(node => [node.id, node.x, node.y]))
+})
 
 test('卡片操作可撤销；连线只接入生成卡片，顺序决定提示词和参考图', () => {
   let board = newBoard('测试')

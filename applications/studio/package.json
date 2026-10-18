@@ -1,4 +1,4 @@
 {
   "name": "@applications/studio", "version": "1.0.0", "private": true, "type": "module",
-  "cordisApp": { "id": "studio", "name": "灵感画布", "description": "连接文字、图片与视频，在无限画布上创作。", "icon": "assets/icon.svg" }
+  "cordisApp": { "id": "studio", "name": "灵感画布", "description": "连接文字、图片与视频，在无限画布上创作。", "icon": "assets/icon.svg", "manageData": true }
 }

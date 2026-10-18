@@ -1,4 +1,4 @@
-export function applicationView({ el, change }) {
+export function applicationView({ el, change, recover }) {
   const dialog = document.querySelector('#application-picker'), list = document.querySelector('#application-list')
   const button = document.querySelector('#manage-applications'), close = document.querySelector('#close-applications')
   button.onclick = () => dialog.showModal()
@@ -13,6 +13,17 @@ export function applicationView({ el, change }) {
       document.title = state.current?.name || '插件应用'
       document.querySelector('#application-error').textContent = state.error || ''
       list.replaceChildren()
+      if (state.recovery) {
+        const panel = el('section', { class: 'application-recovery' })
+        panel.append(
+          el('strong', {}, '应用数据目录不可用'),
+          el('p', {}, `“${state.recovery.appName}”当前指向 ${state.recovery.configuredPath}，但该文件夹无法访问。可以恢复为默认数据目录后重新打开应用；原目录不会被删除。`),
+        )
+        const restore = el('button', { disabled: busy }, '恢复默认数据目录并打开')
+        restore.onclick = () => recover(state.recovery)
+        panel.append(restore)
+        list.append(panel)
+      }
       for (const app of state.applications) {
         const card = el('article', { class: 'application-card' }), title = el('div', { class: 'application-title' })
         if (app.icon) title.append(el('img', { src: app.icon, alt: '', width: 36, height: 36 }))

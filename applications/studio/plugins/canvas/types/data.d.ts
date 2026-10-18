@@ -24,6 +24,7 @@ export type CanvasOperation =
   | { type: 'connect'; id: string; from: string; to: string }
   | { type: 'disconnect'; id: string }
   | { type: 'reorder'; id: string; edges: string[] }
+  | { type: 'layout'; nodes: { id: string; patch: { x?: number; y?: number } }[] }
   | { type: 'rename'; title: string }
   | { type: 'viewport'; viewport: CanvasBoard['viewport'] }
   | { type: 'restore'; nodes: CanvasNode[]; edges: CanvasBoard['edges']; nodePositions?: number[]; edgePositions?: number[] }

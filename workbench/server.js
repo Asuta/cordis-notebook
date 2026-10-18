@@ -57,7 +57,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     changed(item)
     notify({ type: 'command', threadId: item.id, revision: item.revision, command: safe })
   } })
-  const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir, commands, mode: appMode })
+  const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir, diagnosticDir: join(dataDir, 'diagnostics'), commands, mode: appMode })
   const ownerFor = task => ({ threadId: task.thread.id, turnId: task.turn.id, signal: task.controller?.signal, cancelled: () => !!task.cancelled || closing })
   const { updateTrace, clearTrace } = createTraceReporter({ redact, notify, persist: item => store.mark(item) })
   const bridge = createPageBridge({ application, notify, apps })

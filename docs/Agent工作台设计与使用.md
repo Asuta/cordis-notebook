@@ -27,6 +27,14 @@ pnpm workbench
 
 开发模式下，如果应用端口已有外部服务（包括另一个 Vite 实例），工作台会报告端口占用，返回 `mode: external`、`managed: false`，不会杀死或接管它。停止原服务或修改 `WORKBENCH_APP_PORT` 后再启动。正式模式仍允许连接端口上已有的运行服务，但不能代替它重启。不要同时用两个业务进程写同一数据目录。
 
+## 崩溃诊断
+
+每次启动业务应用时，工作台在 `.workbench/diagnostics/` 新建一份 `application-*.log`，保存应用的 stdout/stderr、热更新事件、开发主进程与 Cordis 后端的周期性 CPU/内存心跳，以及退出码和最后一个心跳。退出码同时记录十进制与十六进制，例如 `3221226505 (0xC0000409)`。同目录还会保存 Node 的致命错误报告；报告排除环境变量和网络信息，避免写入密钥。最多保留最近 30 份应用日志。
+
+默认每 30 秒记录一次心跳。心跳中的 `rss`、`heapUsed`、`external` 连续增长，或某个 `activeResources` 数量持续增加时，优先排查资源泄漏。若日志只到 `application-exit` 而没有 JavaScript 堆栈，说明是原生层终止；此时查看同目录新增的 Node `report.*.json`，或者用 Windows 错误报告生成 `node.exe` 的 minidump。
+
+Windows 上可运行 `powershell -ExecutionPolicy Bypass -File scripts/windows-crash-dumps.ps1`，为当前用户启用 `node.exe` 的本地 minidump，文件写入 `.workbench/diagnostics/windows-dumps/`，最多保留 5 份。该设置只影响当前 Windows 账户下的 Node 进程；使用 `-Disable` 可移除。
+
 ## 三个进程
 
 ```text

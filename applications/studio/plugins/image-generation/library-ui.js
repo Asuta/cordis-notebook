@@ -20,10 +20,23 @@ export function createLibraryUI(ctx, view, s, sdk) {
   const header = (title, close) => { const head = el('div', { class: 'studio-dialog-head' }); head.append(typeof title === 'string' ? el('h2', {}, title) : title, button('关闭', close)); return head }
   function editPrompt(item) {
     saving = () => save({ kind: 'prompt', ...(item.id ? { id: item.id, updatedAt: item.updatedAt } : {}), title: name.value.trim(), prompt: content.value })
+    saveEditor.textContent = '保存收藏'
     editorTitle.textContent = item.id ? '编辑收藏提示词' : '收藏提示词'; name.value = item.title || item.prompt.trim().slice(0, 30); content.value = item.prompt; content.hidden = false; error.textContent = ''; editor.showModal(); name.focus()
   }
+  function editRecordName(item) {
+    saving = () => save({ action: 'rename', id: item.id, updatedAt: item.updatedAt, title: name.value.trim() })
+    saveEditor.textContent = '保存名称'
+    editorTitle.textContent = '重命名收藏'
+    name.value = item.title; content.hidden = true; error.textContent = ''
+    editor.showModal(); name.focus(); name.select()
+  }
   function editSuffix(item = {}) {
-    saving = async () => { await save({ kind: 'suffix', ...(item.id ? { id: item.id, updatedAt: item.updatedAt } : {}), title: name.value.trim(), text: content.value }); view.render() }
+    saving = async () => {
+      await view.flush()
+      await save({ kind: 'suffix', ...(item.id ? { id: item.id, updatedAt: item.updatedAt } : {}), title: name.value.trim(), text: content.value })
+      await view.refresh({ fresh: true }); view.render()
+    }
+    saveEditor.textContent = '保存尾缀'
     editorTitle.textContent = item.id ? '编辑固定尾缀' : '新建固定尾缀'
     name.value = item.title || ''; content.value = item.text || ''; content.hidden = false; error.textContent = ''
     editor.showModal(); name.focus()
@@ -69,10 +82,18 @@ export function createLibraryUI(ctx, view, s, sdk) {
   }, 'studio-primary')
   editor.append(header(editorTitle, () => editor.close()), name, content, error, saveEditor)
   const dragType = 'application/x-cordis-generation-favorite'
+  const resultDragType = 'application/x-cordis-generation-result'
   async function addCard(id, point) {
     await load(); const item = [...data.cards, ...data.results].find(item => item.id === id)
     if (!item) throw Error('收藏已被删除')
     await view.add('generator', { ...structuredClone(item.node), title: item.sourceTitle || item.title, ...(point || {}) })
+  }
+  async function addResultParameters(source, point) {
+    const targetBoard = s.boardId
+    await view.flush()
+    const parameters = await api('/result-parameters', source)
+    if (stopped || targetBoard !== s.boardId) throw Error('画板已切换，请重新拖出参数卡')
+    await view.add('generator', { ...structuredClone(parameters.node), ...(point || {}) })
   }
   const favoriteInfo = el('aside', { class: 'studio-favorite-info', role: 'tooltip', hidden: true })
   let favoriteInfoPinned = false, favoriteHideTimer, favoriteInfoOwner = null
@@ -129,8 +150,13 @@ export function createLibraryUI(ctx, view, s, sdk) {
       if (kind === 'result') {
         const preview = el('div', { class: 'studio-result-favorite-preview is-' + (asset?.kind === 'video' ? 'video' : 'image') })
         if (asset) {
-          preview.append(el(asset.kind === 'video' ? 'video' : 'img', asset.kind === 'video' ? { src: s.mediaUrl(asset) + '#t=0.1', muted: true, playsInline: true, preload: 'metadata' } : { src: s.mediaUrl(asset), alt: item.title, loading: 'lazy' }))
-          if (asset.kind === 'video') preview.append(el('span', { class: 'studio-result-play', 'aria-hidden': 'true' }, '▶'))
+          if (asset.width && asset.height) preview.style.aspectRatio = asset.width + ' / ' + asset.height
+          const media = el(asset.kind === 'video' ? 'video' : 'img', asset.kind === 'video' ? { src: s.mediaUrl(asset) + '#t=0.1', controls: true, playsInline: true, preload: 'metadata' } : { src: s.mediaUrl(asset), alt: item.title, loading: 'lazy' })
+          if (asset.kind === 'video') {
+            media.onpointerdown = event => event.stopPropagation()
+            media.ondragstart = event => event.preventDefault()
+          }
+          preview.append(media)
           preview.append(el('span', { class: 'studio-result-favorite-kind' }, asset.kind === 'video' ? '▷ 视频' : '▧ 图片'))
         } else preview.append(el('span', { class: 'studio-result-missing' }, '结果素材不可用'))
         row.append(preview)
@@ -139,7 +165,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
       copy.append(el('strong', {}, item.title), el('small', {}, kind === 'result' ? `生成结果 · ${item.node.model || item.node.provider || '默认生成服务'}` : item.node.model || item.node.provider || '默认生成服务'))
       if (kind === 'card') copy.append(el('p', { class: 'studio-favorite-prompt' }, item.node.prompt || item.node.textReferences?.map(ref => ref.text).join('\n') || '无提示词'))
       row.append(copy)
-      actions.append(button(kind === 'result' ? '添加参数卡' : '添加到画布', () => addCard(item.id), 'studio-primary'), button('参数信息', () => showFavoriteInfo(item, kind, asset, row, true)), button('删除', () => save({ action: 'delete', id: item.id }))); row.append(actions)
+      actions.append(button(kind === 'result' ? '添加参数卡' : '添加到画布', () => addCard(item.id), 'studio-primary'), button('重命名', () => editRecordName(item)), button('参数信息', () => showFavoriteInfo(item, kind, asset, row, true)), button('删除', () => save({ action: 'delete', id: item.id }))); row.append(actions)
       row.onpointerenter = () => showFavoriteInfo(item, kind, asset, row)
       row.onpointerleave = () => scheduleFavoriteHide()
       row.onfocusin = () => showFavoriteInfo(item, kind, asset, row)
@@ -155,7 +181,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
   }
   panel.append(header('生成收藏库', () => { panel.hidden = true; hideFavoriteInfo(true) }), el('small', {}, '点击添加，或把收藏拖到画布'), cardFilters, cards)
   const openSuffixManager = async () => {
-    await load(); if (stopped) return
+    await view.flush(); await load(); if (stopped) return
     drawSuffixes()
     if (!suffixDialog.open) suffixDialog.showModal()
   }
@@ -173,6 +199,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
       ...data.suffixes.filter(item => !known.has(item.id)).map(item => ({ ...item, enabled: false, template: true })),
     ]
     for (const entry of entries) {
+      const item = el('span', { class: 'studio-prompt-suffix-item' })
       const suffix = button(entry.title, safe(async () => {
         await view.flush()
         const board = s.state.boards.find(board => board.id === s.boardId), current = board?.nodes.find(item => item.id === node.id)
@@ -185,7 +212,22 @@ export function createLibraryUI(ctx, view, s, sdk) {
       suffix.classList.toggle('is-active', !!entry.enabled)
       suffix.setAttribute('aria-pressed', String(!!entry.enabled))
       suffix.title = entry.enabled ? '点击后本次生成不再追加此尾缀' : '点击后在提示词末尾追加此尾缀'
-      wrap.append(suffix)
+      const convert = button('转正文', safe(async () => {
+        await view.flush()
+        const board = s.state.boards.find(board => board.id === s.boardId), current = board?.nodes.find(item => item.id === node.id)
+        if (!current) throw Error('生成卡片已删除')
+        const text = entry.text.trim(), prompt = [String(current.prompt || '').trimEnd(), text].filter(Boolean).join('\n\n')
+        if (prompt.length > 24000) throw Error('转为正文后提示词过长')
+        const values = structuredClone(current.promptSuffixes || []), index = values.findIndex(item => item.id === entry.id)
+        if (index >= 0) values[index] = { ...values[index], enabled: false }
+        else values.push({ id: entry.id, title: entry.title, text: entry.text, enabled: false })
+        await view.edit([{ type: 'update', id: node.id, patch: { prompt, promptSuffixes: values } }])
+        sdk.toast('尾缀已转为可编辑提示词，并关闭该尾缀')
+      }), 'studio-suffix-convert')
+      convert.title = '把这段尾缀复制到提示词末尾，并关闭对应尾缀'
+      convert.setAttribute('aria-label', `把 ${entry.title} 转为可编辑提示词`)
+      item.append(suffix, convert)
+      wrap.append(item)
     }
     wrap.append(button('管理尾缀', openSuffixManager, 'studio-suffix-manage'))
     return wrap
@@ -202,28 +244,44 @@ export function createLibraryUI(ctx, view, s, sdk) {
   function decorateResult(node, card) {
     if (!node.sourceNodeId || !node.assetId) return
     const favorite = data.results.find(item => item.assetId === node.assetId)
-    const star = button(favorite ? '★' : '☆', safe(async () => { await toggleResult(node); view.render() }), 'studio-favorite-result')
+    const star = card.querySelector('.studio-favorite-result') || button('', safe(async () => { await toggleResult(node); view.render() }), 'studio-favorite-result')
+    star.textContent = favorite ? '★' : '☆'
     star.setAttribute('aria-label', favorite ? '取消收藏生成结果' : '收藏生成结果和参数')
     star.title = favorite ? '取消收藏结果' : '收藏结果与生成参数'
     card.querySelector('.studio-card-head')?.append(star)
-    if (!favorite) return
-    const drag = el('button', { type: 'button', class: 'studio-result-parameter', draggable: true, title: '拖到画布创建使用相同参数的生成卡片' }, '✦ 参数卡')
+    if (card.querySelector('.studio-result-parameter')) return
+    const source = { boardId: s.boardId, nodeId: node.id }
+    const drag = el('button', { type: 'button', class: 'studio-result-parameter', draggable: true, title: '点击或拖到画布，还原这次生成的模型、提示词和参考素材' }, '✦ 参数卡')
     drag.setAttribute('aria-label', '拖出生成参数卡')
-    drag.ondragstart = event => { event.stopPropagation(); event.dataTransfer.setData(dragType, favorite.id); event.dataTransfer.effectAllowed = 'copy' }
+    drag.ondragstart = event => { event.stopPropagation(); event.dataTransfer.setData(resultDragType, JSON.stringify(source)); event.dataTransfer.effectAllowed = 'copy' }
     drag.onclick = safe(async event => {
-      event.stopPropagation(); await load(); const item = data.results.find(item => item.id === favorite.id)
-      if (item) await addCard(item.id, { x: Math.max(-100000, Math.min(100000, node.x + 320)), y: Math.max(-100000, Math.min(100000, node.y)) })
+      event.stopPropagation()
+      await addResultParameters(source, { x: Math.max(-100000, Math.min(100000, node.x + 320)), y: Math.max(-100000, Math.min(100000, node.y)) })
     })
     card.querySelector('.studio-image-foot')?.append(drag)
   }
-  view.extend(ctx, 'generation-result-favorites', { refresh() {}, card: decorateResult })
+  view.extend(ctx, 'generation-result-favorites', {
+    refresh() {
+      const nodes = new Map(s.board().nodes.map(node => [node.id, node]))
+      for (const card of view.cards.children) {
+        const node = nodes.get(card.dataset.node)
+        if (node && ['image', 'video'].includes(node.type)) decorateResult(node, card)
+      }
+    },
+    card: decorateResult,
+    dispose() { view.cards.querySelectorAll('.studio-favorite-result,.studio-result-parameter').forEach(element => element.remove()) },
+  })
   const openCards = async () => { await load(); if (!stopped) { drawCards(); hideFavoriteInfo(true); panel.hidden = false } }
   const libraryButton = button('★ 生成卡片收藏', openCards, 'studio-library-entry'); view.side.insertBefore(libraryButton, view.assetPanel)
   view.menu(ctx, { id: 'generator-library', label: '★ 卡片收藏', order: 35, run: openCards })
-  sdk.listen(view.stage, 'dragover', event => { if ([...event.dataTransfer.types].includes(dragType)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy' } })
+  sdk.listen(view.stage, 'dragover', event => { if ([...event.dataTransfer.types].some(type => type === dragType || type === resultDragType)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy' } })
   sdk.listen(view.stage, 'drop', safe(async event => {
-    const id = event.dataTransfer.getData(dragType); if (!id) return
-    event.preventDefault(); event.stopPropagation(); const point = view.coordinates(event); await addCard(id, { x: Math.max(-100000, Math.min(100000, Math.round(point.x))), y: Math.max(-100000, Math.min(100000, Math.round(point.y))) })
+    const id = event.dataTransfer.getData(dragType), result = event.dataTransfer.getData(resultDragType)
+    if (!id && !result) return
+    event.preventDefault(); event.stopPropagation()
+    const point = view.coordinates(event), position = { x: Math.max(-100000, Math.min(100000, Math.round(point.x))), y: Math.max(-100000, Math.min(100000, Math.round(point.y))) }
+    if (result) await addResultParameters(JSON.parse(result), position)
+    else await addCard(id, position)
   }))
   view.root.append(history, editor, panel, suffixDialog, favoriteInfo)
   ctx.effect(() => () => { stopped = true; clearTimeout(favoriteHideTimer); history.remove(); editor.remove(); panel.remove(); suffixDialog.remove(); favoriteInfo.remove(); libraryButton.remove() })
@@ -245,6 +303,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
         const board = s.state.boards.find(board => board.id === boardId)
         await save({ kind: 'card', title: name.value.trim(), boardId, nodeId: node.id, revision: board.revision })
       }
+      saveEditor.textContent = '保存收藏'
       editorTitle.textContent = '收藏生成卡片'; name.value = node.title; content.hidden = true; error.textContent = ''; editor.showModal(); name.focus(); name.select()
     },
   }

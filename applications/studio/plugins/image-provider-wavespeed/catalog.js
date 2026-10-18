@@ -8,10 +8,7 @@ export async function createCatalog(directory, config, transport, writeSnapshot)
   let account, updatedAt = 0, models = new Map(), loading
   try { const cache = JSON.parse(await readFile(file, 'utf8')); account = cache.account; updatedAt = cache.updatedAt; models = normalizeModels(cache.rows) } catch { /* A directory cache is replaceable, unlike user documents. */ }
   const current = () => account === accountId(config.private())
-  async function load(force = false) {
-    const snapshot = config.private(), fingerprint = accountId(snapshot)
-    if (!snapshot.apiKey) throw Error('请先在 WaveSpeed 设置中填写 API Key，再加载模型目录')
-    if (!force && current() && models.size && Date.now() - updatedAt < 15 * 60000) return
+  function refresh(snapshot, fingerprint) {
     if (loading?.account === fingerprint) return loading.task
     const task = (async () => {
       const rows = await transport.api(snapshot, 'GET', '/api/v3/models')
@@ -21,7 +18,20 @@ export async function createCatalog(directory, config, transport, writeSnapshot)
       await writeSnapshot(file, JSON.stringify({ account, updatedAt, rows }))
     })()
     loading = { account: fingerprint, task }
-    try { await task } finally { if (loading?.task === task) loading = undefined }
+    return task.finally(() => { if (loading?.task === task) loading = undefined })
+  }
+  async function load(force = false) {
+    const snapshot = config.private(), fingerprint = accountId(snapshot)
+    if (!snapshot.apiKey) throw Error('请先在 WaveSpeed 设置中填写 API Key，再加载模型目录')
+    const usable = current() && models.size > 0
+    if (usable) {
+      const fresh = Date.now() - updatedAt < 15 * 60000
+      if (!force && fresh) return
+      if (!force) { void refresh(snapshot, fingerprint).catch(() => {}); return }
+      try { await refresh(snapshot, fingerprint) } catch { /* Keep the last usable catalog when the provider is unavailable. */ }
+      return
+    }
+    await refresh(snapshot, fingerprint)
   }
   return {
     load,

@@ -78,25 +78,30 @@ export function createReferenceUI(ctx, view, s, sdk) {
     return at.edgeId ? replaceEdge(assetId, at) : assign(at.slotId, assetId, at)
   }
   function drawPicker() {
-    const assets = Object.values(s.state.assets).reverse().filter(asset => target?.mode !== 'replace' || mediaKind(asset) === 'image'), uploadTile = button('', () => fileInput.click(), 'studio-picker-item is-upload')
-    uploadTile.append(el('span', { class: 'studio-picker-upload', 'aria-hidden': 'true' }, '＋'), el('strong', {}, '上传本地图片'), el('small', {}, 'PNG / JPEG / WebP'))
-    uploadTile.setAttribute('aria-label', '上传本地图片')
+    const allowed = new Set(target?.allowedKinds || (target?.mode === 'replace' ? ['image'] : ['image', 'video']))
+    const assets = Object.values(s.state.assets).reverse().filter(asset => allowed.has(mediaKind(asset))), uploadTile = button('', () => fileInput.click(), 'studio-picker-item is-upload')
+    const onlyImages = allowed.size === 1 && allowed.has('image')
+    uploadTile.append(el('span', { class: 'studio-picker-upload', 'aria-hidden': 'true' }, '＋'), el('strong', {}, onlyImages ? '上传本地图片' : '上传本地素材'), el('small', {}, onlyImages ? 'PNG / JPEG / WebP' : '图片 / 视频'))
+    uploadTile.setAttribute('aria-label', onlyImages ? '上传本地图片' : '上传本地素材')
     content.replaceChildren(uploadTile, ...assets.map(asset => {
       const item = button('', async () => { await (target.mode === 'replace' ? replaceReference(asset.id) : assign(target.slotId, asset.id)); picker.close() }, 'studio-picker-item')
       item.append(el(mediaKind(asset) === 'video' ? 'video' : 'img', { src: mediaUrl(asset), ...(mediaKind(asset) === 'video' ? { preload: 'metadata', muted: true } : { alt: asset.name, loading: 'lazy' }) }), el('span', {}, asset.name))
       item.setAttribute('aria-label', `使用素材 ${asset.name}`)
       return item
     }))
-    if (!assets.length) content.append(el('p', {}, '素材库为空，可直接从本机上传。'))
+    if (!assets.length) content.append(el('p', {}, Object.keys(s.state.assets).length ? '没有符合当前槽位类型的素材，可上传新素材。' : '素材库为空，可直接从本机上传。'))
   }
   function pick(node, slotId, options = {}) {
     target = { boardId: s.boardId, nodeId: node.id, slotId, mode: 'select', ...options }
     const replacing = target.mode === 'replace'
+    if (replacing) target.allowedKinds = ['image']
+    else if (options.allowedKinds?.length) target.allowedKinds = [...new Set(options.allowedKinds)]
+    const onlyImages = target.allowedKinds?.length === 1 && target.allowedKinds[0] === 'image'
     pickerTitle.textContent = replacing ? '快速替换参考图' : '选择参考素材'
-    pickerHint.textContent = replacing ? '选择一张图片替换当前参考；原有排序和输入位置会保留。' : '单击素材即可放入当前槽位；也可以从本机上传新素材。'
-    fileInput.accept = replacing ? 'image/png,image/jpeg,image/webp' : 'image/png,image/jpeg,image/webp,video/mp4,video/webm'
+    pickerHint.textContent = replacing ? '选择一张图片替换当前参考；原有排序和输入位置会保留。' : onlyImages ? '当前槽位只接受图片；单击素材即可放入槽位。' : '单击素材即可放入当前槽位；也可以从本机上传新素材。'
+    fileInput.accept = onlyImages ? 'image/png,image/jpeg,image/webp' : 'image/png,image/jpeg,image/webp,video/mp4,video/webm'
     fileInput.multiple = !replacing; fileInput.value = ''
-    uploadHint.textContent = replacing ? '快速替换仅支持 PNG/JPEG/WebP 图片。' : '支持 PNG/JPEG/WebP 图片和 MP4/WebM 视频；多选时其余素材会追加为新参考。'
+    uploadHint.textContent = onlyImages ? '当前槽位支持 PNG/JPEG/WebP 图片。' : '支持 PNG/JPEG/WebP 图片和 MP4/WebM 视频；多选时其余素材会追加为新参考。'
     drawPicker()
     picker.showModal()
   }
@@ -105,18 +110,25 @@ export function createReferenceUI(ctx, view, s, sdk) {
   const footer = el('div', { class: 'studio-picker-actions' })
   footer.append(uploadHint, fileInput)
   picker.append(head, pickerHint, content, footer); view.root.append(picker)
+  picker.onclick = event => {
+    if (event.target !== picker) return
+    const rect = picker.getBoundingClientRect(), outside = !rect.width || !rect.height || event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom
+    if (outside) picker.close()
+  }
   ctx.effect(() => () => picker.remove())
   fileInput.onchange = view.safe(async () => {
     // The picker can be reopened for another row while an upload is pending.
     // Freeze the complete replacement target before the first await.
-    const at = target ? { ...target } : null, files = [...fileInput.files], slotId = at?.slotId, replacing = at?.mode === 'replace'
+    const at = target ? { ...target } : null, files = [...fileInput.files], slotId = at?.slotId, replacing = at?.mode === 'replace', allowed = new Set(at?.allowedKinds || (replacing ? ['image'] : ['image', 'video']))
     if (!files.length || (!slotId && !replacing)) return
     const boardId = at.boardId, nodeId = at.nodeId
     uploadHint.textContent = '正在上传…'; fileInput.disabled = true
     try {
       const ids = []
       for (const file of files) {
-        if (replacing && !/^image\/(png|jpeg|webp)$/.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name)) throw Error('快速替换仅支持 PNG/JPEG/WebP 图片')
+        const kind = /^image\//.test(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name) ? 'image' : 'video'
+        if (!allowed.has(kind)) throw Error(kind === 'video' ? '当前槽位不接受视频素材' : '当前槽位不接受此图片格式')
+        if (replacing && kind !== 'image') throw Error('快速替换仅支持图片素材')
         const asset = await uploadMedia(file, sdk.signal); if (sdk.signal?.aborted) throw Error('上传已停止')
         s.rememberAsset(asset); ids.push(asset.id)
       }
@@ -130,7 +142,8 @@ export function createReferenceUI(ctx, view, s, sdk) {
       if (target?.slotId === at.slotId && target?.edgeId === at.edgeId && target?.nodeId === at.nodeId && target?.boardId === at.boardId && target?.mode === at.mode) picker.close()
     } finally {
       fileInput.disabled = false; fileInput.value = ''
-      uploadHint.textContent = (target?.mode || at.mode) === 'replace' ? '快速替换仅支持 PNG/JPEG/WebP 图片。' : '支持 PNG/JPEG/WebP 图片和 MP4/WebM 视频；多选时其余素材会追加为新参考。'
+      const allowedKinds = target?.allowedKinds || (at.mode === 'replace' ? ['image'] : ['image', 'video'])
+      uploadHint.textContent = allowedKinds.length === 1 && allowedKinds[0] === 'image' ? '当前槽位支持 PNG/JPEG/WebP 图片。' : '支持 PNG/JPEG/WebP 图片和 MP4/WebM 视频；多选时其余素材会追加为新参考。'
       view.render()
     }
   })
@@ -219,7 +232,7 @@ export function createReferenceUI(ctx, view, s, sdk) {
         const target = refs[index + (event.key === 'ArrowUp' ? -1 : 1)]
         if (target) await moveReference(node.id, ref.key, target.key, event.key === 'ArrowUp')
       })
-      const thumbnail = button(asset ? '' : emptySlot ? '＋' : '!', asset ? () => view.openMedia(asset.id) : emptySlot ? () => pick(node, ref.id) : () => {}, 'studio-reference-thumb' + (emptySlot ? ' is-empty' : ''))
+      const thumbnail = button(asset ? '' : emptySlot ? '＋' : '!', asset ? () => view.openMedia(asset.id) : emptySlot ? () => pick(node, ref.id, { allowedKinds: [...acceptedKinds] }) : () => {}, 'studio-reference-thumb' + (emptySlot ? ' is-empty' : ''))
       thumbnail.setAttribute('aria-label', asset ? `放大预览参考素材 ${index + 1}` : emptySlot ? `选择参考素材 ${index + 1}` : `参考素材 ${index + 1} 不可用`)
       thumbnail.title = asset ? '单击放大预览' : emptySlot ? '单击选择素材' : '素材不可用'
       thumbnail.disabled = !asset && !emptySlot

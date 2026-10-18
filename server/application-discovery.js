@@ -19,6 +19,7 @@ export async function discoverApplications(directory = defaultApplicationsDir) {
         const icon = await realpath(resolve(path, app.icon))
         if (!icon.startsWith(path + sep)) throw Error('应用图标超出目录')
       }
+      if (app.manageData !== undefined && typeof app.manageData !== 'boolean') throw Error('应用数据目录开关必须是布尔值')
       if (app.legacyData && (!Array.isArray(app.legacyData) || app.legacyData.some(p => !validPath(p) || p.includes('/')))) throw Error('旧数据迁移只支持根目录内的文件或目录')
       applications.push({ ...app, root: path, pluginsDir: resolve(path, 'plugins') })
     } catch (error) {
