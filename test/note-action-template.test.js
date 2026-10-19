@@ -30,6 +30,8 @@ test('操作路径保留完整资料并返回参数化骨架和公共生命周�
 })
 
 async function runtimeFixture(t, mode = 'edit', options = {}) {
+  // Create work/ here; other test files must not be required to run first.
+  await mkdir(resolve('work'), { recursive: true })
   const root = await mkdtemp(resolve('work/action-unit-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const files = await applicationScaffold(resolve('applications/notebook'), 'development/note-action/template.json', { id: 'test-action', name: '操作', parameters: { mode } }, 'notebook')
