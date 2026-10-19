@@ -1,0 +1,8 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { operations } from '../action.js'
+
+test('操作独立校验参数，禁止空标题、超长或未知字段', () => {
+  for (const args of [null, {}, { title: ' ' }, { title: 'x'.repeat(121) }, { title: 'ok', extra: true }, { title: 'ok', revision: -1 }]) assert.throws(() => operations(args))
+  assert.deepEqual(operations({ title: ' 新画板 ', revision: 0 }), [{ type: 'rename', title: '新画板' }])
+})

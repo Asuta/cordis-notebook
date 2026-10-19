@@ -1,0 +1,41 @@
+import { mkdir, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+const invalid = (message, status = 400) => { throw Object.assign(Error(message), { status }) }
+function normalize(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Number.isSafeInteger(value.revision) || value.revision < 0) invalid('配置版本无效')
+  let url; try { url = new URL(value.baseUrl) } catch { invalid('接口地址无效') }
+  if (typeof value.baseUrl !== 'string' || value.baseUrl.length > 2000 || url.username || url.password || url.search || url.hash || url.pathname !== '/'
+    || !(url.protocol === 'https:' || url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) invalid('接口地址需为 HTTPS 或本机 HTTP 根地址')
+  if (typeof value.apiKey !== 'string' || value.apiKey.length > 4096 || /[\r\n]/.test(value.apiKey)) invalid('API Key 格式无效')
+  return { revision: value.revision, baseUrl: url.origin, apiKey: value.apiKey.trim() }
+}
+export async function createSettings(directory, writeSnapshot) {
+  await mkdir(directory, { recursive: true })
+  const file = join(directory, 'settings-private.json')
+  let value
+  try { value = normalize(JSON.parse(await readFile(file, 'utf8'))) }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw Error('私有配置无法读取，原文件已保留')
+    value = normalize({ revision: 0, baseUrl: 'http://127.0.0.1:45678', apiKey: '' })
+    await writeSnapshot(file, JSON.stringify(value, null, 2))
+  }
+  const publicValue = () => ({ revision: value.revision, baseUrl: value.baseUrl, hasKey: !!value.apiKey })
+  let queue = Promise.resolve()
+  return { public: publicValue, private: () => ({ ...value }),
+    save(input) {
+      // 先冻结调用参数，排队期间的调用方修改不能改变这次保存。
+      const patch = structuredClone(input)
+      const task = queue.then(async () => {
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).some(key => !['revision', 'baseUrl', 'apiKey', 'clearKey'].includes(key))) invalid('配置字段无效')
+        if (!Number.isSafeInteger(patch.revision) || patch.revision !== value.revision) invalid('配置已变化，请重新读取后保存', 409)
+        if (typeof patch.apiKey !== 'string' || typeof patch.clearKey !== 'boolean') invalid('请明确传入 API Key 和清除选项')
+        if (patch.clearKey && patch.apiKey.trim()) invalid('不能同时填写和清除 Key')
+        const key = normalize({ ...value, baseUrl: patch.baseUrl, apiKey: patch.apiKey }).apiKey
+        const next = normalize({ revision: value.revision + 1, baseUrl: patch.baseUrl, apiKey: patch.clearKey ? '' : key || value.apiKey })
+        await writeSnapshot(file, JSON.stringify(next, null, 2))
+        value = next; return publicValue()
+      })
+      queue = task.catch(() => {}); return task
+    },
+  }
+}

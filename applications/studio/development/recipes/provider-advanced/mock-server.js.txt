@@ -1,0 +1,34 @@
+import { createServer } from 'node:http'
+import { pathToFileURL } from 'node:url'
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWMonRT8HwAFNAJaQ3+LSgAAAABJRU5ErkJggg=='
+export async function startMock({ port = 0, key = 'local-example-key', polls = 2 } = {}) {
+  const tasks = new Map(), requests = [], state = { mode: 'normal', release: false }
+  const server = createServer(async (req, res) => {
+    try {
+      if (req.headers.authorization !== 'Bearer ' + key) { res.writeHead(401); res.end('{}'); return }
+      let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 100000) throw Error('请求过大') }
+      requests.push({ method: req.method, path: req.url, ...(body ? { body: JSON.parse(body) } : {}) })
+      res.setHeader('Content-Type', 'application/json')
+      if (req.method === 'POST' && req.url === '/tasks') {
+        const id = 'task-' + (tasks.size + 1); tasks.set(id, 0)
+        if (state.mode === 'uncertain') { res.end('{}'); return }
+        res.end(JSON.stringify({ id })); return
+      }
+      const id = req.url.slice('/tasks/'.length)
+      if (req.method === 'GET' && req.url.startsWith('/tasks/') && tasks.has(id)) {
+        const count = tasks.get(id) + 1; tasks.set(id, count)
+        const status = state.mode === 'failed' ? 'failed' : !state.release && (state.mode === 'hold' || count < polls) ? 'running' : 'succeeded'
+        res.end(JSON.stringify({ status, ...(status === 'succeeded' ? { png } : {}) })); return
+      }
+      res.writeHead(404); res.end('{}')
+    } catch { res.writeHead(400); res.end('{}') }
+  })
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
+  return { origin: 'http://127.0.0.1:' + server.address().port, key, requests, state,
+    close: () => new Promise((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeAllConnections() }) }
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const mock = await startMock({ port: Number(process.argv[2] || 0) })
+  console.log('本地 HTTP 示例：' + mock.origin + '；测试 Key：' + mock.key)
+  process.once('SIGINT', () => { void mock.close() })
+}

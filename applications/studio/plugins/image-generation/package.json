@@ -63,6 +63,25 @@
     ],
     "styles": [
       "style.css"
+    ],
+    "capabilities": [
+      {
+        "service": "imageGeneration",
+        "side": "server",
+        "description": "可扩展的图片与视频生成服务：提供者注册、输入快照、队列、取消、恢复和结果保存",
+        "contracts": [
+          "types/server.d.ts"
+        ],
+        "examples": [
+          "examples/provider.js"
+        ],
+        "lifecycle": [
+          "register(owner, provider) 随 owner 释放并中断所属任务；不由提供者自行创建另一套任务队列。",
+          "prepare 同步校验并冻结私有配置；generate 响应 signal；public 和任务元数据不可包含密钥。",
+          "支持远端恢复时提交前 checkpoint，resume 只查询同一远端 ID；示例为固定 PNG 的本地模拟。",
+          "task=studio-provider-advanced 提供可运行的本机 HTTP、模型目录、动态参数与恢复配方，复用 studio-provider 骨架；真实服务协议需另行实现和验收。"
+        ]
+      }
     ]
   },
   "exports": {

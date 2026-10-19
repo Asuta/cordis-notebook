@@ -1,0 +1,35 @@
+import { id, panelTitle, actionLabel, describe } from './extension.js'
+
+export default function (ctx) {
+  const view = ctx.canvasUI, selector = `[data-studio-extension="${id}"]`
+  const panel = view.el('section', { 'aria-label': panelTitle, 'data-studio-extension-panel': id })
+  const detail = view.el('p', { role: 'status' })
+  panel.append(view.el('h3', {}, panelTitle), detail)
+  view.side.append(panel)
+  let selected, stopped = false
+  function decorate(node, card) {
+    if (stopped || card.querySelector(selector)) return
+    const button = view.button(actionLabel, () => {
+      if (stopped) return
+      selected = { boardId: view.boardId(), nodeId: node.id }
+      detail.textContent = describe(view.board(), selected)
+    })
+    button.dataset.studioExtension = id
+    card.append(button)
+  }
+  view.extend(ctx, id, {
+    refresh() {
+      detail.textContent = describe(view.board(), selected)
+      // 注册时已有卡片，以及为保留播放状态而复用的 video 卡片，也必须装饰。
+      for (const card of view.cards.children) {
+        const node = view.board().nodes.find(item => item.id === card.dataset.node)
+        if (node) decorate(node, card)
+      }
+    },
+    card: decorate,
+    dispose() {
+      stopped = true; selected = undefined; panel.remove()
+      for (const element of view.cards.querySelectorAll(selector)) { element.onclick = null; element.remove() }
+    },
+  })
+}

@@ -1,0 +1,11 @@
+export const actionLabel = {{actionLabel:json}}
+export const definition = {
+  id: {{id:json}}, label: {{cardLabel:json}}, fields: ['body'], output: 'text',
+  defaults: () => ({ body: '' }),
+  validate(node) {
+    if (typeof node.body !== 'string' || node.body.length > 12000) {
+      throw Object.assign(Error('卡片正文必须是最多 12000 字符的文字'), { status: 400 })
+    }
+  },
+  resolve: node => ({ text: node.body }),
+}

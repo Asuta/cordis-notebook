@@ -1,0 +1,29 @@
+{
+  "parameters": {
+    "providerLabel": {
+      "default": "示例图片服务",
+      "description": "服务名称；示例自动追加本地模拟标记"
+    }
+  },
+  "files": {
+    "package.json": "development/studio-provider/package.json.txt",
+    "README.md": "development/studio-provider/README.md.txt",
+    "server.js": "development/studio-provider/server.js.txt",
+    "test/provider.test.js": "development/studio-provider/provider.test.js.txt",
+    "provider.js": "plugins/image-generation/examples/provider.js",
+    "advanced/catalog.js": "development/recipes/provider-advanced/catalog.js.txt",
+    "advanced/transport.js": "development/recipes/provider-advanced/transport.js.txt",
+    "advanced/provider.js": "development/recipes/provider-advanced/provider.js.txt",
+    "advanced/server.js": "development/recipes/provider-advanced/server.js.txt",
+    "advanced/package.json": "development/recipes/provider-advanced/package.json.txt",
+    "advanced/mock-server.js": "development/recipes/provider-advanced/mock-server.js.txt",
+    "advanced/README.md": "development/recipes/provider-advanced/README.md.txt",
+    "settings-client.js": "development/recipes/settings/settings-client.js.txt",
+    "settings-server.js": "development/recipes/settings/settings-server.js.txt",
+    "settings-store.js": "development/recipes/settings/settings-store.js.txt",
+    "settings/package.json": "development/recipes/settings/package.json.txt",
+    "settings/README.md": "development/recipes/settings/README.md.txt",
+    "test/advanced.test.js": "development/recipes/provider-advanced/advanced.test.js.txt",
+    "test/settings.test.js": "development/recipes/settings/settings.test.js.txt"
+  }
+}

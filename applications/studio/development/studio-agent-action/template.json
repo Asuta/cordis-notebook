@@ -1,0 +1,22 @@
+{
+  "parameters": {
+    "actionLabel": {
+      "default": "Agent 整理画板",
+      "description": "操作及菜单名称"
+    },
+    "boardTitle": {
+      "default": "Agent 整理后的画板",
+      "pattern": "^.{1,120}$",
+      "description": "用户菜单调用的示例名称；Agent 通过 title 传名称"
+    }
+  },
+  "files": {
+    "package.json": "development/studio-agent-action/package.json.txt",
+    "README.md": "development/studio-agent-action/README.md.txt",
+    "client.js": "development/studio-agent-action/client.js.txt",
+    "action.js": "development/studio-agent-action/action.js.txt",
+    "test/action.test.js": "development/studio-agent-action/action.test.js.txt",
+    "mutation.js": "development/shared/mutation.js.txt",
+    "test/mutation.test.js": "development/shared/mutation.test.js.txt"
+  }
+}

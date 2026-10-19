@@ -1,0 +1,29 @@
+import { createHash } from 'node:crypto'
+import { listModels, getModel, prepareInput } from './catalog.js'
+export const accountId = config => createHash('sha256').update(JSON.stringify([config.baseUrl, config.apiKey])).digest('hex')
+export function createRemoteProvider({ id, label, config, transport }) {
+  const snapshot = () => {
+    const value = config.private()
+    if (!value.apiKey) throw Error('请先在应用设置中配置服务 Key')
+    return value
+  }
+  return {
+    id, label, listModels, getModel,
+    public: () => ({ ...config.public(), modelCatalog: true, catalogVersion: 'sample-v1', resumable: true, referenceImages: false, referenceVideos: false }),
+    prepare(input) {
+      const body = prepareInput(input), frozen = snapshot()
+      return { model: body.model, outputKind: 'image', parameters: { steps: body.steps },
+        generate(media, signal, { checkpoint }) {
+          if (media.length) throw Error('此示例不支持参考素材')
+          return transport.generate(frozen, body, signal, checkpoint, accountId(frozen))
+        },
+      }
+    },
+    resume(job) {
+      const frozen = snapshot()
+      if (job.provider !== id || job.outputKind !== 'image' || job.remote?.phase !== 'submitted' || !/^[a-zA-Z0-9_-]{1,200}$/.test(job.remote?.taskId || '') || job.remote.account !== accountId(frozen)) throw Error('请使用原服务账户恢复有 ID 的图片任务')
+      const taskId = job.remote.taskId
+      return { model: job.model, outputKind: 'image', generate: (_, signal) => transport.poll(frozen, taskId, signal) }
+    },
+  }
+}

@@ -1,0 +1,8 @@
+export const id = {{id:json}}, panelTitle = {{panelTitle:json}}, actionLabel = {{actionLabel:json}}
+
+// 始终从当前画板读取，不保留上次 render 的节点快照。
+export function describe(board, selected) {
+  const node = selected?.boardId === board.id && board.nodes.find(item => item.id === selected.nodeId)
+  return node ? `${node.title} · ${node.type} · ${board.edges.filter(edge => edge.from === node.id || edge.to === node.id).length} 条连线`
+    : `当前画板共 ${board.nodes.length} 张卡片；点击卡片上的信息按钮。`
+}

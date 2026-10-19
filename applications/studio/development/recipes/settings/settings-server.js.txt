@@ -1,0 +1,14 @@
+import { createSettings } from './settings-store.js'
+export function mountSettings(ctx, config, afterSave = async () => {}) {
+  const path = '/api/studio/{{id}}/settings'
+  ctx.http.route(ctx, 'GET', new RegExp('^' + path + '$'), () => config.public())
+  ctx.http.route(ctx, 'POST', new RegExp('^' + path + '$'), async ({ req }) => {
+    const saved = await config.save(await ctx.http.body(req))
+    // 保存成功和附属刷新分开；后者失败不能把已经落盘的配置报告成保存失败。
+    try { await afterSave() } catch { return { ...saved, warning: '配置已保存，附属服务刷新失败，请检查服务状态' } }
+    return saved
+  })
+}
+export default async function (ctx, settings, runtime) {
+  mountSettings(ctx, await createSettings(runtime.dataDir, runtime.writeSnapshot))
+}

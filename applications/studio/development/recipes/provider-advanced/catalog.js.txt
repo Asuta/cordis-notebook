@@ -1,0 +1,30 @@
+const model = {
+  id: 'sample-image', label: '示例图片模型', type: 'text-to-image', description: '本地 HTTP 协议演示，输出固定 PNG',
+  basePrice: null, outputKind: 'image', supported: true,
+  schema: { type: 'object', additionalProperties: false, required: ['prompt'], properties: {
+    prompt: { type: 'string', minLength: 1, maxLength: 24000, title: '提示词' },
+    steps: { type: 'integer', minimum: 1, maximum: 4, default: 2, title: '采样步数' },
+  } },
+  fields: [
+    { path: '/prompt', name: 'prompt', type: 'string', required: true, schema: { type: 'string', minLength: 1, maxLength: 24000, title: '提示词' } },
+    { path: '/steps', name: 'steps', type: 'integer', required: false, schema: { type: 'integer', minimum: 1, maximum: 4, default: 2, title: '采样步数' } },
+  ],
+  mediaFields: [], defaults: { steps: 2 },
+}
+export async function getModel(id) { if (id !== model.id) throw Error('模型不可用'); return structuredClone(model) }
+export async function listModels({ query = '', kind = '', type = '', ids, offset = 0, limit = 30 } = {}) {
+  if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw Error('目录分页无效')
+  const items = [model].filter(item => (!kind || kind === item.outputKind) && (!type || type === item.type)
+    && (!ids || ids.includes(item.id)) && (item.id + item.label).toLowerCase().includes(String(query).toLowerCase()))
+  return { items: structuredClone(items.slice(offset, offset + limit)), total: items.length, catalogTotal: 1, types: [model.type], updatedAt: 0, offset, limit }
+}
+export function prepareInput(input) {
+  if (input.model !== model.id) throw Error('请从模型目录选择示例图片模型')
+  if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 24000) throw Error('提示词需为 1–24000 字符')
+  if (!Array.isArray(input.assetIds) || input.assetIds.length || input.references?.length || Object.keys(input.bindings || {}).length) throw Error('此示例不支持参考素材或绑定')
+  const params = input.parameters ?? {}
+  if (typeof params !== 'object' || Array.isArray(params) || Object.keys(params).some(key => key !== 'steps')) throw Error('不支持的模型参数')
+  const steps = params.steps ?? 2
+  if (!Number.isInteger(steps) || steps < 1 || steps > 4) throw Error('采样步数必须为 1–4 的整数')
+  return { model: model.id, prompt: input.prompt.trim(), steps }
+}

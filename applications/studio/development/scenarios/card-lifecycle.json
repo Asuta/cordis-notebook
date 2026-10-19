@@ -1,0 +1,210 @@
+{
+  "parameters": {
+    "pluginId": {
+      "description": "独立实例中已启用的目标插件 ID",
+      "pattern": "^[a-z][a-z0-9-]{1,49}$"
+    },
+    "actionLabel": {
+      "description": "创建目标卡片的按钮名称"
+    },
+    "contentLabel": {
+      "description": "卡片正文输入框可访问名称"
+    }
+  },
+  "coverage": [
+    "空画板创建唯一新类型卡片",
+    "正文保存、撤销和重做",
+    "刷新持久化",
+    "停用占位保留内容、重新启用恢复编辑"
+  ],
+  "steps": [
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{contentLabel}}"
+      },
+      "assertion": "value",
+      "expected": "",
+      "label": "新卡片默认值"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "{{contentLabel}}"
+      },
+      "value": "{{firstTitle}}"
+    },
+    {
+      "action": "press",
+      "target": {
+        "role": "textbox",
+        "name": "{{contentLabel}}"
+      },
+      "value": "Tab"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".studio-status"
+      },
+      "assertion": "text",
+      "expected": "已保存",
+      "label": "正文已保存"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "button[title=\"撤销 Ctrl+Z\"]"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{contentLabel}}"
+      },
+      "assertion": "value",
+      "expected": "",
+      "label": "正文撤销"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "button[title=\"重做 Ctrl+Shift+Z\"]"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{contentLabel}}"
+      },
+      "assertion": "value",
+      "expected": "{{firstTitle}}",
+      "label": "正文重做"
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{contentLabel}}"
+      },
+      "assertion": "value",
+      "expected": "{{firstTitle}}",
+      "label": "刷新保留正文"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "启用",
+      "label": "停用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      },
+      "assertion": "visible",
+      "expected": false,
+      "label": "入口释放"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".studio-missing-card"
+      },
+      "assertion": "visible",
+      "expected": true,
+      "label": "占位卡保留"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "停用",
+      "label": "启用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      },
+      "assertion": "disabled",
+      "expected": false,
+      "label": "恢复唯一入口"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "{{contentLabel}}"
+      },
+      "assertion": "value",
+      "expected": "{{firstTitle}}",
+      "label": "恢复正文"
+    },
+    {
+      "action": "screenshot"
+    },
+    {
+      "action": "snapshot"
+    }
+  ]
+}

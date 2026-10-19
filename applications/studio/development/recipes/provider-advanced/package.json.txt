@@ -1,0 +1,14 @@
+{
+  "name": "@cordis-{{appId}}/{{id}}", "version": "1.0.0", "private": true, "type": "module", "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1, "id": {{id:json}}, "name": {{name:json}}, "description": {{description:json}}, "defaultEnabled": false,
+    "client": "client.js", "public": ["client.js"],
+    "server": { "entry": "server.js", "export": "default" },
+    "requires": { "client": ["canvasUI"], "server": ["http", "imageGeneration"] },
+    "provides": { "client": [], "server": [] },
+    "build": [
+      { "type": "bundle", "input": "settings-client.js", "output": "client.js", "platform": "browser" },
+      { "type": "bundle", "input": "advanced/server.js", "output": "server.js", "platform": "node" }
+    ]
+  }
+}

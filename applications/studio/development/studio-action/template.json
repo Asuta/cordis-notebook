@@ -1,0 +1,21 @@
+{
+  "parameters": {
+    "actionLabel": {
+      "default": "整理画板名称",
+      "description": "菜单按钮的可访问名称"
+    },
+    "boardTitle": {
+      "default": "整理后的灵感画板",
+      "pattern": "^.{1,120}$",
+      "description": "示例点击后使用的画板名称"
+    }
+  },
+  "files": {
+    "package.json": "development/studio-action/package.json.txt",
+    "README.md": "development/studio-action/README.md.txt",
+    "client.js": "development/studio-action/client.js.txt",
+    "action.js": "development/studio-action/action.js.txt",
+    "mutation.js": "development/shared/mutation.js.txt",
+    "test/mutation.test.js": "development/shared/mutation.test.js.txt"
+  }
+}

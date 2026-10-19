@@ -1,0 +1,9 @@
+import { createSettings } from '../settings-store.js'
+import { mountSettings } from '../settings-server.js'
+import { createRemoteProvider } from './provider.js'
+import { createTransport } from './transport.js'
+export default async function (ctx, settings, runtime) {
+  const id = {{id:json}}, config = await createSettings(runtime.dataDir, runtime.writeSnapshot)
+  mountSettings(ctx, config, () => ctx.imageGeneration.recover(id))
+  ctx.imageGeneration.register(ctx, createRemoteProvider({ id, label: {{providerLabel:json}}, config, transport: createTransport() }))
+}

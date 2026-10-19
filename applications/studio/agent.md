@@ -22,6 +22,12 @@ studio_generate 只启动指定节点，立即返回任务 ID；queued/running �
 
 ## 插件开发快速入口
 
+优先按启动目录调用 workspace_development_info：菜单动作选 task="studio-action"，新卡片选 "studio-card"，新生成服务选 "studio-provider"，Agent 扩展操作选 "studio-agent-action"，已有卡片和侧栏增强选 "studio-extension"。五条路径提供模板、参数、完整示例和公共验收场景；通过返回的 recommendedScaffold 生成默认停用的插件。具体指南见 development/README.md。
+
+生成服务的 HTTP 提交/轮询/恢复、模型目录和动态参数选 task="studio-provider-advanced"；可组合设置和私有持久化选 "studio-settings"。两者是复用 studio-provider 的配方，不能把 task ID 当作 template。骨架附带 advanced/ 与 settings/ 清单，按 README 切换入口并重新构建；组合已有插件时合并依赖及入口。进阶配方带本机 HTTP mock，设置只公开地址、hasKey 和 revision，不向前端回传 Key。
+
+生成服务契约可单独用 capability="server:imageGeneration" 展开。provider 模板默认输出固定 PNG，标为本地模拟；公共 provider 场景不会生成。菜单公共场景不点击未知业务，rename-sample 仅用于默认重命名示例。Agent 专用的发现、参数和 revision 行为仍须额外测试。业务通过公开服务注册，客户端模板的 mutation.js 已处理异步期间的新编辑、切板及停用保护，避免绕开它直接写回。
+
 通用流程见 `docs/插件开发导航.md` 和 `docs/灵感画布插件设计.md`。画布插件按注册接口扩展卡片、视图、图片服务或 Agent 操作；先看 `plugins/canvas/`、`plugins/canvas-ui/` 和目标能力最接近的插件清单，不要把 notebook 的编辑器、布局或存储服务带入本应用。涉及图片服务时区分纯 UI、模拟请求和真实生成，测试报告要分别说明范围。
 
 开发模式下用 `workspace_status` 确认新增插件或源码的实际热更新，再用 `workspace_test` 验证；正式构建和浏览器验收分别报告，不能互相替代。

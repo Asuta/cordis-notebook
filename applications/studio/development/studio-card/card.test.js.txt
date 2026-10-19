@@ -1,0 +1,12 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { definition } from '../card.js'
+
+test('正文校验、独立默认值及文字输出契约', () => {
+  const first = definition.defaults(), second = definition.defaults()
+  first.body = '我的灵感'
+  assert.equal(second.body, '')
+  definition.validate(first)
+  assert.deepEqual(definition.resolve(first), { text: '我的灵感' })
+  for (const body of [undefined, 123, 'x'.repeat(12001)]) assert.throws(() => definition.validate({ body }))
+})

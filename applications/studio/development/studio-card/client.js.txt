@@ -1,0 +1,16 @@
+import { definition, actionLabel } from './card.js'
+import { createMutation } from './mutation.js'
+
+export default function (ctx) {
+  const view = ctx.canvasUI, mutate = createMutation(ctx, ctx.canvasSession)
+  view.register(ctx, { id: definition.id, label: definition.label, icon: 'T', output: true, height: 230,
+    render(node, card) {
+      const input = view.field(node, 'body', true)
+      input.setAttribute('aria-label', definition.label + ' 内容')
+      card.append(input)
+    },
+  })
+  view.menu(ctx, { id: definition.id, label: actionLabel, order: 30,
+    run: () => mutate(() => [{ type: 'add', node: { id: crypto.randomUUID(), type: definition.id, ...view.position() } }]),
+  })
+}

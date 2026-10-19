@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, readdir, rm, cp } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { developmentInfo, scaffoldPlugin } from '../workbench/development-tools.js'
 import { discoverBuiltins } from '../server/plugin-discovery.js'
@@ -36,11 +36,12 @@ test('脚手架生成各应用完整骨架，清单与所有构建输入可真�
   for (const appId of ['notebook', 'studio', 'drawing']) {
     const { root, app, plugins } = await fixture(t, appId)
     await writeFile(join(app, 'development.json'), await readFile(resolve('applications', appId, 'development.json')))
+    if (appId === 'studio') await cp(resolve('applications/studio/development'), join(app, 'development'), { recursive: true })
     const provider = join(plugins, 'provider'); await mkdir(provider)
     await writeFile(join(provider, 'client.js'), 'export default () => {}')
     await writeFile(join(provider, 'package.json'), JSON.stringify({ name: '@test/provider', version: '1.0.0', type: 'module', cordis: {
       schemaVersion: 1, id: 'provider', name: '服务桩', client: 'client.js', public: ['client.js'],
-      provides: { client: appId === 'notebook' ? ['notebook', 'shell'] : appId === 'studio' ? ['canvasUI'] : [], server: [] },
+      provides: { client: appId === 'notebook' ? ['notebook', 'shell'] : appId === 'studio' ? ['canvasUI', 'canvasSession'] : [], server: [] },
       requires: { client: [], server: [] }, build: [{ type: 'bundle', input: 'client.js', output: 'client.js', platform: 'browser' }],
     } }))
     const templates = ['client', 'server', ...(appId === 'notebook' ? ['notebook-footer'] : appId === 'studio' ? ['studio-action'] : [])]
@@ -83,8 +84,8 @@ test('开发资料按模板和专项任务收窄，完整服务可展开且不�
     assert.equal((await developmentInfo(resolve('.'), appId, { template: 'server' })).focus, 'backend')
   }
   const action = await developmentInfo(resolve('.'), 'studio', { template: 'studio-action' })
-  assert.deepEqual(action.providers.map(provider => provider.id), ['canvas-ui'])
-  assert.equal(action.contracts.length, 2)
+  assert.deepEqual(action.providers.map(provider => provider.id).sort(), ['canvas', 'canvas-ui'])
+  assert.ok(action.contracts.some(file => file.path.endsWith(join('canvas', 'types', 'client.d.ts'))))
   await assert.rejects(developmentInfo(resolve('.'), 'drawing', { template: 'notebook-footer' }), /不存在/)
   await assert.rejects(developmentInfo(resolve('.'), 'notebook', { task: 'missing' }), /不存在/)
   await assert.rejects(developmentInfo(resolve('.'), 'notebook', { task: 'note-content', template: 'client' }), /二选一/)

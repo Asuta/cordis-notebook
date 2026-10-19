@@ -1,0 +1,191 @@
+{
+  "parameters": {
+    "pluginId": {
+      "description": "独立实例中已启用的目标插件 ID",
+      "pattern": "^[a-z][a-z0-9-]{1,49}$"
+    },
+    "settingsTitle": {
+      "description": "设置区块标题；默认插件名称加空格和设置"
+    }
+  },
+  "coverage": [
+    "统一设置内唯一标题",
+    "停用移除设置区，恢复与刷新后重新出现"
+  ],
+  "steps": [
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "⚙ 应用设置"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "heading",
+        "name": "{{settingsTitle}}"
+      },
+      "assertion": "visible",
+      "expected": true
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭应用设置"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "启用",
+      "label": "停用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "⚙ 应用设置"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "heading",
+        "name": "{{settingsTitle}}"
+      },
+      "assertion": "visible",
+      "expected": false
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭应用设置"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "停用",
+      "label": "启用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "⚙ 应用设置"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "heading",
+        "name": "{{settingsTitle}}"
+      },
+      "assertion": "visible",
+      "expected": true
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭应用设置"
+      }
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "⚙ 应用设置"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "heading",
+        "name": "{{settingsTitle}}"
+      },
+      "assertion": "visible",
+      "expected": true
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭应用设置"
+      }
+    },
+    {
+      "action": "screenshot"
+    },
+    {
+      "action": "snapshot"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "⚙ 应用设置"
+      }
+    },
+    {
+      "action": "screenshot"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭应用设置"
+      }
+    }
+  ]
+}

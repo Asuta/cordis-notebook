@@ -1,0 +1,123 @@
+{
+  "parameters": {
+    "pluginId": {
+      "description": "独立实例中已启用的目标插件 ID",
+      "pattern": "^[a-z][a-z0-9-]{1,49}$"
+    },
+    "actionLabel": {
+      "description": "目标菜单按钮的可访问名称"
+    }
+  },
+  "coverage": [
+    "入口唯一且可用",
+    "停用移除注册",
+    "重新启用和刷新后入口唯一；不执行未知业务"
+  ],
+  "steps": [
+    {
+      "action": "assert",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      },
+      "assertion": "disabled",
+      "expected": false,
+      "label": "入口唯一且可用"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "启用",
+      "label": "停用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      },
+      "assertion": "visible",
+      "expected": false,
+      "label": "停用后入口移除"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "停用",
+      "label": "启用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      },
+      "assertion": "disabled",
+      "expected": false,
+      "label": "重新启用唯一入口"
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      },
+      "assertion": "disabled",
+      "expected": false,
+      "label": "刷新后唯一入口"
+    },
+    {
+      "action": "screenshot"
+    },
+    {
+      "action": "snapshot"
+    }
+  ]
+}

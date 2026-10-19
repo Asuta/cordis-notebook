@@ -1,0 +1,8 @@
+export const label = {{actionLabel:json}}
+
+// 示例业务：重命名当前画板，可撤销。替换这里即可实现自己的菜单动作。
+// 可 await 异步计算并传 signal；只返回 operations，由 mutation.js 校验后统一提交。
+export async function run({ board, signal }) {
+  signal.throwIfAborted()
+  return [{ type: 'rename', title: {{boardTitle:json}} }]
+}

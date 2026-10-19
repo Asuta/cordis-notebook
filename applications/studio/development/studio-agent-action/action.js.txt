@@ -1,0 +1,10 @@
+export const id = {{id:json}}, label = {{actionLabel:json}}
+export const schema = { type: 'object', properties: { title: { type: 'string', minLength: 1, maxLength: 120 } }, required: ['title'], additionalProperties: false }
+
+// schema 用于发现；run 仍须校验真实参数。revision 由 studio_action 外层传入。
+export function operations(args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(key => !['title', 'revision'].includes(key)) ||
+    typeof args.title !== 'string' || !args.title.trim() || args.title.length > 120 ||
+    (args.revision !== undefined && (!Number.isInteger(args.revision) || args.revision < 0))) throw Error('请提供 1–120 字符的画板名称')
+  return [{ type: 'rename', title: args.title.trim() }]
+}

@@ -1,6 +1,7 @@
 {
   "version": 1,
   "tests": [
+    {"file":"test/studio-development-assets.test.js","application":"studio","plugins":["canvas","canvas-ui","canvas-basic-cards","image-generation","canvas-agent-tools"]},
     {"file":"test/studio-parallel.test.js","application":"studio","plugins":["canvas","canvas-basic-cards","image-generation"]},
     {"file":"test/studio-reuse.test.js","application":"studio","plugins":["canvas","canvas-basic-cards","image-generation","image-provider-wavespeed"]},
     {"file":"test/notebook-database.test.js","application":"notebook","plugins":["format-database","database-editor","note-templates","note-formats","notes","note-transfer","format-blocknote","blocknote-agent-tools"]},

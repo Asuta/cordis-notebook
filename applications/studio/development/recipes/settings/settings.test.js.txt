@@ -1,0 +1,36 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createSettings } from '../settings-store.js'
+// 实际插件使用 runtime.writeSnapshot；此适配器供独立测试模拟原子替换。
+async function writeSnapshot(file, value) { await writeFile(file + '.tmp', value); await rename(file + '.tmp', file) }
+test('配置公开边界、持久化、版本冲突、空 Key 保留与明确清除', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'studio-settings-')); t.after(() => rm(dir, { recursive: true, force: true }))
+  const config = await createSettings(dir, writeSnapshot)
+  const first = await config.save({ revision: 0, baseUrl: 'https://example.invalid', apiKey: 'private-test-key', clearKey: false })
+  assert.deepEqual(first, { revision: 1, baseUrl: 'https://example.invalid', hasKey: true })
+  assert.ok(!JSON.stringify(first).includes('private-test-key'))
+  const outcomes = await Promise.allSettled([1, 2].map(() => config.save({ revision: 1, baseUrl: first.baseUrl, apiKey: '', clearKey: false })))
+  assert.equal(outcomes.filter(item => item.status === 'fulfilled').length, 1)
+  assert.equal(outcomes.find(item => item.status === 'rejected').reason.status, 409)
+  const reopened = await createSettings(dir, writeSnapshot); assert.equal(reopened.private().apiKey, 'private-test-key')
+  const copy = reopened.private(); copy.apiKey = 'mutated'; assert.equal(reopened.private().apiKey, 'private-test-key')
+  const saved = await reopened.save({ revision: 2, baseUrl: first.baseUrl, apiKey: '', clearKey: true }); assert.equal(saved.hasKey, false)
+  assert.equal((await createSettings(dir, writeSnapshot)).private().apiKey, '')
+  for (const patch of [{ baseUrl: 'https://user:pass@example.invalid' }, { baseUrl: 'http://remote.invalid' }, { apiKey: 'bad\nkey' }, { unknown: 1 }, { apiKey: 'new', clearKey: true }]) {
+    await assert.rejects(reopened.save({ revision: 3, baseUrl: first.baseUrl, apiKey: '', clearKey: false, ...patch }))
+  }
+})
+test('写入失败保持旧状态，失败后可重试；损坏配置不覆盖', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'studio-settings-')); t.after(() => rm(dir, { recursive: true, force: true }))
+  let fail = false
+  const config = await createSettings(dir, (file, value) => { if (fail) throw Error('磁盘错误'); return writeSnapshot(file, value) })
+  const patch = { revision: 0, baseUrl: 'http://127.0.0.1:4321', apiKey: 'test', clearKey: false }
+  fail = true; await assert.rejects(config.save(patch), /磁盘错误/); assert.equal(config.public().revision, 0)
+  fail = false; await config.save(patch); assert.equal(config.public().revision, 1)
+  const file = join(dir, 'settings-private.json'); await writeFile(file, 'broken')
+  await assert.rejects(createSettings(dir, writeSnapshot), /原文件已保留/)
+  assert.equal(await readFile(file, 'utf8'), 'broken')
+})

@@ -1,0 +1,61 @@
+import { setTimeout as delay } from 'node:timers/promises'
+const terminal = message => Object.assign(Error(message), { terminal: true })
+const taskId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(value)
+
+export function createTransport({ request = fetch, pollInterval = 250, maxPolls = 240, timeoutMs = 15000 } = {}) {
+  async function api(config, path, { method = 'GET', body, signal } = {}) {
+    const timeout = AbortSignal.timeout(timeoutMs)
+    let response
+    try {
+      response = await request(config.baseUrl + path, { method, redirect: 'error',
+        headers: { Authorization: 'Bearer ' + config.apiKey, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}), signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
+    } catch { signal?.throwIfAborted(); throw Error('生成服务连接失败；请核对网络与远端任务记录') }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {})
+      // 不回显上游正文、URL 或 Key；不自动重试任何提交。
+      const message = '生成服务 HTTP ' + response.status
+      throw method === 'POST' && [400, 401, 402, 403, 404, 413, 422, 429].includes(response.status) ? terminal(message) : Error(message)
+    }
+    const chunks = []; let size = 0
+    try {
+      for await (const chunk of response.body) {
+        size += chunk.length
+        if (size > 2 * 1024 * 1024) break
+        chunks.push(chunk)
+      }
+    } catch { signal?.throwIfAborted(); throw Error('生成服务响应读取失败，可核对远端记录后恢复查询') }
+    if (size > 2 * 1024 * 1024) throw Error('示例响应超过 2 MB')
+    let value
+    try { value = JSON.parse(Buffer.concat(chunks).toString()) } catch { throw Error('生成服务返回了无效 JSON') }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('生成服务响应必须为对象')
+    return value
+  }
+  async function poll(config, id, signal) {
+    if (!taskId(id)) throw Error('远端任务 ID 无效')
+    for (let attempt = 0; attempt < maxPolls; attempt++) {
+      signal.throwIfAborted()
+      const result = await api(config, '/tasks/' + encodeURIComponent(id), { signal })
+      if (['failed', 'cancelled'].includes(result.status)) throw terminal('远端任务已结束：' + result.status)
+      if (result.status === 'succeeded') {
+        if (typeof result.png !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(result.png)) throw Error('图片结果无效')
+        const bytes = Buffer.from(result.png, 'base64')
+        if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw Error('结果不是 PNG')
+        return [{ bytes, kind: 'image', name: 'HTTP 示例结果' }]
+      }
+      if (!['queued', 'running'].includes(result.status)) throw Error('远端任务状态无效')
+      await delay(pollInterval, undefined, { signal })
+    }
+    throw Error('查询等待超时，可恢复查询同一任务')
+  }
+  return { poll, async generate(config, body, signal, checkpoint, account) {
+    signal.throwIfAborted(); await checkpoint({ phase: 'preparing', account })
+    signal.throwIfAborted(); await checkpoint({ phase: 'submitting', account }); signal.throwIfAborted()
+    // POST 一旦开始，只受有限超时控制；本地暂停后仍记录迟到的 ID，避免重复计费。
+    const result = await api(config, '/tasks', { method: 'POST', body })
+    if (!taskId(result.id)) throw Error('提交结果缺少任务 ID，请先核对远端记录')
+    await checkpoint({ phase: 'submitted', taskId: result.id, account })
+    signal.throwIfAborted()
+    return poll(config, result.id, signal)
+  } }
+}

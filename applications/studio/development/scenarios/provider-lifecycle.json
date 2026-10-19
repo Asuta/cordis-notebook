@@ -1,0 +1,157 @@
+{
+  "parameters": {
+    "pluginId": {
+      "description": "独立实例中已启用的目标插件 ID",
+      "pattern": "^[a-z][a-z0-9-]{1,49}$"
+    }
+  },
+  "coverage": [
+    "空画板新建生成卡片并选择目标服务",
+    "停用后保留选择且生成禁用",
+    "重新启用和刷新后服务恢复；不提交生成"
+  ],
+  "steps": [
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "✦ 生成卡片"
+      }
+    },
+    {
+      "action": "select",
+      "target": {
+        "label": "图片服务"
+      },
+      "value": "{{pluginId}}"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "图片服务"
+      },
+      "assertion": "value",
+      "expected": "{{pluginId}}",
+      "label": "选中目标服务"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "图片服务"
+      },
+      "assertion": "disabled",
+      "expected": false,
+      "label": "服务选择入口可用；模型和参数就绪后另验生成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "启用",
+      "label": "停用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "图片服务"
+      },
+      "assertion": "value",
+      "expected": "{{pluginId}}",
+      "label": "不静默切换服务"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".studio-generate-run"
+      },
+      "assertion": "disabled",
+      "expected": true,
+      "label": "停用后禁止生成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#manage-plugins"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "#plugin-{{pluginId}} .plugin-actions > button:first-child"
+      },
+      "assertion": "text",
+      "expected": "停用",
+      "label": "启用完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭插件管理"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "图片服务"
+      },
+      "assertion": "value",
+      "expected": "{{pluginId}}",
+      "label": "服务选择恢复"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "图片服务"
+      },
+      "assertion": "disabled",
+      "expected": false,
+      "label": "重新启用后可选择服务"
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "图片服务"
+      },
+      "assertion": "value",
+      "expected": "{{pluginId}}",
+      "label": "刷新后选择保留"
+    },
+    {
+      "action": "screenshot"
+    },
+    {
+      "action": "snapshot"
+    }
+  ]
+}

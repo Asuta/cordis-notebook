@@ -1,0 +1,15 @@
+import { id, label, schema, operations } from './action.js'
+import { createMutation } from './mutation.js'
+
+export default function (ctx) {
+  const session = ctx.canvasSession, mutate = createMutation(ctx, session)
+  session.actions.register(ctx, { id, label, schema, mutates: true,
+    run(args) {
+      return mutate(context => operations(args, context), { revision: args?.revision })
+    },
+  })
+  // 用户菜单和 studio_action 共用已注册入口，不再新建一套 studio_* 工具。
+  ctx.canvasUI.menu(ctx, { id, label, order: 30,
+    run: () => session.execute(id, { title: {{boardTitle:json}} }, 'user'),
+  })
+}

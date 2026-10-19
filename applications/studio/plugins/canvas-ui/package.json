@@ -8,7 +8,24 @@
     "@cordis-studio/canvas": "workspace:*"
   },
   "cordis": {
-    "capabilities": [{ "service": "canvasUI", "side": "client", "description": "画布菜单、卡片视图和扩展区域", "contracts": ["types/client.d.ts"], "examples": ["client.js"], "lifecycle": ["register/menu/extend 都传入 owner 管理释放；菜单按 order 排序。"] }],
+    "capabilities": [
+      {
+        "service": "canvasUI",
+        "side": "client",
+        "description": "画布菜单、卡片视图和扩展区域",
+        "contracts": [
+          "types/client.d.ts"
+        ],
+        "examples": [
+          "examples/menu.js"
+        ],
+        "lifecycle": [
+          "register/menu/extend/settings 都传入 owner 管理释放；菜单按 order 排序。",
+          "extend 注册时立即 refresh，但不强制重绘；refresh 应兼顾已有卡片和复用的视频 DOM，card 处理新卡片，dispose 移除自有节点。完整模板见 task=studio-extension。",
+          "settings 的 render 返回清理函数，refresh 在打开设置时调用；私有持久化与迟到响应保护见 task=studio-settings 配方。"
+        ]
+      }
+    ],
     "schemaVersion": 1,
     "id": "canvas-ui",
     "name": "画布界面",

@@ -1,0 +1,142 @@
+{
+  "parameters": {
+    "pluginId": {
+      "description": "独立实例中已启用的目标插件 ID",
+      "pattern": "^[a-z][a-z0-9-]{1,49}$"
+    },
+    "settingsTitle": {
+      "description": "本配方默认设置区块标题"
+    }
+  },
+  "coverage": [
+    "虚拟 Key 保存后不回显",
+    "刷新后读取持久化设置",
+    "明确清除 Key"
+  ],
+  "steps": [
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "⚙ 应用设置"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "{{settingsTitle}} 接口地址"
+      },
+      "assertion": "disabled",
+      "expected": false
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "{{settingsTitle}} 接口地址"
+      },
+      "value": "http://127.0.0.1:45678"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "{{settingsTitle}} API Key"
+      },
+      "value": "fixture-only-key"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "保存 {{settingsTitle}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "[data-settings-status=\"{{pluginId}}\"]"
+      },
+      "assertion": "text",
+      "expected": "已配置 Key；留空保留。"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "{{settingsTitle}} API Key"
+      },
+      "assertion": "value",
+      "expected": ""
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭应用设置"
+      }
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "⚙ 应用设置"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "[data-settings-status=\"{{pluginId}}\"]"
+      },
+      "assertion": "text",
+      "expected": "已配置 Key；留空保留。"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "{{settingsTitle}} 接口地址"
+      },
+      "assertion": "value",
+      "expected": "http://127.0.0.1:45678"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "label": "{{settingsTitle}} API Key"
+      },
+      "assertion": "value",
+      "expected": ""
+    },
+    {
+      "action": "click",
+      "target": {
+        "label": "{{settingsTitle}} 清除 Key"
+      }
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "保存 {{settingsTitle}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": "[data-settings-status=\"{{pluginId}}\"]"
+      },
+      "assertion": "text",
+      "expected": "尚未配置 Key。"
+    },
+    {
+      "action": "screenshot"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "关闭应用设置"
+      }
+    }
+  ]
+}

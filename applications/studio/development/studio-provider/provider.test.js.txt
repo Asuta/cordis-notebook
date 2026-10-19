@@ -1,0 +1,15 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { createProvider } from '../provider.js'
+
+test('本地模拟校验输入、冻结快照、响应取消并返回 PNG', async () => {
+  const provider = createProvider(), input = { prompt: '原要求', assetIds: [], ratio: '1:1', resolution: 'sample' }
+  for (const patch of [{ prompt: '' }, { assetIds: ['image'] }, { ratio: '16:9' }, { model: 'other' }, { parameters: { unknown: true } }]) assert.throws(() => provider.prepare({ ...input, ...patch }))
+  const request = provider.prepare(input); input.prompt = '后续更改'
+  const controller = new AbortController(), result = await request.generate([], controller.signal)
+  assert.equal(result[0].name, '本地模拟 · 原要求')
+  assert.deepEqual([...result[0].bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
+  controller.abort(); await assert.rejects(request.generate([], controller.signal), { name: 'AbortError' })
+  assert.equal(provider.public().referenceImages, false)
+  provider.public().ratios.push('invalid'); assert.deepEqual(provider.public().ratios, ['1:1'])
+})

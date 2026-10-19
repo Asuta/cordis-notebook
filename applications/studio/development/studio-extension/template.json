@@ -1,0 +1,13 @@
+{
+  "parameters": {
+    "panelTitle": { "default": "卡片信息", "description": "侧栏信息面板名称" },
+    "actionLabel": { "default": "查看卡片信息", "description": "已有卡片上的按钮名称" }
+  },
+  "files": {
+    "package.json": "development/studio-extension/package.json.txt",
+    "client.js": "development/studio-extension/client.js.txt",
+    "extension.js": "development/studio-extension/extension.js.txt",
+    "README.md": "development/studio-extension/README.md.txt",
+    "test/extension.test.js": "development/studio-extension/extension.test.js.txt"
+  }
+}

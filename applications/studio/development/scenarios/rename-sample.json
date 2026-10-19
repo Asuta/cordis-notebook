@@ -1,0 +1,108 @@
+{
+  "parameters": {
+    "actionLabel": {
+      "description": "默认重命名示例的按钮名称"
+    },
+    "expectedTitle": {
+      "description": "脚手架 boardTitle 参数的值"
+    }
+  },
+  "coverage": [
+    "仅限默认重命名示例：保存、撤销、重做和刷新持久化"
+  ],
+  "steps": [
+    {
+      "action": "fill",
+      "target": {
+        "role": "textbox",
+        "name": "画板名称"
+      },
+      "value": "{{firstTitle}}"
+    },
+    {
+      "action": "press",
+      "target": {
+        "role": "textbox",
+        "name": "画板名称"
+      },
+      "value": "Tab"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "css": ".studio-status"
+      },
+      "assertion": "text",
+      "expected": "已保存",
+      "label": "基线保存完成"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "{{actionLabel}}"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "画板名称"
+      },
+      "assertion": "value",
+      "expected": "{{expectedTitle}}",
+      "label": "示例操作生效"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "button[title=\"撤销 Ctrl+Z\"]"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "画板名称"
+      },
+      "assertion": "value",
+      "expected": "{{firstTitle}}",
+      "label": "撤销还原"
+    },
+    {
+      "action": "click",
+      "target": {
+        "css": "button[title=\"重做 Ctrl+Shift+Z\"]"
+      }
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "画板名称"
+      },
+      "assertion": "value",
+      "expected": "{{expectedTitle}}",
+      "label": "重做恢复"
+    },
+    {
+      "action": "reload"
+    },
+    {
+      "action": "assert",
+      "target": {
+        "role": "textbox",
+        "name": "画板名称"
+      },
+      "assertion": "value",
+      "expected": "{{expectedTitle}}",
+      "label": "刷新保留"
+    },
+    {
+      "action": "screenshot"
+    },
+    {
+      "action": "snapshot"
+    }
+  ]
+}

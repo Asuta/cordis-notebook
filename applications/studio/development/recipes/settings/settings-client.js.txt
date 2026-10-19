@@ -1,0 +1,48 @@
+export default function (ctx, sdk) {
+  const view = ctx.canvasUI, id = {{id:json}}, title = {{name:json}} + ' 设置'
+  let refresh = async () => {}
+  view.settings(ctx, { id, title, description: '接口配置保存在当前插件的数据目录。', refresh: () => refresh(),
+    render(container) {
+      const url = view.el('input', { 'aria-label': title + ' 接口地址', type: 'url' })
+      const key = view.el('input', { 'aria-label': title + ' API Key', type: 'password', autocomplete: 'new-password', placeholder: '留空保留已配置 Key' })
+      const clear = view.el('input', { 'aria-label': title + ' 清除 Key', type: 'checkbox' })
+      const status = view.el('p', { role: 'status', class: 'studio-app-settings-status', 'data-settings-status': id })
+      let alive = true, busy = false, dirty = false, revision, serial = 0
+      const save = view.button('保存 ' + title, () => persist())
+      const reload = view.button('重新读取 ' + title, () => load(true))
+      function controls(value) {
+        busy = value; for (const item of [url, key, clear, reload]) item.disabled = value
+        save.disabled = value || revision === undefined
+      }
+      function apply(value) {
+        revision = value.revision; url.value = value.baseUrl; key.value = ''; clear.checked = false; dirty = false
+        status.textContent = value.warning || (value.hasKey ? '已配置 Key；留空保留。' : '尚未配置 Key。')
+      }
+      async function load(discard = false) {
+        if (!alive || busy || dirty && !discard) return
+        const current = ++serial; controls(true); status.textContent = '正在读取…'
+        try { const value = await sdk.request('/api/studio/' + id + '/settings'); if (alive && serial === current) apply(value) }
+        catch { if (alive && serial === current) status.textContent = '读取失败，请重试。' }
+        finally { if (alive && serial === current) controls(false) }
+      }
+      async function persist() {
+        if (!alive || busy || revision === undefined) return
+        const current = ++serial, body = { revision, baseUrl: url.value, apiKey: key.value, clearKey: clear.checked }
+        controls(true); status.textContent = '正在保存…'
+        try { const value = await sdk.request('/api/studio/' + id + '/settings', 'POST', body); if (alive && serial === current) apply(value) }
+        catch { if (alive && serial === current) status.textContent = '保存失败；请检查输入，配置冲突时先重新读取。' }
+        finally { if (alive && serial === current) { key.value = ''; controls(false) } }
+      }
+      for (const input of [url, key, clear]) input.oninput = () => { dirty = true }
+      const field = (label, input) => {
+        const row = view.el('label', { class: 'studio-app-settings-field' })
+        row.append(view.el('span', {}, label), input); return row
+      }
+      const clearLabel = view.el('label'); clearLabel.append(clear, view.el('span', {}, '清除已保存 Key'))
+      const actions = view.el('div', { class: 'studio-app-settings-actions' }); actions.append(clearLabel, save, reload)
+      container.append(field('接口地址', url), field('API Key（留空保留）', key), actions, status)
+      refresh = () => load(); void load()
+      return () => { alive = false; serial++; key.value = ''; for (const input of [url, key, clear]) input.oninput = null; refresh = async () => {} }
+    },
+  })
+}

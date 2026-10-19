@@ -1,0 +1,11 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { describe } from '../extension.js'
+test('信息从当前节点读取，切板或删除后不显示旧节点', () => {
+  const board = { id: 'a', nodes: [{ id: 'one', title: '图片', type: 'image' }], edges: [{ from: 'one', to: 'two' }] }
+  const selected = { boardId: 'a', nodeId: 'one' }
+  assert.equal(describe(board, selected), '图片 · image · 1 条连线')
+  board.nodes[0].title = '更新后'; assert.match(describe(board, selected), /更新后/)
+  assert.match(describe({ ...board, id: 'b' }, selected), /点击卡片/)
+  board.nodes = []; assert.match(describe(board, selected), /0 张卡片/)
+})

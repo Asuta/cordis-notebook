@@ -1,0 +1,4 @@
+import { createProvider } from './provider.js'
+export default function (ctx) {
+  ctx.imageGeneration.register(ctx, createProvider({ id: {{id:json}}, label: {{providerLabel:json}} }))
+}
