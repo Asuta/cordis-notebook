@@ -309,7 +309,8 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
         // invents react/jsx-runtime imports and violates the ui service boundary.
         rolldownOptions: { transform: { jsx: { runtime: 'classic' } } },
       },
-      server: { host: '127.0.0.1', port, strictPort: true, cors: false,
+      // Never abort on a taken port; the workbench learns the real port below.
+      server: { host: '127.0.0.1', port, strictPort: false, cors: false,
         watch: { ignored: isIgnoredWatchPath },
         fs: { strict: true, allow: [root, applicationsDir], deny: ['**/.env*', '**/.git/**', '**/data/**', '**/*.pem', '**/*.key'] },
         proxy: { '^/(api/|builtin/|applications/[^/]+/icon$)': { target: `http://127.0.0.1:${backendPort}`, changeOrigin: true,
@@ -396,12 +397,15 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
     vite.watcher.on('unlink', file => { if (isRelevantDevelopmentFile(file) && !isNonRuntimePluginFile(file) && (allowed.has(fileKey(file)) || backendSources.has(fileKey(file)) || file.endsWith('package.json'))) schedule(file) })
     await vite.listen()
     await vite.cordisWatcherReady
+    const vitePort = vite.httpServer.address().port
+    if (port > 0 && vitePort !== port) console.log(`端口 ${port} 已被占用，Vite 改用 ${vitePort}`)
+    if (process.connected) process.send({ type: 'cordis-vite', port: vitePort })
     // Vite intentionally ignores node_modules. pnpm's completion stamp is watched separately.
     for (const file of dependencyFiles) {
       const listener = (next, old) => { if (next.mtimeMs !== old.mtimeMs && next.mtimeMs) schedule(file) }
       watchFile(file, { interval: 500, persistent: false }, listener); dependencyListeners.push([file, listener])
     }
-    console.log(`Cordis Vite: http://127.0.0.1:${vite.httpServer.address().port}`)
+    console.log(`Cordis Vite: http://127.0.0.1:${vitePort}`)
     emit({ type: 'ready' })
     return { vite, get backendPort() { return backendPort }, get backendPid() { return backend?.pid }, async close() {
       closing = true; clearTimeout(timer); dependencyListeners.forEach(([file, listener]) => unwatchFile(file, listener)); saveGuard.close()

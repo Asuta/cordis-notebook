@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createServer } from 'node:net'
@@ -35,7 +35,7 @@ test('开发模式由工作台启动 Vite 服务，状态报告模式并能受�
   assert.equal((await wb.application.status()).online, true)
 })
 
-test('开发工作台拒绝外部服务及旧开发会话，正式模式保留外部连接', async t => {
+test('开发工作台识别外部服务及旧开发会话，正式模式保留外部连接', async t => {
   let identity = null
   const external = createHTTPServer((req, res) => {
     res.setHeader('Content-Type', 'application/json')
@@ -49,7 +49,6 @@ test('开发工作台拒绝外部服务及旧开发会话，正式模式保留�
   const state = await dev.status()
   assert.equal(state.online, false); assert.equal(state.mode, 'external'); assert.equal(state.managed, false)
   assert.match(state.error, /被其他服务占用/)
-  await assert.rejects(dev.start(), /被其他服务占用/)
   assert.equal(dev.child, null)
   identity = { mode: 'development', pid: 123, session: 'old-session' }
   dev.child = { pid: 123 }; dev.session = 'new-session'
@@ -72,6 +71,60 @@ test('开发工作台拒绝外部服务及旧开发会话，正式模式保留�
   }
   assert.ok(task); assert.equal(task.appMode, 'external'); assert.equal(task.appOnline, false)
   assert.equal(task.appManaged, false); assert.match(task.appError, /被其他服务占用/)
+})
+
+test('应用端口被占用时继续向上寻找可用端口', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cordis-workbench-app-port-'))
+  await mkdir(join(dir, 'scripts'), { recursive: true })
+  // Stand-in for scripts/dev.js: binds ${PORT} and answers the identity/workbench probes.
+  await writeFile(join(dir, 'scripts/dev.js'), [
+    "const http = require('node:http')",
+    "const port = Number(process.env.PORT)",
+    "const server = http.createServer((req, res) => {",
+    "  res.setHeader('Content-Type', 'application/json')",
+    "  if (req.url === '/__cordis/identity') return res.end(JSON.stringify({ mode: 'development', session: process.env.CORDIS_DEV_SESSION, pid: process.pid }))",
+    "  res.end(JSON.stringify({ current: { id: 'notebook' } }))",
+    "})",
+    "server.listen(port, '127.0.0.1', () => { if (process.connected) process.send({ type: 'cordis-vite', port }) })",
+    "process.on('message', message => { if (message?.type === 'workbench-shutdown') server.close(() => process.exit(0)) })",
+  ].join('\n'))
+  const blocked = createHTTPServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end('{}') })
+  await new Promise(resolve => blocked.listen(0, '127.0.0.1', resolve))
+  const startPort = blocked.address().port
+  const app = new ApplicationProcess({ root: dir, port: startPort, dataDir: join(dir, 'data'), commands: {}, mode: 'development' })
+  t.after(async () => {
+    if (app.child) await app.stop().catch(() => {})
+    await new Promise(resolve => { blocked.closeAllConnections(); blocked.close(resolve) })
+    await rm(dir, { recursive: true, force: true })
+  })
+  const status = await app.start()
+  assert.equal(status.online, true); assert.equal(status.managed, true)
+  assert.ok(app.port > startPort, `应跳过被占用的 ${startPort}，实际 ${app.port}`)
+  const identity = await (await fetch(`http://127.0.0.1:${app.port}/__cordis/identity`)).json()
+  assert.equal(identity.pid, app.child.pid); assert.equal(identity.session, app.session)
+
+  // Port 0 means "let the system choose"; it must not be reported as occupied.
+  await app.stop()
+  const ephemeral = new ApplicationProcess({ root: dir, port: 0, dataDir: join(dir, 'data'), commands: {}, mode: 'development' })
+  t.after(async () => { if (ephemeral.child) await ephemeral.stop().catch(() => {}) })
+  assert.equal((await ephemeral.start()).online, true)
+  assert.ok(ephemeral.port > 0)
+  assert.ok(!ephemeral.logs.some(log => log.text.includes('端口 0')), '端口 0 不应被当成占用')
+  await ephemeral.stop()
+})
+
+test('应用端口上是另一个 Cordis 实例时不会另起第二个', async t => {
+  const blocked = createHTTPServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (req.url === '/__cordis/identity') { res.end(JSON.stringify({ mode: 'development', session: 'other-session', pid: 4242 })); return }
+    res.end(JSON.stringify({ current: { id: 'notebook' } }))
+  })
+  await new Promise(resolve => blocked.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise(resolve => { blocked.closeAllConnections(); blocked.close(resolve) }))
+  const app = new ApplicationProcess({ root: resolve('.'), port: blocked.address().port, dataDir: join(tmpdir(), 'unused'), commands: {}, mode: 'development' })
+  await assert.rejects(app.start(), /被其他服务占用/)
+  assert.equal(app.child, null)
+  assert.equal(app.port, blocked.address().port, '检测到同项目实例时不应换端口')
 })
 
 test('同一 checkout 的并行工作台使用不同缓存，单实例重启复用自己的缓存', { timeout: 120000 }, async t => {

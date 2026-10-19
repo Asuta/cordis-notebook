@@ -333,9 +333,16 @@ function clearDraftAttachments() {
   images = []; renderAttachments()
 }
 function newThread() { threadId = ''; browserDrafts.delete(browserChoiceKey()); clearDraftAttachments(); render() }
-function connectFrame() { if (!standalone && appOrigin) frame.contentWindow.postMessage({ channel: 'cordis-agent', type: 'connect' }, appOrigin) }
+function connectFrame() { if (!standalone && appOrigin && frame.contentWindow) frame.contentWindow.postMessage({ channel: 'cordis-agent', type: 'connect' }, appOrigin) }
+// The app port can move when a start or restart finds the configured one taken.
+function loadApp(url) {
+  if (!url) return
+  const origin = new URL(url).origin
+  if (origin !== appOrigin) { appOrigin = origin; binding = null; attachments = []; renderAttachments() }
+  if (!standalone) frame.src = url
+}
 async function refresh() {
-  if (polling) return; polling = true
+  if (polling) return false; polling = true
   try {
     const fresh = await api('state?summary=1'), before = state ? refreshSignature(state) : ''
     if (state) {
@@ -355,7 +362,8 @@ async function refresh() {
       if (threadId && !current()) threadId = ''
       $('app-select').value = appId
     }
-    if (!appOrigin) { appOrigin = new URL(state.appUrl).origin; if (!standalone) frame.src = state.appUrl }
+    let loaded = false
+    if (new URL(state.appUrl).origin !== appOrigin) { loadApp(state.appUrl); loaded = true }
     if (changed) {
       $('offline').hidden = state.application.online; $('logs').textContent = [state.application.error, ...state.application.logs.map(log => log.text)].filter(Boolean).join('\n')
     }
@@ -363,6 +371,7 @@ async function refresh() {
     if (changed) render()
     if (changed || !binding) connectFrame()
     await loadThread()
+    return loaded
   } finally { polling = false }
 }
 const detailRequests = new Map()
@@ -498,7 +507,11 @@ $('chat').addEventListener('dragleave', event => { if (!$('chat').contains(event
 $('chat').addEventListener('drop', event => { event.preventDefault(); $('composer').classList.remove('dragging'); void uploadImages(event.dataTransfer.files) })
 $('stop').onclick = safe(() => api('interrupt', {}))
 $('compact').onclick = safe(() => send('compact'))
-$('start-app').onclick = safe(async () => { await api('application/start', {}); if (!standalone) frame.src = state.appUrl; await refresh() })
+$('start-app').onclick = safe(async () => {
+  const status = await api('application/start', {})
+  const loaded = await refresh()
+  if (!loaded) loadApp(status.appUrl || state?.appUrl)
+})
 function setModelOptions() {
   for (const id of ['model', 'compose-model']) $(id).replaceChildren(...config.models.map(model => { const option = new Option(id === 'compose-model' ? 'Flash · 识图' : model.name + ' · 识图', model.id); option.title = model.name; return option }))
   $('compose-model').value = config.model; $('compose-effort').value = config.thinking ? config.reasoningEffort : 'off'
@@ -517,8 +530,8 @@ $('settings-form').onsubmit = safe(async event => {
 const events = new EventSource('/api/events')
 events.onmessage = event => {
   const message = JSON.parse(event.data)
-  if (message.type === 'page-call') { if (message.clientId === clientId) frame.contentWindow.postMessage({ ...message, type: 'call', channel: 'cordis-agent' }, appOrigin); return }
-  if (message.type === 'reload-app') { if (!standalone) { binding = null; frame.src = state.appUrl }; return }
+  if (message.type === 'page-call') { if (message.clientId === clientId && frame.contentWindow) frame.contentWindow.postMessage({ ...message, type: 'call', channel: 'cordis-agent' }, appOrigin); return }
+  if (message.type === 'reload-app') { binding = null; loadApp(message.appUrl || state?.appUrl); return }
   if (message.type === 'error') return toast(message.error)
   if (!state) return
   if (message.type === 'thread') {

@@ -19,7 +19,7 @@ pnpm start
 - [画图应用](applications/drawing/README.md)：2 个独立插件，基础画笔、撤销、自动保存和 PNG 导出，验证完全不同的应用组合。
 - [灵感画布](applications/studio/README.md)：6 个插件，提供无限画布、可扩展卡片、图片生成、Pixel 接口和 Agent 操作。
 
-需要内置 AI 时运行 `pnpm workbench`，打开 http://127.0.0.1:3211/ 。内嵌应用默认以 Vite 开发模式运行，Agent 改完代码自动热更新；发布前验收用 `pnpm workbench:production`。工作台使用独立 Pi 进程和 DeepSeek API，提供右下角聊天、代码编辑、应用工具与「选区添加到 Chat」，支持执行时间线、Markdown、模型与推理强度选择、上下文压缩和多图输入（Flash）。应用进程崩溃后聊天仍可用。密钥在聊天设置中配置，保存在 Git 忽略的 `.workbench/`。详见 [Agent 工作台设计与使用](docs/Agent工作台设计与使用.md)。
+需要内置 AI 时运行 `pnpm workbench`，打开 http://127.0.0.1:3211/ 。端口被占用时工作台和应用会各自向上寻找空闲端口，控制台打印实际地址；若占用者仍是本项目的应用实例，则提示复用已有实例，避免两个进程写同一数据目录。内嵌应用默认以 Vite 开发模式运行，Agent 改完代码自动热更新；发布前验收用 `pnpm workbench:production`。工作台使用独立 Pi 进程和 DeepSeek API，提供右下角聊天、代码编辑、应用工具与「选区添加到 Chat」，支持执行时间线、Markdown、模型与推理强度选择、上下文压缩和多图输入（Flash）。应用进程崩溃后聊天仍可用。密钥在聊天设置中配置，保存在 Git 忽略的 `.workbench/`。详见 [Agent 工作台设计与使用](docs/Agent工作台设计与使用.md)。
 
 ## 目录与开发
 

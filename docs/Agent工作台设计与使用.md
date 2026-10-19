@@ -11,7 +11,7 @@ pnpm install --frozen-lockfile
 pnpm workbench
 ```
 
-打开 `http://127.0.0.1:3211/`，点击网页右下角 Agent。业务应用仍使用 `http://127.0.0.1:3210/`，嵌在工作台 iframe 内，保持原来的浏览器存储来源。`/chat` 提供独立聊天页；此页可进行代码操作，但没有内嵌应用页面，不能直接修改正在另一个页面编辑的内容。
+打开 `http://127.0.0.1:3211/`，点击网页右下角 Agent。业务应用默认使用 `http://127.0.0.1:3210/`，嵌在工作台 iframe 内。两个端口被占用时会各自向上顺延，控制台打印实际地址。浏览器按 origin 保存状态，换端口相当于新的来源，之前在旧端口下的草稿、选区和面板位置不会自动带过去。`/chat` 提供独立聊天页；此页可进行代码操作，但没有内嵌应用页面，不能直接修改正在另一个页面编辑的内容。
 
 `pnpm workbench` 默认以 Vite 开发模式运行业务应用：工作台启动 `scripts/dev.js`，Agent 保存源码后自动热更新，无需构建、重启或手动刷新。前端插件由 Cordis 重载受影响插件，CSS 直接更新；新增插件、修改插件后端及清单会先保存页面，再在原后端进程内更新插件，内嵌页面不刷新。宿主 server/shared 修改仍会保存后重启后端并刷新，Agent 随后自动绑定新页面继续操作。`workspace_status` 会等待最近的修改处理完成，并在 `development.events` 返回本轮的 plugins/css/reload/error 结果，编译错误因此能直接交给 Agent 修复。连接状态末尾的「热更新」只在开发服务身份与本工作台启动的子进程一致、且应用在线时显示。行为细节见 [Vite 开发与热更新](Vite开发与热更新.md)。
 
@@ -21,11 +21,11 @@ pnpm workbench
 
 第一次在聊天设置中填写 API 密钥。默认基础地址 `https://api.deepseek.com/v1`，模型固定为 `deepseek-flash`，推理强度 High。也接受粘贴完整 `/chat/completions` 地址，保存时规范化为基础地址。密钥只在工作台后端传给模型请求，不返回前端。环境变量 `DEEPSEEK_API_KEY` 可作为初始值，本地配置优先；不自动读取 .env。
 
-默认目录 `.workbench/` 被 Git 忽略，含 `config.json`（明文密钥）、`conversations/`（每个会话独立的历史与时间线；旧 `conversations.json` 自动迁移并保留备份）、`attachments/`（原始图片与元数据）和 `pi/sessions/`（Pi 对话与工具结果，含发给模型的图片）。备份时按私有资料处理；不要提交或分享这些文件。完全信任模式下，文件工具和命令具有当前账户权限，提示词中的约定不是密钥隔离沙箱。
+默认目录 `.workbench/` 被 Git 忽略，含 `config.json`（明文密钥）、`conversations/`（每个会话独立的历史与时间线；旧 `conversations.json` 自动迁移并保留备份）、`attachments/`（原始图片与元数据）、`pi/sessions/`（Pi 对话与工具结果，含发给模型的图片）和 `workbench.lock`（运行实例锁）。备份时按私有资料处理；不要提交或分享这些文件。完全信任模式下，文件工具和命令具有当前账户权限，提示词中的约定不是密钥隔离沙箱。
 
 `pnpm workbench:runtime` 以正式模式启动且跳过构建。环境变量：`WORKBENCH_PORT` 默认 3211，`WORKBENCH_APP_PORT` 默认 3210，`WORKBENCH_APP_MODE` 可设为 development 或 runtime，`WORKBENCH_DATA_DIR` 指定工作台私有目录，`DATA_DIR` 指定业务数据目录。工作台使用本仓库的 applications；单目录 PLUGINS_DIR 开发入口不属于此启动方式。
 
-开发模式下，如果应用端口已有外部服务（包括另一个 Vite 实例），工作台会报告端口占用，返回 `mode: external`、`managed: false`，不会杀死或接管它。停止原服务或修改 `WORKBENCH_APP_PORT` 后再启动。正式模式仍允许连接端口上已有的运行服务，但不能代替它重启。不要同时用两个业务进程写同一数据目录。
+启动时会先检查端口：`WORKBENCH_PORT` 和 `WORKBENCH_APP_PORT` 被占用时，工作台继续向上寻找空闲端口，并在控制台和应用日志中说明改动。它不会杀死或接管已有服务。如果占用应用端口的是另一个 Cordis 实例（包括旧会话），工作台不会顺延，而是保持 `mode: external`，避免两个进程同时写 `DATA_DIR`；停止该实例或改用 `WORKBENCH_APP_PORT` 后再启动。同一 `WORKBENCH_DATA_DIR` 只允许一个工作台：启动时写入 `workbench.lock`，检测到仍在运行的实例就提示它的地址并退出，避免两个进程写同一份会话文件；确认没有运行时删除该文件即可。正式模式仍优先连接端口上已有的运行服务，但不能代替它重启。不要同时用两个业务进程写同一数据目录。
 
 ## 崩溃诊断
 
@@ -38,10 +38,10 @@ Windows 上可运行 `powershell -ExecutionPolicy Bypass -File scripts/windows-c
 ## 三个进程
 
 ```text
-浏览器工作台（3211，聊天 + iframe）
+浏览器工作台（默认 3211，占用时顺延；聊天 + iframe）
   ├─ 工作台服务：会话、模型设置、SSE、页面工具转发、应用进程管理
   ├─ Pi 子进程：模型循环、上下文压缩、文件读写、PowerShell/bash
-  └─ 业务子进程（3210）：开发模式为 Vite 开发服务及其 Cordis 后端；正式模式为 Cordis 宿主 + dist
+  └─ 业务子进程（默认 3210，占用时顺延）：开发模式为 Vite 开发服务及其 Cordis 后端；正式模式为 Cordis 宿主 + dist
 ```
 
 业务进程退出后，聊天继续运行；Agent 可读取日志、修改代码、构建并恢复业务进程。重启业务不会丢失会话。Agent 进程异常退出时，工作台保留聊天，再发消息会重新创建 Agent。工作台服务关闭则其子进程关闭；这不是守护整个操作系统或浏览器渲染器的高可用方案。业务插件若让浏览器标签页卡死，应使用独立 `/chat` 页操作代码。

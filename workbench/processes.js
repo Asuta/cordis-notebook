@@ -6,6 +6,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, readdir, rename, stat, unlink } from 'node:fs/promises'
 import { release } from 'node:os'
 import { describeExit, diagnosticReportArgs } from '../shared/diagnostics.js'
+import { findAvailablePort } from './ports.js'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const defaultDiagnosticBytes = 4 * 1024 * 1024
@@ -147,6 +148,12 @@ export class ApplicationProcess {
       this.writeDiagnostic('heartbeat', JSON.stringify(this.lastDiagnostic))
       return
     }
+    // Vite may fall back to another port when the requested one is taken between our probe and its listen.
+    if (message?.type === 'cordis-vite' && Number.isInteger(message.port) && message.port > 0) {
+      if (message.port !== this.port) this.log(`端口 ${this.port} 已被占用，应用改用 ${message.port}`)
+      this.port = message.port
+      return
+    }
     if (message?.type !== 'cordis-dev' || !message.event) return
     const event = message.event
     this.writeDiagnostic('event', JSON.stringify(event))
@@ -178,7 +185,8 @@ export class ApplicationProcess {
         const identity = response.ok ? await response.json().catch(() => null) : null
         if (!this.child || !this.session || identity?.session !== this.session || identity?.pid !== this.child.pid || identity?.mode !== 'development') {
           return { online: false, mode: 'external', requestedMode: this.mode, managed: false,
-            error: `端口 ${this.port} 被其他服务占用，无法启用工作台热更新。请停止原服务或修改 WORKBENCH_APP_PORT。`, logs: this.logs.slice(-30) }
+            cordis: ['development', 'runtime'].includes(identity?.mode),
+            error: `端口 ${this.port} 已被其他服务占用。若占用者是本项目的应用实例，请停止它或修改 WORKBENCH_APP_PORT；其他服务会在启动时自动跳过。`, logs: this.logs.slice(-30) }
         }
       }
       const response = await fetch(`http://127.0.0.1:${this.port}/api/applications`, { signal: AbortSignal.timeout(1500) })
@@ -188,9 +196,15 @@ export class ApplicationProcess {
   }
   async start() {
     const current = await this.status()
-    if (current.mode === 'external') throw Error(current.error)
     if (current.online) return current
     if (this.child) throw Error('应用进程尚未就绪，请稍后重试')
+    // Another Cordis app may be writing the same DATA_DIR; spawning a second one
+    // would let two processes save over each other. Only unrelated services are skipped.
+    if (current.mode === 'external' && current.cordis) throw Error(current.error + '检测到同项目的应用仍在运行，为避免两个进程同时写数据目录，工作台没有自动更换端口。')
+    // Start from the configured port, then keep moving up until a free one is found.
+    const requested = this.port
+    this.port = await findAvailablePort(requested)
+    if (requested > 0 && this.port !== requested) this.log(`端口 ${requested} 已被占用，改用 ${this.port}`)
     const env = { ...process.env, PORT: String(this.port), DATA_DIR: this.dataDir }
     delete env.PLUGINS_DIR; delete env.APPLICATIONS_DIR; delete env.APP; delete env.DEEPSEEK_API_KEY
     Object.assign(env, this.env)

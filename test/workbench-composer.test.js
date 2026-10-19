@@ -7,8 +7,8 @@ import { Window } from 'happy-dom'
 const bundle = await build({ entryPoints: ['workbench/public/app.js'], bundle: true, write: false, format: 'esm', platform: 'browser' })
 const html = (await readFile('workbench/public/index.html', 'utf8')).replace(/<script[\s\S]*?<\/script>/g, '')
 const response = (value, ok = true) => ({ ok, json: async () => value })
-async function fixture(t) {
-  const window = new Window({ url: 'http://127.0.0.1:9999/chat', settings: { disableCSSFileLoading: true, disableIframePageLoading: true } })
+async function fixture(t, { pagePath = '/chat' } = {}) {
+  const window = new Window({ url: 'http://127.0.0.1:9999' + pagePath, settings: { disableCSSFileLoading: true, disableIframePageLoading: true } })
   t.after(() => window.happyDOM.close())
   window.document.write(html)
   window.setInterval = () => 0
@@ -16,11 +16,13 @@ async function fixture(t) {
   window.Option = function (text, value) { const option = window.document.createElement('option'); option.textContent = text; option.value = value; return option }
   const calls = [], pending = [], removed = [], preferences = []
   let imageId = 0
+  let applicationState = { applications: [{ id: 'notebook', name: '笔记' }, { id: 'drawing', name: '画图', error: '清单解析失败' }], application: { online: false, logs: [] }, appUrl: 'http://127.0.0.1:9998', threads: [{ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [] }] }
   window.fetch = async (path, options = {}) => {
     const data = options.headers?.['Content-Type'] === 'application/json' ? JSON.parse(options.body) : undefined
     calls.push({ path, data })
     if (path === '/api/config') return response({ model: 'deepseek-flash', thinking: true, reasoningEffort: 'high', models: [{ id: 'deepseek-flash', name: 'Flash', images: true }], compaction: { threshold: 128000 } })
-    if (path === '/api/state?summary=1') return response({ applications: [{ id: 'notebook', name: '笔记' }, { id: 'drawing', name: '画图', error: '清单解析失败' }], application: { online: false, logs: [] }, appUrl: 'http://127.0.0.1:9998', threads: [{ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [] }] })
+    if (path === '/api/state?summary=1') return response(applicationState)
+    if (path === '/api/application/start') return response({ online: true, appUrl: applicationState.appUrl })
     if (path.startsWith('/api/threads/')) return response({ id: 'history', appId: 'notebook', title: '历史对话', messages: [], turns: [], revision: 0, history: { before: 0, end: 0, total: 0 } })
     if (path === '/api/run' || path === '/api/compact') return new Promise(resolve => pending.push({ resolve, data }))
     if (path === '/api/thread-preferences') return new Promise(resolve => preferences.push({ resolve, data }))
@@ -39,7 +41,8 @@ async function fixture(t) {
     $('chat').dispatchEvent(event)
     await new Promise(resolve => setImmediate(resolve))
   }
-  return { window, $, type, send, finish, upload, calls, pending, removed, preferences }
+  return { window, $, frame: $('application'), type, send, finish, upload, calls, pending, removed, preferences,
+    readState: () => applicationState, setState: value => { applicationState = value } }
 }
 
 test('输入区和设置页只有 Flash，图片直接发送并保留思考强度', async t => {
@@ -58,6 +61,14 @@ test('输入区和设置页只有 Flash，图片直接发送并保留思考强�
   assert.equal(pending[0].data.reasoningEffort, 'max')
   assert.equal(pending[0].data.images.length, 1)
   finish(); await sending
+})
+
+test('应用端口顺延后重新加载 iframe 并使用新的来源', async t => {
+  const { $, frame, readState, setState } = await fixture(t, { pagePath: '/' })
+  assert.equal(new URL(frame.src).origin, 'http://127.0.0.1:9998')
+  setState({ ...readState(), application: { online: false, logs: [] }, appUrl: 'http://127.0.0.1:9997' })
+  await $('start-app').onclick()
+  assert.equal(new URL(frame.src).origin, 'http://127.0.0.1:9997')
 })
 
 test('等待验收偏好保存时切换应用，仍发送原应用的消息和开关快照', async t => {

@@ -17,6 +17,8 @@ import { recoverConversations, createTraceReporter } from './task-state.js'
 import { createPageBridge } from './page-bridge.js'
 import { createToolExecutor } from './tool-router.js'
 import { errorDetail } from '../shared/errors.js'
+import { listenOnAvailablePort } from './ports.js'
+import { acquireInstanceLock } from './instance-lock.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -28,6 +30,8 @@ async function body(req) {
 }
 export async function createWorkbench({ root = project, port = 3211, appPort = 3210, dataDir = join(root, '.workbench'), appDataDir = join(root, 'data'), autoStart = true, workerFile = join(here, 'agent-worker.js'), appMode = 'runtime', browserFactory = options => new BrowserVerification(options) } = {}) {
   await mkdir(dataDir, { recursive: true })
+  // One workbench per data directory: two servers would write the same thread files.
+  const lock = await acquireInstanceLock(join(dataDir, 'workbench.lock'))
   let config = normalizeConfig({ apiKey: process.env.DEEPSEEK_API_KEY || '', ...await readJSON(join(dataDir, 'config.json'), {}) })
   const streams = new Set()
   const redact = text => config.apiKey ? String(text).split(config.apiKey).join('[密钥已隐藏]') : String(text)
@@ -198,7 +202,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         const id = path.slice('/api/images/'.length), image = await imageStore.get(id)
         res.writeHead(200, { 'Content-Type': image.mimeType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=86400' }); res.end(await imageStore.bytes(id)); return
       }
-      if (req.method === 'GET' && path === '/api/state') result = { applications: apps, application: await application.status(), appUrl: `http://127.0.0.1:${appPort}`, threads: conversations.map(url.searchParams.get('summary') === '1' ? threadSummary : publicThread), activeThreadId: active?.thread.id || null }
+      if (req.method === 'GET' && path === '/api/state') result = { applications: apps, application: await application.status(), appUrl: `http://127.0.0.1:${application.port}`, threads: conversations.map(url.searchParams.get('summary') === '1' ? threadSummary : publicThread), activeThreadId: active?.thread.id || null }
       else if (req.method === 'GET' && path.startsWith('/api/threads/')) {
         const item = conversations.find(thread => thread.id === path.slice('/api/threads/'.length))
         if (!item) throw fail(404, '聊天不存在')
@@ -245,20 +249,22 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       else if (req.method === 'POST' && path === '/api/bridge') {
         bridge.receive(await body(req))
         result = { ok: true }
-      } else if (req.method === 'POST' && path === '/api/application/start') result = await application.start()
+      } else if (req.method === 'POST' && path === '/api/application/start') result = { ...await application.start(), appUrl: `http://127.0.0.1:${application.port}` }
       else if (req.method === 'POST' && path === '/api/application/restart') {
         const input = await body(req)
         let task
         if ((await application.status()).online) { task = { ...bindingFor(input.clientId), clientId: input.clientId }; await pageCall(task, 'workspace_prepare_reload') }
-        try { result = await application.restart(); notify({ type: 'reload-app' }) }
+        try { result = await application.restart(); notify({ type: 'reload-app', appUrl: `http://127.0.0.1:${application.port}` }) }
         catch (error) { if (task) await pageCall(task, 'workspace_release_reload').catch(() => {}); throw error }
       } else throw fail(404, '接口不存在')
       json(200, result)
     } catch (error) { json(error.status || 500, { error: redact(error.message) }) }
   })
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
+  // Keep moving up from the configured port until one is free.
+  const listeningPort = await listenOnAvailablePort(server, port, '127.0.0.1').catch(async error => { await lock.release(); throw error })
+  await lock.update(listeningPort)
   // The actual listening port also isolates instances started with port: 0.
-  application.env.CORDIS_VITE_CACHE_DIR = join(root, 'node_modules/.vite', `cordis-workbench-${server.address().port}-${appPort}`)
+  application.env.CORDIS_VITE_CACHE_DIR = join(root, 'node_modules/.vite', `cordis-workbench-${listeningPort}-${appPort}`)
   if (autoStart) {
     void application.start().catch(error => application.log(error.message))
     // Pay the Agent worker's Node/Pi cold start while the workbench opens instead
@@ -278,11 +284,22 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     if (application.child) await application.stop()
     finish('工作台已关闭')
     try { await store.flush() } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
+    await lock.release()
   } }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const appMode = process.argv.includes('--production') ? 'runtime' : process.env.WORKBENCH_APP_MODE || 'development'
-  const app = await createWorkbench({ port: Number(process.env.WORKBENCH_PORT || 3211), appPort: Number(process.env.WORKBENCH_APP_PORT || 3210), dataDir: process.env.WORKBENCH_DATA_DIR || join(project, '.workbench'), appDataDir: process.env.DATA_DIR || join(project, 'data'), appMode })
+  const requestedPort = Number(process.env.WORKBENCH_PORT || 3211)
+  const requestedAppPort = Number(process.env.WORKBENCH_APP_PORT || 3210)
+  let app
+  try {
+    app = await createWorkbench({ port: requestedPort, appPort: requestedAppPort, dataDir: process.env.WORKBENCH_DATA_DIR || join(project, '.workbench'), appDataDir: process.env.DATA_DIR || join(project, 'data'), appMode })
+  } catch (error) {
+    console.error('工作台启动失败：' + error.message)
+    process.exit(1)
+  }
+  const listeningPort = app.server.address().port
+  if (requestedPort > 0 && listeningPort !== requestedPort) console.log(`端口 ${requestedPort} 已被占用，工作台改用 ${listeningPort}`)
   console.log(`Agent 工作台：http://127.0.0.1:${app.server.address().port}（应用${appMode === 'development' ? 'Vite 开发模式' : '正式构建模式'}）`)
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0) })
 }
