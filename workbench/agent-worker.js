@@ -1,8 +1,8 @@
-import { createAgentSession, ModelRuntime, SessionManager, SettingsManager, DefaultResourceLoader } from '@earendil-works/pi-coding-agent'
 import { Type } from '@sinclair/typebox'
 import { mkdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { modelInfo, normalizeConfig, OUTPUT_TOKENS, piCompaction } from './config.js'
 import { AttachmentStore } from './attachments.js'
 import { commandTools, commandGuidance, execWaitParameter } from './command-tools.js'
@@ -11,6 +11,22 @@ import { appToolResult } from './app-tool-result.js'
 import { developmentTools, developmentGuidance, developmentNavigation } from './development-tools.js'
 import { instrumentModelStream } from './model-timing.js'
 import { restoreError, errorDetail } from '../shared/errors.js'
+
+// The published CLI bundle already contains Pi's module graph. Loading it
+// avoids hundreds of filesystem stats during ESM resolution on Windows, while
+// the package entry remains the fallback for a future layout change.
+async function loadPi() {
+  try {
+    const entry = import.meta.resolve('@earendil-works/pi-coding-agent')
+    if (entry.startsWith('file:')) {
+      const module = await import(pathToFileURL(join(dirname(fileURLToPath(entry)), 'bundle', 'index.js')).href)
+      if (['createAgentSession', 'ModelRuntime', 'SessionManager', 'SettingsManager', 'DefaultResourceLoader']
+        .every(name => typeof module[name] === 'function')) return module
+    }
+  } catch {}
+  return import('@earendil-works/pi-coding-agent')
+}
+const { createAgentSession, ModelRuntime, SessionManager, SettingsManager, DefaultResourceLoader } = await loadPi()
 
 let session, busy = false, cancelled = false
 const pending = new Map()

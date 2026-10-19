@@ -259,7 +259,12 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
   // The actual listening port also isolates instances started with port: 0.
   application.env.CORDIS_VITE_CACHE_DIR = join(root, 'node_modules/.vite', `cordis-workbench-${server.address().port}-${appPort}`)
-  if (autoStart) void application.start().catch(error => application.log(error.message))
+  if (autoStart) {
+    void application.start().catch(error => application.log(error.message))
+    // Pay the Agent worker's Node/Pi cold start while the workbench opens instead
+    // of charging it to the user's first message.
+    try { startWorker() } catch (error) { application.log('Agent 工作台预热失败：' + error.message) }
+  }
   return { server, application, commands, execute, clients, async close() {
     closing = true
     if (active) { active.cancelled = true; active.controller?.abort(); await active.browser?.close('stopped') }
