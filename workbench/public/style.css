@@ -123,6 +123,7 @@ pre {
   box-shadow: 0 6px 24px #162a4624;
   padding: 13px 20px;
   border-radius: 28px;
+  touch-action: none;
 }
 #launcher:hover {
   background: #435e7c;
@@ -148,6 +149,70 @@ pre {
   background: #fff;
   box-shadow: 0 18px 70px #182b4020, 0 2px 8px #182b400a;
   overflow: hidden;
+}
+.chat-header {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.chat-header :is(button, a, select) { cursor: pointer; }
+body.layout-dragging { user-select: none; }
+body.layout-dragging #application { pointer-events: none; }
+body.layout-dragging .chat-header { cursor: grabbing; }
+.chat-resizer {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+#chat-resize-right {
+  top: 64px;
+  right: 0;
+  bottom: 18px;
+  width: 6px;
+  cursor: ew-resize;
+}
+#chat-resize-left {
+  top: 64px;
+  left: 0;
+  bottom: 18px;
+  width: 6px;
+  cursor: ew-resize;
+}
+#chat-resize-top {
+  top: 0;
+  left: 18px;
+  right: 18px;
+  height: 6px;
+  cursor: ns-resize;
+}
+#chat-resize-bottom {
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+#chat-resize-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+}
+#chat-resize-right:hover,
+#chat-resize-left:hover,
+#chat-resize-top:hover,
+#chat-resize-bottom:hover { background: #cfd9e655; }
+#chat-resize-corner::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid #b6c2d2;
+  border-bottom: 2px solid #b6c2d2;
+  opacity: .75;
 }
 .chat-header {
   display: flex;
@@ -630,7 +695,7 @@ pre {
 }
 .compose-dock {
   flex-shrink: 0;
-  padding: 6px 16px 10px;
+  padding: 6px 16px 14px;
   background: linear-gradient(#fff, #fafbfd);
 }
 #activity {
@@ -974,6 +1039,7 @@ body.standalone #chat {
   border-block: 0;
   box-shadow: none;
 }
+body.standalone .chat-resizer { display: none; }
 body.standalone #messages {
   padding-inline: 38px;
 }
@@ -1009,6 +1075,7 @@ body.standalone #prompt {
   }
 }
 @media (max-width: 600px) {
+  .chat-resizer { display: none; }
   #chat {
     right: 8px;
     bottom: 8px;
@@ -1018,6 +1085,7 @@ body.standalone #prompt {
   }
   .chat-header {
     padding: 14px 16px 10px;
+    cursor: default;
   }
   .scope {
     margin-inline: 12px;

@@ -12,6 +12,72 @@ let preferenceWrites = 0
 const browserChoiceKey = () => threadId || 'new:' + appId
 const browserChoice = () => browserDrafts.get(browserChoiceKey())?.enabled ?? current()?.browserVerificationEnabled ?? false
 document.body.classList.toggle('standalone', standalone)
+const CHAT_LAYOUT_KEY = 'agent-workbench:chat-layout:v1'
+const LAUNCHER_LAYOUT_KEY = 'agent-workbench:launcher-layout:v1'
+const CHAT_MARGIN = 12, LAUNCHER_MARGIN = 24, SNAP_DISTANCE = 48
+const CHAT_MIN_WIDTH = 360, CHAT_MIN_HEIGHT = 420
+const compactViewport = () => window.matchMedia?.('(max-width: 600px)').matches === true
+function readLayout(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || 'null')
+    return value && ['x', 'y', 'w', 'h'].every(name => Number.isFinite(value[name])) ? value : null
+  } catch { return null }
+}
+function writeLayout(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
+}
+function removeLayout(key) {
+  try { localStorage.removeItem(key) } catch {}
+}
+let chatLayout = readLayout(CHAT_LAYOUT_KEY), launcherLayout = readLayout(LAUNCHER_LAYOUT_KEY)
+const canArrangeChat = () => !standalone && !compactViewport()
+const canArrangeLauncher = () => !standalone
+const rectOf = element => {
+  const rect = element.getBoundingClientRect()
+  return { x: rect.left, y: rect.top, w: rect.width, h: rect.height }
+}
+const interactiveTarget = target => target instanceof Element && !!target.closest('button, a, select, input, textarea, summary, label, [contenteditable="true"]')
+function clampRect(box, margin, minWidth = 1, minHeight = 1) {
+  const maxWidth = Math.max(1, window.innerWidth - margin * 2), maxHeight = Math.max(1, window.innerHeight - margin * 2)
+  const minW = Math.min(minWidth, maxWidth), minH = Math.min(minHeight, maxHeight)
+  const w = Math.min(Math.max(box.w, minW), maxWidth), h = Math.min(Math.max(box.h, minH), maxHeight)
+  return {
+    x: Math.min(Math.max(box.x, margin), Math.max(margin, window.innerWidth - w - margin)),
+    y: Math.min(Math.max(box.y, margin), Math.max(margin, window.innerHeight - h - margin)), w, h,
+  }
+}
+function applyChatLayout(box) {
+  const element = $('chat')
+  if (!box || !canArrangeChat()) {
+    element.style.left = element.style.top = element.style.width = element.style.height = ''
+    element.style.right = element.style.bottom = ''
+    return null
+  }
+  const next = clampRect(box, CHAT_MARGIN, CHAT_MIN_WIDTH, CHAT_MIN_HEIGHT)
+  element.style.left = next.x + 'px'; element.style.top = next.y + 'px'
+  element.style.width = next.w + 'px'; element.style.height = next.h + 'px'
+  element.style.right = 'auto'; element.style.bottom = 'auto'
+  return next
+}
+function applyLauncherLayout(box) {
+  const element = $('launcher')
+  if (!box || !canArrangeLauncher()) {
+    element.style.left = element.style.top = ''
+    element.style.right = element.style.bottom = ''
+    return null
+  }
+  const next = clampRect(box, LAUNCHER_MARGIN)
+  element.style.left = next.x + 'px'; element.style.top = next.y + 'px'
+  element.style.right = 'auto'; element.style.bottom = 'auto'
+  return next
+}
+function syncLayouts() {
+  if (standalone) return
+  applyChatLayout(chatLayout)
+  applyLauncherLayout(launcherLayout)
+}
+syncLayouts()
+window.addEventListener('resize', syncLayouts)
 let closingAnimation, chatShown = false
 const motion = () => !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 const showChat = () => {
@@ -26,6 +92,105 @@ const hideChat = () => {
   if (!motion() || !$('chat').animate) return finish()
   closingAnimation = $('chat').animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: '0 10px' }], { duration: 160, easing: 'ease-in' })
   closingAnimation.onfinish = finish
+}
+let chatDrag, chatResize, launcherDrag, launcherMovedAt = -1e9
+const releasePointer = (element, pointerId) => { try { element.releasePointerCapture?.(pointerId) } catch {} }
+function resetChatLayout() {
+  chatLayout = null
+  applyChatLayout(null)
+  removeLayout(CHAT_LAYOUT_KEY)
+}
+function startChatDrag(event) {
+  if (!canArrangeChat() || event.button !== 0 || interactiveTarget(event.target)) return
+  const element = $('chat'), header = event.currentTarget
+  element.getAnimations?.().forEach(animation => animation.cancel())
+  chatDrag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, box: rectOf(element), moved: false, header }
+  try { header.setPointerCapture(event.pointerId) } catch {}
+}
+function moveChatDrag(event) {
+  if (!chatDrag || event.pointerId !== chatDrag.id) return
+  const dx = event.clientX - chatDrag.startX, dy = event.clientY - chatDrag.startY
+  if (!chatDrag.moved && Math.abs(dx) + Math.abs(dy) < 3) return
+  chatDrag.moved = true
+  document.body.classList.add('layout-dragging')
+  chatLayout = clampRect({ ...chatDrag.box, x: chatDrag.box.x + dx, y: chatDrag.box.y + dy }, CHAT_MARGIN, CHAT_MIN_WIDTH, CHAT_MIN_HEIGHT)
+  applyChatLayout(chatLayout)
+  event.preventDefault()
+}
+function endChatDrag(event) {
+  if (!chatDrag || event.pointerId !== chatDrag.id) return
+  if (chatDrag.moved && chatLayout) writeLayout(CHAT_LAYOUT_KEY, chatLayout)
+  releasePointer(chatDrag.header, event.pointerId)
+  chatDrag = null
+  document.body.classList.remove('layout-dragging')
+}
+function startChatResize(event) {
+  if (!canArrangeChat() || event.button !== 0) return
+  event.preventDefault(); event.stopPropagation()
+  const element = $('chat')
+  element.getAnimations?.().forEach(animation => animation.cancel())
+  chatResize = { id: event.pointerId, startX: event.clientX, startY: event.clientY, box: rectOf(element), mode: event.currentTarget.dataset.resize || 'bottom-right', handle: event.currentTarget, moved: false }
+  try { chatResize.handle.setPointerCapture(event.pointerId) } catch {}
+  document.body.classList.add('layout-dragging')
+}
+function moveChatResize(event) {
+  if (!chatResize || event.pointerId !== chatResize.id) return
+  chatResize.moved = true
+  const dx = event.clientX - chatResize.startX, dy = event.clientY - chatResize.startY
+  const box = chatResize.box, mode = chatResize.mode
+  const minW = Math.min(CHAT_MIN_WIDTH, window.innerWidth - CHAT_MARGIN * 2)
+  const minH = Math.min(CHAT_MIN_HEIGHT, window.innerHeight - CHAT_MARGIN * 2)
+  const next = { x: box.x, y: box.y, w: box.w, h: box.h }
+  if (mode.includes('right')) next.w = Math.max(minW, box.w + dx)
+  if (mode.includes('left')) { next.w = Math.max(minW, box.w - dx); next.x = box.x + box.w - next.w }
+  if (mode.includes('bottom')) next.h = Math.max(minH, box.h + dy)
+  if (mode.includes('top')) { next.h = Math.max(minH, box.h - dy); next.y = box.y + box.h - next.h }
+  chatLayout = clampRect(next, CHAT_MARGIN, CHAT_MIN_WIDTH, CHAT_MIN_HEIGHT)
+  applyChatLayout(chatLayout)
+  event.preventDefault()
+}
+function endChatResize(event) {
+  if (!chatResize || event.pointerId !== chatResize.id) return
+  if (chatResize.moved && chatLayout) writeLayout(CHAT_LAYOUT_KEY, chatLayout)
+  releasePointer(chatResize.handle, event.pointerId)
+  chatResize = null
+  document.body.classList.remove('layout-dragging')
+}
+function snapLauncher(box) {
+  let x = box.x, y = box.y
+  if (x <= SNAP_DISTANCE) x = LAUNCHER_MARGIN
+  else if (window.innerWidth - (x + box.w) <= SNAP_DISTANCE) x = window.innerWidth - box.w - LAUNCHER_MARGIN
+  if (y <= SNAP_DISTANCE) y = LAUNCHER_MARGIN
+  else if (window.innerHeight - (y + box.h) <= SNAP_DISTANCE) y = window.innerHeight - box.h - LAUNCHER_MARGIN
+  return clampRect({ ...box, x, y }, LAUNCHER_MARGIN)
+}
+function startLauncherDrag(event) {
+  if (!canArrangeLauncher() || event.button !== 0) return
+  const element = event.currentTarget
+  launcherDrag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, box: rectOf(element), moved: false, element }
+  try { element.setPointerCapture(event.pointerId) } catch {}
+}
+function moveLauncherDrag(event) {
+  if (!launcherDrag || event.pointerId !== launcherDrag.id) return
+  const dx = event.clientX - launcherDrag.startX, dy = event.clientY - launcherDrag.startY
+  if (!launcherDrag.moved && Math.hypot(dx, dy) < 4) return
+  launcherDrag.moved = true
+  document.body.classList.add('layout-dragging')
+  launcherLayout = snapLauncher(clampRect({ ...launcherDrag.box, x: launcherDrag.box.x + dx, y: launcherDrag.box.y + dy }, LAUNCHER_MARGIN))
+  applyLauncherLayout(launcherLayout)
+  event.preventDefault()
+}
+function endLauncherDrag(event) {
+  if (!launcherDrag || event.pointerId !== launcherDrag.id) return
+  if (launcherDrag.moved) {
+    launcherMovedAt = performance.now()
+    launcherLayout = snapLauncher(launcherLayout)
+    applyLauncherLayout(launcherLayout)
+    writeLayout(LAUNCHER_LAYOUT_KEY, launcherLayout)
+  }
+  releasePointer(launcherDrag.element, event.pointerId)
+  launcherDrag = null
+  document.body.classList.remove('layout-dragging')
 }
 function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = Math.max(64, Math.min(180, input.scrollHeight)) + 'px' }
 function followButton() { const box = $('messages'); $('latest').hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 100 }
@@ -238,7 +403,31 @@ window.addEventListener('message', safe(async event => {
   else if (message.type === 'disconnect') { binding = null; await api('bridge', { type: 'disconnect', clientId }); render() }
 }))
 frame.addEventListener('load', connectFrame)
-$('launcher').onclick = showChat
+const chatHeaderElement = document.querySelector('#chat .chat-header')
+if (chatHeaderElement) {
+  chatHeaderElement.addEventListener('pointerdown', startChatDrag)
+  chatHeaderElement.addEventListener('pointermove', moveChatDrag)
+  chatHeaderElement.addEventListener('pointerup', endChatDrag)
+  chatHeaderElement.addEventListener('pointercancel', endChatDrag)
+  chatHeaderElement.addEventListener('dblclick', event => { if (!interactiveTarget(event.target)) resetChatLayout() })
+}
+document.querySelectorAll('.chat-resizer').forEach(handle => {
+  handle.addEventListener('pointerdown', startChatResize)
+  handle.addEventListener('pointermove', moveChatResize)
+  handle.addEventListener('pointerup', endChatResize)
+  handle.addEventListener('pointercancel', endChatResize)
+})
+const launcherButton = $('launcher')
+launcherButton.addEventListener('pointerdown', startLauncherDrag)
+launcherButton.addEventListener('pointermove', moveLauncherDrag)
+launcherButton.addEventListener('pointerup', endLauncherDrag)
+launcherButton.addEventListener('pointercancel', endLauncherDrag)
+launcherButton.addEventListener('click', event => {
+  const dragged = performance.now() - launcherMovedAt < 400
+  launcherMovedAt = -1e9
+  if (dragged) { event.preventDefault(); return }
+  showChat()
+})
 $('chat-close').onclick = hideChat
 $('messages').addEventListener('scroll', followButton)
 $('messages').addEventListener('process-toggle', () => requestAnimationFrame(followButton))
