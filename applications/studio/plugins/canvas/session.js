@@ -7,7 +7,7 @@ export async function createSession(ctx, sdk) {
   let view = fallbackView, status = '已保存'
   const notice = { set textContent(value) { status = value; view.status?.(value) } }
   const render = () => view.render()
-  const drafts = new Map(), undo = new Map(), redo = new Map(), renderedNodes = new Map()
+  const drafts = new Map(), undo = new Map(), redo = new Map()
   const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right)
   let state = await api(''), boardId = sdk.storage.local.getItem('board'), queue = Promise.resolve(), stopped = false, held = false, editing = false, draftTimer, polling = false, epoch = 0, pendingEdits = 0, flushing, preparing = false
   const board = () => state.boards.find(b => b.id === boardId) || state.boards[0]
@@ -67,8 +67,7 @@ export async function createSession(ctx, sdk) {
     for (const [id, entry] of entries) {
       // Focused inputs keep their DOM and captured node. Advance only fields we
       // just saved; polling must not hide a genuine edit from another page.
-      const rendered = renderedNodes.get(id)
-      if (rendered) Object.assign(rendered, entry.patch)
+      if (id !== titleDraftId) view.syncRenderedNode?.(id, entry.patch)
       if (id === titleDraftId) renderedTitle = entry.patch.title
       const live = drafts.get(id)
       if (JSON.stringify(live?.patch) === JSON.stringify(entry.patch)) drafts.delete(id)
@@ -124,11 +123,11 @@ export async function createSession(ctx, sdk) {
     get editing() { return editing }, set editing(value) { editing = value },
     get viewport() { return viewport }, set viewport(value) { viewport = value },
     get renderedTitle() { return renderedTitle }, set renderedTitle(value) { renderedTitle = value },
-    drafts, undo, redo, renderedNodes, titleDraftId, board, api, read, editable, edit, flush, draft, choose, newBoard, duplicateBoard, renameBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport, mediaKind, mediaUrl,
+    drafts, undo, redo, titleDraftId, board, api, read, editable, edit, flush, draft, choose, newBoard, duplicateBoard, renameBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport, mediaKind, mediaUrl,
     uploadMedia: (file, signal = sdk.signal, progress) => uploadMedia(file, api, signal, progress),
     async discardDrafts() { clearTimeout(draftTimer); drafts.clear(); rememberDrafts(); editing = false; await queue; await refresh(); render() },
-    attachView(owner, next) {
-      return owner.effect(() => { view = next; view.status?.(status); return () => { if (view === next) { view = fallbackView; editing = false; renderedNodes.clear() } } })
+  attachView(owner, next) {
+      return owner.effect(() => { view = next; view.status?.(status); return () => { if (view === next) { view = fallbackView; editing = false } } })
     },
     actions,
     async execute(id, args = {}, source = 'user') {

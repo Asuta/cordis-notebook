@@ -24,10 +24,7 @@ export function createCardLayout(ctx, view, s, sdk) {
     },
     texts(node) {
       const section = el('div', { class: 'studio-inputs' }), types = new Map((s.state.types || []).map(type => [type.id, type]))
-      // Client type descriptors have no resolver; basic text cards expose their text.
-      for (const [id, type] of types) if (type.output === 'text') types.set(id, { ...type, resolve: node => ({ text: node.text || '' }) })
-      if (!types.has('text')) types.set('text', { output: 'text', resolve: node => ({ text: node.text || '' }) })
-      const refs = textInputs(s.board(), node, types)
+      const refs = textInputs(s.board(), node, types, { tolerant: true })
       if (refs.length) section.append(el('small', {}, '文字输入顺序'))
       refs.forEach((ref, index) => {
         const row = el('div', { class: 'studio-text-reference' }), head = el('div', { class: 'studio-text-reference-head' })
@@ -43,6 +40,7 @@ export function createCardLayout(ctx, view, s, sdk) {
           if (ref.edgeId) await edit([{ type: 'disconnect', id: ref.edgeId }])
           else { const current = s.board().nodes.find(item => item.id === node.id); await edit([{ type: 'update', id: node.id, patch: { textReferences: current.textReferences.filter(item => item.id !== ref.id) } }]) }
         })); row.append(head)
+        if (ref.unavailable) row.append(el('small', { class: 'studio-field-error', role: 'status', 'data-input-unavailable': '' }, '文字输入暂不可用，请检查来源卡片或对应插件。'))
         if (!ref.edgeId) {
           const input = el('textarea', { value: ref.text, maxLength: 24000, 'aria-label': `独立文字输入 ${index + 1}` })
           input.onfocus = () => view.beginEditing(input)

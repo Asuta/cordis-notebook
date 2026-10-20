@@ -19,7 +19,11 @@ export default async function (ctx, settings, runtime) {
   ctx.http.route(ctx, 'GET', /^\/api\/studio\/prompt-optimizations$/, () => ({ templates: promptOptimizer.listTemplates() }))
   ctx.http.route(ctx, 'POST', /^\/api\/studio\/prompt-optimizations$/, async ({ req }) => promptOptimizer.saveTemplate(await ctx.http.body(req)))
   ctx.http.route(ctx, 'POST', /^\/api\/studio\/prompt-optimize$/, async ({ req }) => promptOptimizer.optimize(await ctx.http.body(req)))
-  ctx.effect(() => () => jobs.close())
+  ctx.effect(() => async () => {
+    const results = await Promise.allSettled([jobs.close(), promptOptimizer.close()])
+    const failed = results.find(result => result.status === 'rejected')
+    if (failed) throw failed.reason
+  })
   Object.assign(new Service(ctx, 'imageGeneration'), jobs)
   documents.observe(ctx, board => jobs.boardChanged(board))
   documents.snapshots.register(ctx, { id: 'image-generation', read: () => {

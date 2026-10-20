@@ -54,7 +54,7 @@ test('七插件从源码启动，视图和 Pixel 更新不重启宿主，原画�
       assert.equal(current.jobs[0].status, 'interrupted')
       assert.match(current.jobs[0].error, /图片服务已停用或更新/)
     }
-    assert.equal(current.providers[0].hasKey, true)
+    assert.equal(current.providers.find(provider => provider.id === 'pixel')?.hasKey, true)
   }
   assert.equal(calls, 1, '恢复图片服务不能自动重发请求')
 })

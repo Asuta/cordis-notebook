@@ -81,14 +81,29 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
   }
 
   let writes = Promise.resolve()
+  let closed = false, closing
+  const activeOptimizations = new Set(), pendingWrites = new Set()
+  function ensureOpen() {
+    if (closed) fail('提示词优化服务已停用', 503)
+  }
+  function trackWrite(task) {
+    pendingWrites.add(task)
+    task.then(() => pendingWrites.delete(task), () => pendingWrites.delete(task))
+    return task
+  }
+  function changeTemplates(change) {
+    ensureOpen()
+    return trackWrite(Promise.resolve().then(() => templates.change(change)))
+  }
   function persist(next) {
+    ensureOpen()
     const task = writes.then(async () => {
       await writeSnapshot(configFile, JSON.stringify(next, null, 2))
       config = structuredClone(next)
       return publicConfig()
     })
     writes = task.catch(() => {})
-    return task
+    return trackWrite(task)
   }
 
   function publicConfig() {
@@ -102,9 +117,10 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
   function listTemplates() { return structuredClone(templates.read()) }
 
   async function saveTemplate(input) {
+    ensureOpen()
     if (!input || typeof input !== 'object' || Array.isArray(input)) fail('提示词优化配置无效')
     if (input.action === 'delete') {
-      await templates.change(tx => {
+      await changeTemplates(tx => {
         const index = tx.records.findIndex(item => item.id === input.id)
         if (index < 0) fail('提示词优化按钮不存在', 404)
         tx.records.splice(index, 1)
@@ -112,7 +128,7 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
       return { templates: listTemplates() }
     }
     const title = boundedText(input.title, 60, '按钮名称'), instruction = boundedText(input.instruction, 8000, '优化指令')
-    await templates.change(tx => {
+    await changeTemplates(tx => {
       const index = input.id ? tx.records.findIndex(item => item.id === input.id) : -1
       if (input.id && index < 0) fail('提示词优化按钮不存在', 404)
       if (index >= 0 && input.updatedAt !== tx.records[index].updatedAt) fail('提示词优化按钮已在其他页面修改，请重新打开', 409)
@@ -132,6 +148,7 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
   }
 
   async function saveModel(input) {
+    ensureOpen()
     if (!input || typeof input !== 'object' || Array.isArray(input)) fail('大模型配置请求无效')
     if (input.action === 'delete') {
       const id = modelId(input.id)
@@ -171,8 +188,11 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
     return persist(next)
   }
 
-  async function callModel(item, instructions, input, maxOutputTokens) {
+  async function callModel(item, instructions, input, maxOutputTokens, signal) {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout)
+    const abort = () => controller.abort()
+    if (signal?.aborted) controller.abort()
+    else signal?.addEventListener('abort', abort, { once: true })
     let response
     try {
       response = await request(responsesUrl(item.baseUrl), {
@@ -187,10 +207,16 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
         signal: controller.signal,
       })
     } catch (error) {
+      signal?.removeEventListener('abort', abort)
+      if (signal?.aborted) fail('提示词优化服务已停用', 503)
       if (error?.name === 'AbortError' || controller.signal.aborted) fail('模型服务响应超时', 504)
       fail('无法连接模型服务：' + (error?.message || '网络错误'), 502)
     } finally { clearTimeout(timer) }
-    const raw = await response.text().catch(() => '')
+    let raw
+    try { raw = await response.text().catch(() => '') }
+    finally { signal?.removeEventListener('abort', abort) }
+    if (signal?.aborted) fail('提示词优化服务已停用', 503)
+    if (controller.signal.aborted) fail('模型服务响应超时', 504)
     if (!response.ok) {
       const detail = raw.replaceAll(item.apiKey, '[已隐藏]').slice(0, 500).trim()
       fail(`模型服务返回 ${response.status}${detail ? '：' + detail : ''}`, 502)
@@ -203,6 +229,7 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
   }
 
   async function testModel(input) {
+    ensureOpen()
     const id = modelId(input?.id), item = config.models.find(item => item.id === id)
     if (!item) fail('模型配置不存在', 404)
     // 输出预算也包含推理 token，给开启推理的模型留出生成答案的空间。
@@ -211,24 +238,42 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
   }
 
   async function optimize(input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) fail('提示词优化请求无效')
-    const prompt = boundedText(input.prompt, 24_000, '提示词')
-    if (typeof input.templateId !== 'string') fail('请选择提示词优化按钮')
-    const template = templates.read().find(item => item.id === input.templateId)
-    if (!template) fail('提示词优化按钮不存在', 404)
-    const model = config.models.find(item => item.id === config.defaultModelId)
-    if (!model) fail('请先在应用设置中配置默认大模型')
-    const instructions = 'You are a prompt editor. Follow the optimization instruction exactly. Return only the rewritten prompt, without commentary, labels, or code fences.\n\nOptimization instruction:\n' + template.instruction
-    const optimized = cleanOptimizedPrompt(await callModel(model, instructions, prompt))
-    if (!optimized) fail('模型没有返回可用的提示词', 502)
-    if (optimized.length > 24_000) fail('优化后的提示词超过 24000 字符', 422)
-    return {
-      prompt: optimized,
-      originalPrompt: prompt,
-      template: { id: template.id, title: template.title },
-      model: { id: model.id, name: model.name, model: model.model },
+    ensureOpen()
+    const controller = new AbortController()
+    activeOptimizations.add(controller)
+    try {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) fail('提示词优化请求无效')
+      const prompt = boundedText(input.prompt, 24_000, '提示词')
+      if (typeof input.templateId !== 'string') fail('请选择提示词优化按钮')
+      const template = templates.read().find(item => item.id === input.templateId)
+      if (!template) fail('提示词优化按钮不存在', 404)
+      const model = config.models.find(item => item.id === config.defaultModelId)
+      if (!model) fail('请先在应用设置中配置默认大模型')
+      const instructions = 'You are a prompt editor. Follow the optimization instruction exactly. Return only the rewritten prompt, without commentary, labels, or code fences.\n\nOptimization instruction:\n' + template.instruction
+      const optimized = cleanOptimizedPrompt(await callModel(model, instructions, prompt, undefined, controller.signal))
+      if (!optimized) fail('模型没有返回可用的提示词', 502)
+      if (optimized.length > 24_000) fail('优化后的提示词超过 24000 字符', 422)
+      return {
+        prompt: optimized,
+        originalPrompt: prompt,
+        template: { id: template.id, title: template.title },
+        model: { id: model.id, name: model.name, model: model.model },
+      }
+    } finally {
+      activeOptimizations.delete(controller)
     }
   }
 
-  return { publicConfig, saveModel, testModel, listTemplates, saveTemplate, optimize }
+  function close() {
+    if (closing) return closing
+    closed = true
+    for (const controller of activeOptimizations) controller.abort()
+    closing = Promise.allSettled([...pendingWrites]).then(results => {
+      const failed = results.find(result => result.status === 'rejected')
+      if (failed) throw failed.reason
+    })
+    return closing
+  }
+
+  return { publicConfig, saveModel, testModel, listTemplates, saveTemplate, optimize, close }
 }

@@ -4,6 +4,7 @@ import { createReferenceUI } from './references-ui.js'
 import { createLibraryUI } from './library-ui.js'
 import { createCardLayout } from './card-layout.js'
 import { createPromptOptimizer } from './prompt-optimizer.js'
+import { defaultProvider, orderedProviders } from './providers.js'
 
 export default function (ctx, sdk) {
   const s = ctx.canvasSession, view = ctx.canvasUI
@@ -12,7 +13,7 @@ export default function (ctx, sdk) {
   const library = createLibraryUI(ctx, view, s, sdk), layout = createCardLayout(ctx, view, s, sdk)
   const promptOptimizer = createPromptOptimizer(ctx, view, s, sdk)
   let stopped = false, submissions = Promise.resolve()
-  ctx.effect(() => () => { stopped = true; details.clear() })
+  ctx.effect(() => () => { stopped = true; details.clear(); view.render() })
   function getModel(provider, id, retry = false) {
     const key = provider.id + ':' + (provider.catalogVersion || '') + ':' + id
     if (retry) details.delete(key)
@@ -29,8 +30,8 @@ export default function (ctx, sdk) {
     if (!model.supported) throw Error(model.unsupportedReason)
     await flush(); await edit([{ type: 'update', id: target.nodeId, patch: { provider: provider.id, model: id } }], { targetBoard: target.boardId })
   }, library)
-  const providersNow = () => s.state.providers || []
-  const selectedProvider = node => node?.provider ? providersNow().find(item => item.id === node.provider) : providersNow().find(item => item.id === 'pixel') || providersNow()[0]
+  const providersNow = () => orderedProviders(s.state.providers || [])
+  const selectedProvider = node => node?.provider ? providersNow().find(item => item.id === node.provider) : defaultProvider(providersNow())
   s.actions.register(ctx, { id: 'generate', label: '生成图片或视频', schema: { type: 'object', properties: { nodeId: { type: 'string' } }, required: ['nodeId'] },
     async run({ nodeId, revision }) {
       const boardId = s.boardId
@@ -46,17 +47,34 @@ export default function (ctx, sdk) {
       submissions = task.catch(() => {}); return task
     },
   })
+  s.actions.register(ctx, { id: 'cancel', label: '暂停或取消生成任务', mutates: false, schema: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'] }, async run({ jobId }) { const result = await api('/cancel', { id: jobId }); await refresh(); return result } })
   for (const [id, label] of [['models', '搜索图片、视频模型目录'], ['model', '读取模型参数定义']]) s.actions.register(ctx, {
     id, label, mutates: false, schema: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' }, query: { type: 'string' }, kind: { enum: ['image', 'video', ''] }, type: { type: 'string' }, offset: { type: 'integer' } } },
-    run(args) { const query = new URLSearchParams(id === 'model' ? { id: args.model || '' } : { q: args.query || '', kind: args.kind || '', type: args.type || '', offset: String(args.offset || 0) }); return api('/providers/' + encodeURIComponent(args.provider || 'wavespeed') + '/' + id + '?' + query) },
+    run(args) { const providerId = args.provider || defaultProvider(providersNow())?.id; if (!providerId) throw Error('图片服务不可用'); const query = new URLSearchParams(id === 'model' ? { id: args.model || '' } : { q: args.query || '', kind: args.kind || '', type: args.type || '', offset: String(args.offset || 0) }); return api('/providers/' + encodeURIComponent(providerId) + '/' + id + '?' + query) },
   })
   for (const id of ['resume', 'detach']) s.actions.register(ctx, { id, label: id === 'resume' ? '恢复远端任务查询' : '结束本地任务跟踪', schema: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'] }, async run({ jobId }) { const result = await api('/' + id, { id: jobId }); await refresh(); return result } })
-  const addGenerator = () => view.add('generator', { provider: 'wavespeed' })
+  const addGenerator = () => view.add('generator')
   view.menu(ctx, { id: 'generator', label: '✦ 生成卡片', order: 30, className: 'studio-primary', run: addGenerator })
   const createFirst = button('创建第一张生成卡片', addGenerator, 'studio-primary')
   view.empty.insertBefore(createFirst, view.empty.querySelector('small'))
   ctx.effect(() => () => createFirst.remove())
   view.register(ctx, { id: 'generator', label: '生成卡片', icon: '✦', input: true, height: 720,
+    selectionGroup(node, cardView) { return node.type === 'generator' ? [node, ...cardView.board().nodes.filter(item => item.sourceNodeId === node.id)] : null },
+    selectionActions(nodes, cardView) {
+      const generators = nodes.filter(node => node.type === 'generator')
+      if (generators.length !== 1) return []
+      const generator = generators[0], products = cardView.board().nodes.filter(node => node.sourceNodeId === generator.id)
+      const subset = nodes.length === 1 || products.length > 0 && nodes.every(node => node.id === generator.id || products.some(product => product.id === node.id)) && products.every(product => nodes.some(node => node.id === product.id))
+      if (!subset) return []
+      return [{ label: '整理子集', disabled: products.length < 2, title: products.length < 2 ? '至少需要两个直接生成产物' : '将直接生成产物在生成卡片右侧整理成近方形网格', async run() {
+        await flush()
+        const currentBoard = cardView.board(), current = currentBoard.nodes.find(node => node.id === generator.id), currentProducts = currentBoard.nodes.filter(node => node.sourceNodeId === generator.id)
+        if (!current || currentProducts.length < 2) return
+        await cardView.arrangeNodes(currentProducts.map(node => node.id), { after: current.id, gap: 120 })
+        cardView.select([current.id, ...currentProducts.map(node => node.id)])
+        sdk.toast('已整理 ' + currentProducts.length + ' 张生成产物')
+      } }]
+    },
     actions: [{ label: '编辑提示词', run: node => view.cards.querySelector('[data-node="' + node.id + '"] textarea')?.focus() }, { label: '收藏卡片', run: node => library.favoriteCard(node) }],
     render(node, card) {
       const providers = providersNow(), provider = selectedProvider(node)
@@ -74,7 +92,7 @@ export default function (ctx, sdk) {
       }
       if (providers.length > 1 || node.provider) {
         const selector = el('select', { 'aria-label': '图片服务', class: 'studio-provider-select' })
-        selector.append(el('option', { value: '' }, '默认生成服务'))
+        selector.append(el('option', { value: '' }, '默认生成服务' + (provider ? ' · ' + provider.label : ' · 未启用')))
         for (const item of providers) selector.append(el('option', { value: item.id }, item.label))
         if (node.provider && !provider) selector.append(el('option', { value: node.provider }, node.provider + '（不可用）'))
         selector.value = node.provider || ''
@@ -132,14 +150,14 @@ export default function (ctx, sdk) {
       if (job?.remote?.taskId) status.append(el('code', { class: 'studio-remote-id' }, '远端 ID：' + job.remote.taskId))
       const working = jobs.filter(item => ['queued', 'running'].includes(item.status))
       if (working.length) status.prepend(el('div', { class: 'studio-active-jobs' }, `${working.length} 个任务进行中 · 可继续提交`))
-      if (busy) status.append(button(jobProvider?.resumable ? '■ 暂停查询' : '■ 停止生成', () => api('/cancel', { id: job.id }).then(refresh)))
+      if (busy) status.append(button(jobProvider?.resumable ? '■ 暂停查询' : '■ 停止生成', () => s.execute('cancel', { jobId: job.id })))
       if (!provider && job) status.textContent += ' · 生成服务已停用'
       if (unresolved) {
         const recovery = el('div', { class: 'studio-job-recovery' })
         if (job.status === 'paused') recovery.append(button('恢复查询', () => s.execute('resume', { jobId: job.id }), 'studio-primary'))
         recovery.append(button('结束本地跟踪', () => { if (window.confirm('远端任务可能仍在运行并计费。结束本地跟踪后，可以重新生成；请先核对 WaveSpeed 任务记录。是否结束跟踪？')) return s.execute('detach', { jobId: job.id }) })); status.append(recovery)
       }
-      updateRun = () => { run.disabled = !provider || jobs.some(item => item.status === 'uncertain') || provider.modelCatalog && (!model?.supported || form.hasErrors(node, provider)) }
+      updateRun = () => { run.disabled = !provider || !!inputs.querySelector('[data-input-unavailable]') || jobs.some(item => item.status === 'uncertain') || provider.modelCatalog && (!model?.supported || form.hasErrors(node, provider)) }
       updateRun()
       body.append(inputs, folded); card.append(status, run); layout.resize(node, card)
     },

@@ -4,7 +4,7 @@ const invalid = message => { throw Object.assign(Error(message), { status: 400 }
 const object = value => value && typeof value === 'object' && !Array.isArray(value)
 export const definition = {
   id: 'generator', label: '媒体生成', fields: ['prompt', 'promptSuffixes', 'ratio', 'resolution', 'provider', 'model', 'modelParameters', 'references', 'referenceOrder', 'referenceBindings', 'textReferences', 'textReferenceOrder', 'collapsedParameters', 'cardHeight'], accepts: ['text', 'image', 'video'],
-  defaults: () => ({ prompt: '', ratio: '1:1', resolution: '1k', provider: 'wavespeed' }),
+  defaults: () => ({ prompt: '', ratio: '1:1', resolution: '1k', provider: '' }),
   copy: snapshotGenerator,
   validate(node, assets) {
     if (node.cardHeight !== undefined && (!Number.isInteger(node.cardHeight) || node.cardHeight < 360 || node.cardHeight > 20000)) invalid('卡片高度需在 360–20000 之间')

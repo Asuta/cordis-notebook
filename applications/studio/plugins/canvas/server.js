@@ -6,6 +6,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
 import { installMediaRoutes } from './media-server.js'
 import { copySelection } from './copy.js'
+import { serializeClientBoard, serializeClientState } from './client-state.js'
 
 async function uploadBody(req) {
   const chunks = []; let size = 0
@@ -28,12 +29,13 @@ export default async function (ctx, settings, runtime) {
   ctx.effect(() => () => store.flush())
   await installMediaRoutes(ctx, store)
   const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
-  route('GET', /^\/api\/studio$/, () => ({ ...store.read(), ...Object.assign({}, ...snapshots.list().map(item => item.read())), types: store.types.list().map(({ id, label, fields, accepts, output }) => ({ id, label, fields, accepts, output })) }))
-  route('POST', /^\/api\/studio\/boards$/, async ({ req }) => store.addBoard((await ctx.http.body(req)).title))
-  route('POST', /^\/api\/studio\/boards\/([\w-]{1,80})\/copy$/, ({ match }) => store.duplicateBoard(match[1]))
+  route('GET', /^\/api\/studio$/, () => serializeClientState(store, snapshots))
+  route('POST', /^\/api\/studio\/boards$/, async ({ req }) => serializeClientBoard(await store.addBoard((await ctx.http.body(req)).title), store.types))
+  route('POST', /^\/api\/studio\/boards\/([\w-]{1,80})\/copy$/, async ({ match }) => serializeClientBoard(await store.duplicateBoard(match[1]), store.types))
   route('POST', /^\/api\/studio\/edit$/, async ({ req }) => {
     const input = await ctx.http.body(req)
-    return service.edit(input.boardId, input.revision, input.operations)
+    const result = await service.edit(input.boardId, input.revision, input.operations)
+    return { ...result, board: serializeClientBoard(result.board, store.types) }
   })
   route('POST', /^\/api\/studio\/copy$/, async ({ req }) => {
     const input = await ctx.http.body(req), state = store.read(), board = state.boards.find(board => board.id === input.boardId)

@@ -1,12 +1,19 @@
 import { referenceInputs } from './references.js'
 
-export function textInputs(board, node, types) {
+export function textInputs(board, node, types, { tolerant = false } = {}) {
   const entries = (node.textReferences || []).map(ref => ({ ...ref, key: 'direct:' + ref.id }))
   for (const edge of board.edges.filter(edge => edge.to === node.id)) {
     const from = board.nodes.find(item => item.id === edge.from), type = types.get(from?.type)
     if (type?.output !== 'text') continue
-    if (!type.resolve) throw Error('文字输入卡片不可用')
-    entries.push({ key: 'edge:' + edge.id, edgeId: edge.id, title: from.title, text: type.resolve(structuredClone(from)).text || '' })
+    const entry = { key: 'edge:' + edge.id, edgeId: edge.id, title: from.title }
+    try {
+      const value = Object.hasOwn(from, 'resolvedOutput') ? from.resolvedOutput : type.resolve?.(structuredClone(from))
+      if (typeof value?.text !== 'string') throw Error('文字输入卡片不可用')
+      entries.push({ ...entry, text: value.text })
+    } catch (error) {
+      if (!tolerant) throw error
+      entries.push({ ...entry, text: '', unavailable: true })
+    }
   }
   const order = new Map((node.textReferenceOrder || []).map((key, i) => [key, i]))
   return entries.map((entry, i) => ({ ...entry, position: order.get(entry.key) ?? order.size + i })).sort((a, b) => a.position - b.position).map(({ position, ...entry }) => entry)

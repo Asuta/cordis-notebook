@@ -11,7 +11,7 @@
   "cordis": {
     "capabilities": [
       { "service": "canvasSession", "side": "client", "description": "当前画板、编辑历史与页面交互会话", "contracts": ["types/client.d.ts", "types/data.d.ts"], "examples": ["client.js"], "lifecycle": ["edit 传 expectedRevision，attachView(owner, view) 随 owner 释放；停止前 flush。"] },
-      { "service": "canvasDocuments", "side": "server", "description": "画布文档与可扩展卡片类型的持久化服务", "contracts": ["types/server.d.ts", "types/data.d.ts"], "examples": ["server.js"], "lifecycle": ["类型和提供者注册绑定 owner；修改文档使用服务接口及版本校验。"] }
+      { "service": "canvasDocuments", "side": "server", "description": "画布文档与可扩展卡片类型的持久化服务", "contracts": ["types/server.d.ts", "types/data.d.ts"], "examples": ["server.js"], "lifecycle": ["类型和提供者注册绑定 owner；修改文档使用服务接口及版本校验。/api/studio 将 resolver 的 text、assetId、kind 白名单序列化到临时 resolvedOutput，供浏览器读取；该结果不会保存进画布文档。"] }
     ],
     "schemaVersion": 1,
     "id": "canvas",

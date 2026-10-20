@@ -80,8 +80,8 @@
           },
           {
             "file": "plugins/canvas-ui/client.js",
-            "start": 921,
-            "end": 932
+            "start": 933,
+            "end": 944
           }
         ]
       },

@@ -1,6 +1,7 @@
 import { generationInput } from './definition.js'
 import { snapshotGenerator } from './snapshot.js'
 import { reserveResult, completeResults } from './results.js'
+import { orderedProviders } from './providers.js'
 
 const pending = job => ['queued', 'running'].includes(job?.status)
 const unresolved = job => pending(job) || ['paused', 'uncertain'].includes(job?.status)
@@ -16,8 +17,8 @@ export async function createJobs(documents) {
   let closed = false, pumping = false, closing
   await records.change(tx => { for (const job of tx.records) { if (pending(job)) interrupt(job, '应用已退出，生成被中断；请手动重试', true); if (unresolved(job)) reserveResult(tx, job) } })
   const read = () => records.read()
-  const orderedProviders = () => [...providers.values()].sort((a, b) => Number(b.id === 'pixel') - Number(a.id === 'pixel'))
-  const listProviders = () => orderedProviders().map(p => ({ id: p.id, label: p.label, ...p.public() }))
+  const sortedProviders = () => orderedProviders(providers.values())
+  const listProviders = () => sortedProviders().map(p => ({ id: p.id, label: p.label, ...p.public(), defaultProvider: p.defaultProvider === true }))
 
   async function execute(job, controller, request) {
     const checkpoint = async value => {
@@ -106,7 +107,7 @@ export async function createJobs(documents) {
     read, listProviders, resume, recover,
     provider(id) { const provider = providers.get(id); if (!provider) fail('生成服务不可用'); return provider },
     register(owner, provider) {
-      if (closed || !/^[a-z][a-z0-9-]*$/.test(provider.id) || providers.has(provider.id) || typeof provider.prepare !== 'function' || typeof provider.public !== 'function') throw Error('图片服务无效或重复')
+      if (closed || !/^[a-z][a-z0-9-]*$/.test(provider.id) || providers.has(provider.id) || typeof provider.prepare !== 'function' || typeof provider.public !== 'function' || (provider.defaultProvider !== undefined && typeof provider.defaultProvider !== 'boolean')) throw Error('图片服务无效或重复')
       return owner.effect(() => {
         providers.set(provider.id, provider); void recover(provider.id).catch(() => {})
         return async () => {
@@ -130,7 +131,7 @@ export async function createJobs(documents) {
         if (tx.records.some(j => j.boardId === input.boardId && j.nodeId === input.nodeId && j.status === 'uncertain')) fail('此卡片有提交结果未确认的任务，请先核对远端记录或结束跟踪')
         if (tx.records.filter(unresolved).length >= 20) fail('已有 20 个待完成任务')
         if (board.nodes.length >= 500) fail('画板卡片已满，请先腾出结果框的位置')
-        const provider = node?.provider ? providers.get(node.provider) : orderedProviders()[0]
+        const provider = node?.provider ? providers.get(node.provider) : sortedProviders()[0]
         if (!provider) fail('图片服务不可用，请启用对应插件')
         selectedProvider = provider
         const assets = documents.read().assets

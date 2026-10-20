@@ -90,6 +90,7 @@ async function setup(t, { models = {}, systemDark = false, library = null, libra
         return { board: structuredClone(state.boards[0]), inverse }
       }
       if (path === '/api/studio/generate') { generated.push(structuredClone(state.boards[0])); return { id: 'job', status: 'queued' } }
+      if (path === '/api/studio/cancel') { state.cancelledJob = body.id; const job = state.jobs.find(item => item.id === body.id); if (job) job.status = 'interrupted'; return { ok: true } }
       if (path === '/api/studio/upload') {
         state.uploadRequested = true
         if (state.uploadGate) await state.uploadGate
@@ -106,8 +107,8 @@ async function setup(t, { models = {}, systemDark = false, library = null, libra
     },
   }
   t.after(async () => { for (const cleanup of cleanups.reverse()) await cleanup?.(); await window.happyDOM.close(); Object.assign(globalThis, previous) })
-  state.providers = [{ id: Object.keys(models).length ? 'fake' : 'wavespeed', label: '测试服务', hasKey: true, model: 'test-model', ratios: ['auto', '1:1'], resolutions: ['1k'] }]
-  if (Object.keys(models).length) state.providers.push({ id: 'wavespeed', label: 'WaveSpeed', hasKey: true, modelCatalog: true, resumable: true })
+  state.providers = [{ id: Object.keys(models).length ? 'fake' : 'wavespeed', label: '测试服务', defaultProvider: true, hasKey: true, model: 'test-model', ratios: ['auto', '1:1'], resolutions: ['1k'] }]
+  if (Object.keys(models).length) state.providers.push({ id: 'wavespeed', label: 'WaveSpeed', defaultProvider: false, hasKey: true, modelCatalog: true, resumable: true })
   const modules = { canvas: client, ui, basic, generation, agent }, running = new Map()
   async function start(id) {
     const releases = [], child = Object.create(ctx)
@@ -148,6 +149,21 @@ test('默认生成服务与 Pixel 的图片比例支持自动', async t => {
   assert.deepEqual([...ratio.options].map(option => [option.value, option.textContent]), [['auto', '自动'], ['1:1', '1:1']])
   ratio.value = 'auto'; await ratio.onchange()
   await waitUntil(() => state.boards[0].nodes[0].ratio === 'auto')
+})
+
+test('任务占位卡通过共享动作取消，并在生成插件停用后显示不可用状态', async t => {
+  const { window, state, ctx, tools, stop } = await setup(t), jobId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const job = { id: jobId, boardId: state.boards[0].id, nodeId: 'pending', provider: 'wavespeed', status: 'running', createdAt: 1 }
+  state.jobs.push(job); ctx.canvasSession.state.jobs.push(structuredClone(job))
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'pending', type: 'image', title: '生成中', sourceNodeId: 'generator', jobId } }] })
+  const cancel = [...window.document.querySelectorAll('.studio-pending-actions button')].find(button => /停止生成|暂停查询/.test(button.textContent))
+  assert.ok(cancel)
+  await cancel.onclick()
+  assert.equal(state.cancelledJob, jobId)
+  assert.equal(state.jobs[0].status, 'interrupted')
+  await stop('generation')
+  assert.match(window.document.querySelector('.studio-pending-media').textContent, /生成插件未启用/)
+  assert.equal(window.document.querySelector('.studio-pending-actions button'), null)
 })
 
 test('深色模式跟随系统、可切换并记住用户选择', async t => {
@@ -1135,6 +1151,66 @@ test('未收藏的图片和视频结果显示参数卡入口，点击或拖出�
   assert.equal(window.document.querySelector('[data-node="video-result"] video'), video, '添加参数卡不能刷新已有视频')
   assert.equal(window.document.querySelectorAll('[data-node="video-result"] .studio-result-parameter').length, 1)
   assert.equal(generated.length, 0, '恢复参数卡不能自动生成')
+})
+
+test('视频标题自动保存并刷新后失焦恢复标题，重复编辑仍保留播放器', async t => {
+  const { window, state, tools, ctx, toasts } = await setup(t)
+  state.assets.clip = { id: 'clip', kind: 'video', name: '视频.mp4', extension: 'mp4', width: 480, height: 640, duration: 5.2 }
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'video', type: 'video', title: '原始标题', assetId: 'clip' } }] })
+  const card = window.document.querySelector('[data-node="video"]'), player = card.querySelector('video')
+  player.currentTime = 2.5
+  const blur = async input => {
+    const onblur = input.onblur
+    let pending
+    input.onblur = event => { pending = onblur(event) }
+    input.blur()
+    await pending
+  }
+  for (const title of ['自动保存后的标题', '再次修改后的标题']) {
+    card.querySelector('[title="双击修改卡片标题"]').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }))
+    const input = card.querySelector('.studio-card-head input')
+    assert.ok(window.document.activeElement === input, '标题输入框应获得焦点')
+    input.value = title; input.oninput()
+    await waitUntil(() => !tools.get('studio_read')().dirty)
+    assert.equal(state.boards[0].nodes[0].title, title)
+    state.jobs.push({ id: 'background-' + state.jobs.length, status: 'running' })
+    await ctx.canvasSession.refresh({ fresh: true })
+    assert.equal(ctx.canvasSession.state.jobs.length, state.jobs.length, '编辑期间仍接收轮询结果')
+    assert.ok(card.querySelector('.studio-card-head input') === input, '刷新不能打断正在编辑的标题')
+    await blur(input)
+    assert.equal(ctx.canvasSession.editing, false)
+    assert.ok(!card.querySelector('.studio-card-head input'), '失焦后应恢复正常标题')
+    assert.equal(card.querySelector('[title="双击修改卡片标题"]').textContent, title)
+    assert.ok(window.document.querySelector('[data-node="video"]') === card, '恢复标题不能重建卡片')
+    assert.ok(card.querySelector('video') === player, '恢复标题不能重建播放器')
+    assert.equal(player.currentTime, 2.5)
+    state.jobs.at(-1).status = 'succeeded'
+    await ctx.canvasSession.refresh({ fresh: true })
+    assert.ok(!card.querySelector('.studio-card-head input'), '后续轮询不能恢复编辑框')
+    assert.ok(window.document.querySelector('[data-node="video"]') === card, '后续轮询继续复用卡片')
+    assert.ok(window.document.querySelector('[data-node="video"] video') === player, '后续轮询继续复用播放器')
+    assert.equal(player.currentTime, 2.5)
+  }
+  assert.deepEqual(toasts, [])
+})
+
+test('视频标题保存冲突时保留输入和草稿，不重建播放器', async t => {
+  const { window, state, tools, toasts } = await setup(t)
+  state.assets.clip = { id: 'clip', kind: 'video', name: '视频.mp4', extension: 'mp4', width: 480, height: 640, duration: 5.2 }
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'video', type: 'video', title: '原始标题', assetId: 'clip' } }] })
+  const card = window.document.querySelector('[data-node="video"]'), player = card.querySelector('video')
+  card.querySelector('[title="双击修改卡片标题"]').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }))
+  const input = card.querySelector('.studio-card-head input')
+  input.value = '本页草稿'; input.oninput()
+  state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: 'video', patch: { title: '另一页面标题' } }, state.assets).board
+  await input.onblur()
+  assert.equal(state.boards[0].nodes[0].title, '另一页面标题')
+  assert.ok(card.querySelector('.studio-card-head input') === input, '保存冲突时保留标题编辑框')
+  assert.equal(input.value, '本页草稿')
+  assert.equal(tools.get('studio_read')().dirty, true)
+  assert.equal(JSON.parse(window.localStorage.getItem('drafts')).drafts[0][1].patch.title, '本页草稿')
+  assert.ok(window.document.querySelector('[data-node="video"] video') === player, '保存冲突不能重建播放器')
+  assert.match(toasts.at(-1), /其他页面修改/)
 })
 
 test('生成视频首次播放后写入播放状态，导入视频不显示未播放标记', async t => {

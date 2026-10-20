@@ -5,7 +5,7 @@ import { Buffer } from 'node:buffer'
 export function createProvider({ id = 'local-example', label = '本地示例' } = {}) {
   const model = 'local-sample', ratios = ['1:1'], resolutions = ['sample']
   return {
-    id, label: label + '（本地模拟）',
+    id, label: label + '（本地模拟）', defaultProvider: true,
     public: () => ({ model, hasKey: true, ratios: [...ratios], resolutions: [...resolutions], referenceImages: false, referenceVideos: false }),
     prepare(input) {
       if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 24000) throw Error('请填写最多 24000 字符的提示词')

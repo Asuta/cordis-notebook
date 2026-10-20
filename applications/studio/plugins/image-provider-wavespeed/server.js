@@ -8,7 +8,7 @@ export default async function (ctx, settings, runtime) {
   const catalog = await createCatalog(runtime.dataDir, config, transport, runtime.writeSnapshot), validators = new Map()
   ctx.effect(() => () => transport.close())
   const provider = {
-    id: 'wavespeed', label: 'WaveSpeed', public: config.public,
+    id: 'wavespeed', label: 'WaveSpeed', defaultProvider: true, public: config.public,
     listModels: options => catalog.list(options), getModel: id => catalog.detail(id),
     prepare(input) {
       const snapshot = config.private()

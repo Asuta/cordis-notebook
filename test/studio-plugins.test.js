@@ -11,6 +11,10 @@ import { createNodeRegistry } from '../applications/studio/plugins/canvas/regist
 import { definitions } from '../applications/studio/plugins/canvas-basic-cards/definitions.js'
 import { definition, generationInput } from '../applications/studio/plugins/image-generation/definition.js'
 import { createJobs } from '../applications/studio/plugins/image-generation/jobs.js'
+import { defaultProvider, orderedProviders } from '../applications/studio/plugins/image-generation/providers.js'
+import { referenceInputs } from '../applications/studio/plugins/image-generation/references.js'
+import { textInputs } from '../applications/studio/plugins/image-generation/snapshot.js'
+import { serializeClientState } from '../applications/studio/plugins/canvas/client-state.js'
 import { createConfig } from '../applications/studio/plugins/image-provider-pixel/pixel.js'
 import { owner } from './helpers/studio-fixture.js'
 
@@ -68,6 +72,27 @@ test('任意插件的可选字段可跨 JSON 撤销删除，保留 null 值并�
   assert.deepEqual(store.read(), before)
 })
 
+test('画布响应序列化自定义卡片 resolver 结果供浏览器引用，但不写入文档', async t => {
+  const { store, types, edit } = await setup(t), plugin = owner()
+  types.register(plugin, { id: 'resolved-media', label: '动态媒体', fields: ['source'], output: 'image', defaults: () => ({ source: 'asset-42' }), validate() {}, resolve: () => ({ assetId: 'asset-42', kind: 'video' }) })
+  types.register(plugin, { id: 'resolved-text', label: '动态文字', fields: ['copy'], output: 'text', defaults: () => ({ copy: '原内容' }), validate() {}, resolve: node => ({ text: '解析后：' + node.copy }) })
+  await edit([
+    { type: 'add', node: { id: 'media', type: 'resolved-media' } },
+    { type: 'add', node: { id: 'text', type: 'resolved-text' } },
+    { type: 'add', node: { id: 'generator', type: 'generator', prompt: '补充要求' } },
+    { type: 'connect', id: 'media-edge', from: 'media', to: 'generator' },
+    { type: 'connect', id: 'text-edge', from: 'text', to: 'generator' },
+  ])
+  const state = serializeClientState(store, { list: () => [] }), board = state.boards[0], generator = board.nodes.find(node => node.id === 'generator')
+  assert.deepEqual(board.nodes.find(node => node.id === 'media').resolvedOutput, { assetId: 'asset-42', kind: 'video' })
+  assert.deepEqual(board.nodes.find(node => node.id === 'text').resolvedOutput, { text: '解析后：原内容' })
+  const typesById = new Map(state.types.map(type => [type.id, type]))
+  assert.deepEqual(referenceInputs(board, generator, {}, typesById).map(({ assetId, kind }) => ({ assetId, kind })), [{ assetId: 'asset-42', kind: 'video' }])
+  assert.equal(textInputs(board, generator, typesById)[0].text, '解析后：原内容')
+  assert.equal(Object.hasOwn(store.read().boards[0].nodes.find(node => node.id === 'media'), 'resolvedOutput'), false)
+  await plugin.dispose()
+})
+
 test('扩展记录与结果卡片同一事务提交，失败回滚且不泄露可变状态引用', async t => {
   const { store, boardId } = await setup(t), records = store.records('image-generation')
   await records.change(tx => tx.records.push({ id: 'one', status: 'running' }))
@@ -102,6 +127,27 @@ test('图片服务可替换；任务固定提供者和参数快照，重复 ID �
   assert.equal(image.jobId, job.id); assert.equal(image.sourceNodeId, 'g')
   await provider.dispose()
   await assert.rejects(jobs.start({ ...request, requestId: randomUUID(), revision: store.read().boards[0].revision }), /图片服务不可用/)
+})
+
+test('生成服务声明默认项，前后端使用稳定顺序且未指定服务的任务跟随默认项', async t => {
+  const candidates = [{ id: 'zeta' }, { id: 'wavespeed', defaultProvider: true }, { id: 'alpha' }]
+  assert.deepEqual(orderedProviders(candidates).map(item => item.id), ['wavespeed', 'alpha', 'zeta'])
+  assert.equal(defaultProvider(candidates).id, 'wavespeed')
+  assert.deepEqual(orderedProviders([{ id: 'zeta' }, { id: 'alpha' }]).map(item => item.id), ['alpha', 'zeta'])
+
+  const { store, edit, boardId, cleanup } = await setup(t), jobs = await createJobs(store), plugin = owner()
+  cleanup.push(() => jobs.close(), () => plugin.dispose())
+  for (const [id, preferred] of [['zeta', false], ['alpha', false], ['preferred', true]]) jobs.register(plugin, {
+    id, label: id, defaultProvider: preferred, public: () => ({}), prepare: () => ({ model: 'mock', generate: async () => png() }),
+  })
+  const added = await edit([{ type: 'add', node: { id: 'auto', type: 'generator', prompt: '默认服务' } }])
+  const job = await jobs.start({ boardId, nodeId: 'auto', revision: added.board.revision, requestId: randomUUID() })
+  assert.equal(job.provider, 'preferred')
+  assert.equal(jobs.listProviders()[0].defaultProvider, true)
+  await until(() => jobs.read()[0].status === 'succeeded')
+
+  const explicit = await edit([{ type: 'add', node: { id: 'offline', type: 'generator', provider: 'offline-provider', prompt: '保留选择' } }])
+  await assert.rejects(jobs.start({ boardId, nodeId: 'offline', revision: explicit.board.revision, requestId: randomUUID() }), /图片服务不可用/)
 })
 
 test('停用提供者中断运行和排队任务；忽略取消后迟到图片，恢复不自动重试', async t => {

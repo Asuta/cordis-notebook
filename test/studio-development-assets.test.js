@@ -113,6 +113,27 @@ async function uiFixture(t) {
   return { ...f, window, sdk, view: context.canvasUI, context }
 }
 
+test('选择工具栏复用按钮时仍读取最新卡片和动作', async t => {
+  const f = await uiFixture(t), received = [];
+  f.view.register(f.context, {
+    id: 'text', label: '文字', render() {},
+    actions: [{ label: '读取卡片', run: node => received.push(node.text) }],
+    selectionActions(nodes) {
+      const text = nodes[0].text;
+      return [{ id: 'read-selection', label: '读取所选', run: current => received.push([text, current[0].text]) }];
+    },
+  });
+  await f.session.edit([{ type: 'add', node: { id: 'text', type: 'text', title: '标题不变', text: '旧内容' } }]);
+  f.view.select(['text']);
+  const findButton = label => [...f.window.document.querySelectorAll('button')].find(button => button.textContent === label);
+  const selectionButton = findButton('读取所选'), cardButton = findButton('读取卡片');
+  await f.session.edit([{ type: 'update', id: 'text', patch: { text: '新内容' } }]);
+  assert.ok(findButton('读取所选') === selectionButton, '内容变化不必重建工具栏');
+  await selectionButton.onclick();
+  await cardButton.onclick();
+  assert.deepEqual(received, [['新内容', '新内容'], '新内容']);
+});
+
 test('画布五条路径返回完整资料、可参数化骨架和可执行公共场景', async () => {
   for (const template of templates) {
     const info = await developmentInfo(resolve('.'), 'studio', { task: template })
@@ -178,7 +199,7 @@ test('界面增强在真实 canvasUI 中处理既有及复用视频卡片，刷�
   // 媒体传输不在本测试范围；在会话中注入已导入的视频元数据，测试真实 UI 的 DOM 复用分支。
   f.session.state.assets.video = { id: 'video', kind: 'video', name: '已有视频', width: 32, height: 32 }
   f.session.board().nodes.push({ id: 'video', type: 'video', title: '已有视频', assetId: 'video', x: 400, y: 0 })
-  f.view.register(f.context, { id: 'video', label: '视频', render: (_, card) => card.append(f.sdk.el('video')) })
+  f.view.register(f.context, { id: 'video', label: '视频', preserveDOM: node => Boolean(node.assetId), render: (_, card) => card.append(f.sdk.el('video')) })
   const video = f.view.cards.querySelector('[data-node=video]'), selector = '[data-studio-extension]'
   let plugin = owner(); f.cleanups.push(() => plugin.dispose())
   const enable = () => apply(Object.assign(plugin, { canvasUI: f.view }))

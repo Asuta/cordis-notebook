@@ -6,7 +6,7 @@ import { createApplicationSettings } from './settings.js'
 export default async function (ctx, sdk) {
   const s = ctx.canvasSession, el = sdk.el, uuid = () => crypto.randomUUID();
   const { board, api, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
-  const renderers = new Map(), menus = new Map(), extensions = new Map();
+  const renderers = new Map(), menus = new Map(), extensions = new Map(), renderedNodes = new Map();
   let stopped = false, drag = null, connecting = null, connectDrag = null, space = false, viewTimer, selectionSignature = "", editingField = null, suppressCardClick = false, renamingBoardId = null;
   let clipboard = null, lastPointer = null, pasteTarget = null;
   const selected = new Set();
@@ -227,30 +227,17 @@ export default async function (ctx, sdk) {
     if (operations.length > 100) throw Error("请每次选择不超过 100 张卡片进行排列。");
     if (operations.length) await edit(operations);
   }
-  function directOutputs(node) {
-    return board().nodes.filter(child => child.sourceNodeId === node.id);
-  }
-  function selectedSubsetGenerator(nodes) {
-    const generators = nodes.filter(node => node.type === 'generator');
-    if (generators.length !== 1) return null;
-    const generator = generators[0], products = directOutputs(generator);
-    if (nodes.length === 1) return generator.id;
-    const subset = new Set([generator.id, ...products.map(product => product.id)]);
-    return products.length && nodes.every(node => subset.has(node.id)) && products.every(product => selected.has(product.id)) ? generator.id : null;
-  }
-  async function organizeSubset(nodeId) {
+  async function arrangeNodes(nodeIds, options = {}) {
     await flush();
-    const node = board().nodes.find(item => item.id === nodeId && item.type === 'generator');
-    if (!node) return;
-    const products = directOutputs(node);
-    if (products.length < 2) return;
-    const operations = arrangeGrid(products, cardSize, { startX: node.x + cardSize(node).width + 120, startY: node.y });
+    const nodes = nodeIds.map(id => board().nodes.find(node => node.id === id)).filter(Boolean), layout = {};
+    if (options.after) {
+      const anchor = board().nodes.find(node => node.id === options.after);
+      if (!anchor) throw Error('排列参照卡片不存在');
+      layout.startX = anchor.x + cardSize(anchor).width + (options.gap ?? 120); layout.startY = anchor.y;
+    }
+    const operations = arrangeGrid(nodes, cardSize, layout);
+    if (operations.length > 100) throw Error('请每次排列不超过 100 张卡片。');
     if (operations.length) await edit([{ type: 'layout', nodes: operations }]);
-    selected.clear();
-    selected.add(node.id);
-    products.forEach(product => selected.add(product.id));
-    updateSelectionTools();
-    notice.textContent = `已整理 ${products.length} 张生成产物`;
   }
   async function tidyCanvas(algorithm) {
     await flush();
@@ -286,10 +273,18 @@ export default async function (ctx, sdk) {
     contextTools.style.left = position2.x + "px";
     contextTools.style.top = position2.y + "px";
   }
+  function selectionActions(nodes) {
+    const contributors = [...new Set(nodes.map(node => renderers.get(node.type)).filter(Boolean))], offeredActions = [];
+    for (const renderer of contributors) {
+      for (const action of renderer.selectionActions?.(nodes, view) || []) offeredActions.push({ action, run: () => action.run(nodes, view) });
+      if (nodes.length === 1) for (const action of renderer.actions || []) offeredActions.push({ action, run: () => action.run(nodes[0], view) });
+    }
+    return offeredActions;
+  }
   function updateSelectionTools() {
-    const nodes = selectedNodes(), subset = selectedSubsetGenerator(nodes);
-    const subsetProducts = subset ? directOutputs(nodes.find(node => node.id === subset)) : [];
-    const signature = JSON.stringify([s.boardId, s.editing, nodes.map((n) => [n.id, n.type, n.title]), subset ? subsetProducts.map(node => node.id) : null]);
+    const nodes = selectedNodes(), offeredActions = selectionActions(nodes);
+    const actionSignature = offeredActions.map(({ action }) => [action.id || '', action.label, action.disabled === true, action.title || '']);
+    const signature = JSON.stringify([s.boardId, s.editing, nodes.map((n) => [n.id, n.type, n.title]), actionSignature]);
     for (const card of cards.children) card.classList.toggle("selected", selected.has(card.dataset.node));
     focusButton.disabled = !nodes.length;
     returnButton.disabled = !returnViews.has(s.boardId);
@@ -299,15 +294,14 @@ export default async function (ctx, sdk) {
       contextTools.replaceChildren();
       if (nodes.length) {
         contextTools.append(el("span", { class: "studio-selection-label" }, nodes.length > 1 ? `已选 ${nodes.length} 张卡片` : renderers.get(nodes[0].type)?.label || "插件未启用"), button("聚焦", () => focusView(true)));
-        if (nodes.length === 1) {
-          const node = nodes[0];
-          for (const action of renderers.get(node.type)?.actions || []) contextTools.append(button(action.label, () => action.run(node, view)));
-        }
-        if (subset) {
-          const subsetButton = button("整理子集", () => organizeSubset(subset));
-          subsetButton.disabled = subsetProducts.length < 2;
-          subsetButton.title = subsetButton.disabled ? '至少需要两个直接生成产物' : '将直接生成产物在参数卡右侧整理成近方形网格';
-          contextTools.append(subsetButton);
+        for (const [index, { action }] of offeredActions.entries()) {
+          const actionButton = button(action.label, () => {
+            const current = selectionActions(selectedNodes())[index];
+            if (current && current.action.disabled !== true) return current.run();
+          });
+          actionButton.disabled = action.disabled === true;
+          if (action.title) actionButton.title = action.title;
+          contextTools.append(actionButton);
         }
         if (nodes.length > 1) contextTools.append(button("整理为网格", arrangeSelection));
         contextTools.append(button("创建副本", duplicateSelection), button("删除所选", removeSelection, "studio-danger"));
@@ -357,7 +351,7 @@ export default async function (ctx, sdk) {
       svg.append(path);
     }
   }
-  function field(node, prop, area = false) {
+  function field(node, prop, area = false, onSaved = null) {
     const value = s.drafts.get(node.id)?.patch[prop] ?? node[prop];
     const input = el(area ? "textarea" : "input", { value, "aria-label": node.title + (prop === "prompt" ? " 提示词" : prop === "text" ? " 文字内容" : " 标题"), maxLength: prop === 'prompt' ? 24000 : area ? 12e3 : 120 });
     input.onfocus = () => {
@@ -368,7 +362,7 @@ export default async function (ctx, sdk) {
     };
     input.oninput = () => draft(node, prop, input.value);
     input.onblur = safe(async () => {
-      try { await flush(); }
+      try { await flush(); onSaved?.(input); }
       finally { endEditing(input); if (!s.drafts.size) render(); }
     });
     input.onkeydown = (event) => {
@@ -384,8 +378,7 @@ export default async function (ctx, sdk) {
     return input;
   }
   function renderCard(node) {
-    const generatedVideo = node.type === 'video' && !!node.sourceNodeId, unplayedVideo = generatedVideo && node.played !== true;
-    const card = el("article", { class: `studio-card studio-${node.type}${selected.has(node.id) ? " selected" : ""}${unplayedVideo ? ' is-unplayed' : ''}` });
+    const card = el("article", { class: "studio-card studio-" + node.type + (selected.has(node.id) ? " selected" : "") });
     card.dataset.node = node.id;
     card.style.left = node.x + "px";
     card.style.top = node.y + "px";
@@ -395,7 +388,10 @@ export default async function (ctx, sdk) {
     title.title = "双击修改卡片标题";
     title.ondblclick = (event) => {
       event.stopPropagation();
-      const input = field(node, "title");
+      const input = field(renderedNodes.get(node.id) || node, "title", false, (input) => {
+        title.textContent = board().nodes.find(item => item.id === node.id)?.title ?? input.value;
+        input.replaceWith(title);
+      });
       title.replaceWith(input);
       input.focus();
       input.select();
@@ -404,7 +400,6 @@ export default async function (ctx, sdk) {
     card.studioRenderer = renderer;
     card.studioNode = JSON.stringify(node);
     head.append(el("span", { class: "studio-kind" }, renderer?.icon || "?"));
-    if (unplayedVideo) head.append(el('span', { class: 'studio-video-unplayed' }, '未播放'));
     head.append(title);
     card.append(head);
     if (renderer?.input || renderer?.output) {
@@ -463,14 +458,14 @@ export default async function (ctx, sdk) {
     boardTitle.value = s.drafts.get(s.titleDraftId)?.patch.title ?? s.renderedTitle;
     boardList.replaceChildren(...s.state.boards.map(boardRow));
     for (const extension of extensions.values()) extension.refresh?.();
-    s.renderedNodes.clear();
+    renderedNodes.clear();
     const existingCards = new Map([...cards.children].map(item => [item.dataset.node, item]));
     const nextCards = board().nodes.map((node) => {
       const rendered = structuredClone(node);
-      s.renderedNodes.set(node.id, rendered);
+      renderedNodes.set(node.id, rendered);
       const existing = existingCards.get(node.id);
-      // Keep an unchanged video element connected while background jobs update.
-      if (node.type === 'video' && node.assetId && existing && existing.studioRenderer === renderers.get(node.type) && existing.studioNode === JSON.stringify(node)) {
+      const renderer = renderers.get(node.type), preserveDOM = typeof renderer?.preserveDOM === 'function' ? renderer.preserveDOM(node) : renderer?.preserveDOM;
+      if (preserveDOM && existing && existing.studioRenderer === renderer && existing.studioNode === JSON.stringify(node)) {
         existing.classList.toggle('selected', selected.has(node.id)); return existing;
       }
       return renderCard(rendered);
@@ -758,7 +753,7 @@ export default async function (ctx, sdk) {
         if (operations.length) {
           await edit(operations, { repaint: false });
           for (const before of previous.nodes) {
-            const node = board().nodes.find((item) => item.id === before.id), rendered = s.renderedNodes.get(before.id);
+            const node = board().nodes.find((item) => item.id === before.id), rendered = renderedNodes.get(before.id);
             if (rendered) Object.assign(rendered, { x: node.x, y: node.y });
             const card = cards.querySelector(`[data-node="${before.id}"]`);
             if (card) card.studioNode = JSON.stringify(rendered || node);
@@ -819,10 +814,10 @@ export default async function (ctx, sdk) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
       const current = selectedNodes();
-      if (current.length === 1 && current[0].type === 'generator') {
+      const group = current.length === 1 ? renderers.get(current[0].type)?.selectionGroup?.(current[0], view) : null;
+      if (group?.length) {
         selected.clear();
-        selected.add(current[0].id);
-        directOutputs(current[0]).forEach(node => selected.add(node.id));
+        group.forEach(node => selected.add(node.id));
       } else board().nodes.forEach((n) => selected.add(n.id));
       updateSelectionTools();
     }
@@ -893,6 +888,7 @@ export default async function (ctx, sdk) {
     cards,
     position,
     coordinates,
+    board: () => board(),
     state: () => s.state,
     boardId: () => s.boardId,
     execute: (...args) => s.execute(...args),
@@ -905,6 +901,20 @@ export default async function (ctx, sdk) {
       setPasteTarget(target);
     },
     render,
+    select(nodeIds) {
+      selected.clear();
+      for (const id of nodeIds) if (board().nodes.some(node => node.id === id)) selected.add(id);
+      render();
+    },
+    arrangeNodes,
+    syncRenderedNode(id, patch) {
+      const rendered = renderedNodes.get(id);
+      if (!rendered) return false;
+      Object.assign(rendered, patch);
+      const card = [...cards.children].find(item => item.dataset.node === id);
+      if (card) card.studioNode = JSON.stringify(rendered);
+      return true;
+    },
     register(owner, definition) {
       if (!/^[a-z][a-z0-9-]*$/.test(definition.id) || renderers.has(definition.id)) throw Error("卡片视图无效或重复");
       return owner.effect(() => {
@@ -947,7 +957,7 @@ export default async function (ctx, sdk) {
       });
     }
   };
-  s.attachView(ctx, { render, status: (value) => notice.textContent = value, dragging: () => !!drag, choose: () => {
+  s.attachView(ctx, { render, syncRenderedNode: view.syncRenderedNode, status: (value) => notice.textContent = value, dragging: () => !!drag, choose: () => {
     selected.clear();
     stopConnecting();
     clearConnectDrag();

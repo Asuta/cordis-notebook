@@ -4,8 +4,15 @@ import type { CanvasNode, CanvasBoard, CanvasState, CanvasOperation, EditResult 
 import type {} from '@cordis-notebook/host'
 export interface CardView {
   id: string; label: string; icon: string; input?: boolean; output?: boolean; height?: number
+  preserveDOM?: boolean | ((node: CanvasNode) => boolean)
   render(node: CanvasNode, card: HTMLElement, view: CanvasUI): void
   actions?: { label: string; run(node: CanvasNode, view: CanvasUI): unknown }[]
+  selectionActions?(nodes: CanvasNode[], view: CanvasUI): SelectionAction[]
+  selectionGroup?(node: CanvasNode, view: CanvasUI): CanvasNode[] | null
+}
+export interface SelectionAction {
+  id?: string; label: string; title?: string; disabled?: boolean
+  run(nodes: CanvasNode[], view: CanvasUI): unknown
 }
 export interface ReferencePasteTarget {
   boardId: string; nodeId: string; refKey: string
@@ -14,7 +21,7 @@ export interface ReferencePasteTarget {
   apply(assetId: string): Promise<void> | void
 }
 export interface CanvasUI {
-  root: HTMLElement; empty: HTMLElement; side: HTMLElement; stage: HTMLElement; assetsList: HTMLElement; cards: HTMLElement
+  root: HTMLElement; empty: HTMLElement; side: HTMLElement; stage: HTMLElement; assetsList: HTMLElement; assetPanel: HTMLElement; assetHeader: HTMLElement; assetCount: HTMLElement; assetsTools: HTMLElement; cards: HTMLElement
   el: ClientSDK['el']
   button(label: string, callback: (event?: Event) => unknown, className?: string): HTMLButtonElement
   field(node: CanvasNode, property: string, area?: boolean): HTMLInputElement | HTMLTextAreaElement
@@ -29,6 +36,9 @@ export interface CanvasUI {
   boardId(): string
   state(): CanvasState
   add(type: string, fields?: Record<string, unknown>, options?: { fit?: boolean }): Promise<string>
+  select(nodeIds: string[]): void
+  arrangeNodes(nodeIds: string[], options?: { after?: string; gap?: number }): Promise<void>
+  syncRenderedNode(id: string, patch: Record<string, unknown>): boolean
   edit(operations: CanvasOperation[], options?: { expectedRevision?: number; history?: boolean; targetBoard?: string }): Promise<EditResult>
   flush(): Promise<void>
   refresh(): Promise<void>

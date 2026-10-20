@@ -57,8 +57,12 @@ export default function (ctx, sdk) {
       card.append(image, foot)
     },
   })
-  view.register(ctx, { id: 'video', label: '视频', icon: '▷', output: true, height: 300,
+  view.register(ctx, { id: 'video', label: '视频', icon: '▷', output: true, height: 300, preserveDOM: node => Boolean(node.assetId),
     render(node, card) {
+      const unplayed = !!node.sourceNodeId && node.played !== true, head = card.querySelector('.studio-card-head');
+      card.classList.toggle('is-unplayed', unplayed);
+      head.querySelector('.studio-video-unplayed')?.remove();
+      if (unplayed) head.insertBefore(el('span', { class: 'studio-video-unplayed' }, '未播放'), head.lastElementChild);
       if (renderPending(node, card, view, s)) return
       const asset = s.state.assets[node.assetId], player = el('video', { src: asset ? mediaUrl(asset) : '', preload: 'metadata', playsInline: true, draggable: false, 'aria-label': node.title + ' 视频播放' })
       const surface = el('div', { class: 'studio-video-surface', title: '单击播放或暂停，按住拖动卡片' }), overlay = el('span', { class: 'studio-video-overlay', 'aria-hidden': 'true' }, '▶'), controls = el('div', { class: 'studio-video-controls' })
@@ -72,8 +76,7 @@ export default function (ctx, sdk) {
         player.loop = next; syncPlayer()
         try {
           await edit([{ type: 'update', id: node.id, patch: { loop: next } }], { repaint: false })
-          const rendered = s.renderedNodes.get(node.id)
-          if (rendered) { rendered.loop = next; card.studioNode = JSON.stringify(rendered) }
+          view.syncRenderedNode(node.id, { loop: next })
         } catch (error) { player.loop = !next; syncPlayer(); throw error }
       }, 'studio-video-loop')
       let seeking = false
@@ -103,8 +106,7 @@ export default function (ctx, sdk) {
           node.played = true
           card.classList.remove('is-unplayed')
           card.querySelector('.studio-video-unplayed')?.remove()
-          const rendered = s.renderedNodes.get(node.id)
-          if (rendered) { rendered.played = true; card.studioNode = JSON.stringify(rendered) }
+          view.syncRenderedNode(node.id, { played: true })
         } finally { playedPending = false }
       }
       player.loop = node.loop === true
