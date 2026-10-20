@@ -6,8 +6,12 @@
   <section id="offline" hidden><div class="offline-card"><span class="eyebrow">APPLICATION</span><h1>应用暂未连接</h1><p>聊天和代码工具仍然可用。可以让 Agent 查看日志、修复代码，再重新启动应用。</p><button id="start-app">启动应用</button><details><summary>应用日志</summary><pre id="logs"></pre></details></div></section>
   <button id="launcher" aria-label="打开 Agent 对话" title="拖动可移动，点击打开 Agent">✦ <span>Agent</span><i id="badge" hidden></i></button>
   <aside id="chat" hidden aria-label="Agent 对话">
-    <header class="chat-header" title="拖动标题栏移动，拖动边缘缩放，双击恢复默认位置"><div class="agent-identity"><span class="agent-mark" aria-hidden="true">✦</span><div><strong>Agent</strong><span id="connection">连接中</span></div></div><nav><a href="/chat" target="_blank" aria-label="打开独立聊天页" title="独立聊天页">↗</a><button id="settings-open" title="模型设置">设置</button><button id="chat-close" aria-label="关闭聊天">×</button></nav></header>
-    <div class="scope"><select id="app-select" aria-label="会话所属应用" title="选择对话上下文；运行中的应用通过页面顶部切换"></select><select id="threads" aria-label="会话历史"><option value="">新对话</option></select><button id="new-thread" title="开始新对话" aria-label="新对话">＋</button></div>
+    <header class="chat-header" title="拖动标题栏移动，拖动边缘缩放，双击恢复默认位置"><div class="agent-identity"><span class="agent-mark" aria-hidden="true">✦</span><div><strong>Agent</strong><span id="connection">连接中</span></div></div><button id="scope-toggle" class="scope-chip" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="scope-menu" title="切换应用或对话"><span id="scope-label">新对话</span><i aria-hidden="true">⌄</i></button><nav><a href="/chat" target="_blank" aria-label="打开独立聊天页" title="独立聊天页">↗</a><button id="settings-open" aria-label="模型设置" title="模型设置">⚙</button><button id="chat-close" aria-label="关闭聊天">×</button></nav></header>
+    <div class="scope" id="scope-menu" role="dialog" aria-label="应用与对话" hidden>
+      <label class="scope-field"><span>应用</span><select id="app-select" aria-label="会话所属应用" title="选择对话上下文；运行中的应用通过页面顶部切换"></select></label>
+      <label class="scope-field"><span>对话</span><select id="threads" aria-label="会话历史"><option value="">新对话</option></select></label>
+      <button id="new-thread" type="button" title="开始新对话">＋ 新建对话</button>
+    </div>
     <button id="older" type="button" hidden>加载更早的对话</button>
     <div class="message-area"><div id="messages" role="log" aria-live="polite"></div><button id="latest" type="button" hidden>↓ 回到最新</button></div>
     <div class="compose-dock">
@@ -19,11 +23,11 @@
         <div class="compose-toolbar">
           <button id="attach-image" type="button" aria-label="添加图片" title="添加图片，也支持粘贴或拖入">＋</button><input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
           <div class="compose-options"><select id="compose-model" aria-label="调用模型"></select><select id="compose-effort" aria-label="推理强度"><option value="off">思考关闭</option><option value="low">思考 Low</option><option value="high" selected>思考 High</option><option value="max">思考 Max</option></select></div>
+          <div class="context-bar"><span id="context-usage">待确认 / 128k</span><button id="compact" type="button">压缩</button><details class="permissions"><summary aria-label="权限与操作说明" title="权限与操作说明">ⓘ</summary><div>本地完全信任模式：Agent 可修改项目文件并运行命令。<br><span id="composer-hint">Enter 发送 · Shift + Enter 换行</span></div></details></div>
           <label class="browser-option" title="按会话记住；发送时确定本轮设置，执行中更改从下一轮生效"><input id="browser-verification" type="checkbox">浏览器验收</label>
           <div class="compose-actions"><button type="button" id="stop" aria-label="停止任务" title="停止任务" hidden>■</button><button id="send" type="submit" aria-label="发送消息" title="发送消息">↑</button></div>
         </div>
       </form>
-      <div class="context-bar"><span id="context-usage">上下文待使用</span><button id="compact" type="button">压缩</button><details class="permissions"><summary aria-label="权限与操作说明" title="权限与操作说明">ⓘ</summary><div>本地完全信任模式：Agent 可修改项目文件并运行命令。<br><span id="composer-hint">Enter 发送 · Shift + Enter 换行</span></div></details></div>
       <p id="upload-status" role="status" hidden></p>
     </div>
     <div class="chat-resizer" id="chat-resize-top" data-resize="top" aria-hidden="true"></div>

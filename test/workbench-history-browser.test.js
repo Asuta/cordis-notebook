@@ -30,7 +30,9 @@ test('工作台真实页面先接收 SSE 再加载历史仍按时间排序，逐
   const connected = page.waitForResponse(response => response.url().endsWith('/api/events'))
   await page.goto(base + '/chat')
   await connected
+  await page.locator('#scope-toggle').click()
   await page.locator('#app-select').selectOption('notebook')
+  await page.locator('#scope-toggle').click()
   await page.locator('#threads').selectOption('history')
   await pending
   // A real server event arrives while the first detail fetch is still pending.
