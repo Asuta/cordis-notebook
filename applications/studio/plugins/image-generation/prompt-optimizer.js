@@ -1,3 +1,5 @@
+import { reasoningModes, reasoningEfforts, reasoningLabel } from './prompt-optimizer-reasoning.js'
+
 export function createPromptOptimizer(ctx, view, s, sdk) {
   const { el, button, safe } = view
   let stopped = false, loading = null
@@ -62,6 +64,12 @@ export function createPromptOptimizer(ctx, view, s, sdk) {
   const modelBaseUrl = el('input', { type: 'url', maxlength: 2000, autocomplete: 'off', placeholder: 'https://api.openai.com/v1' })
   const modelIdInput = el('input', { type: 'text', maxlength: 200, autocomplete: 'off', placeholder: '例如：gpt-5.1' })
   const modelKey = el('input', { type: 'password', maxlength: 8000, autocomplete: 'new-password', placeholder: '填写 API Key' })
+  const modelReasoningMode = el('select', { id: 'studio-llm-reasoning-mode', 'aria-label': '推理模式' })
+  const modelReasoningEffort = el('select', { id: 'studio-llm-reasoning-effort', 'aria-label': '推理强度', disabled: true })
+  for (const [value, label] of reasoningModes) modelReasoningMode.append(el('option', { value }, label))
+  for (const [value, label] of reasoningEfforts) modelReasoningEffort.append(el('option', { value }, label))
+  modelReasoningMode.value = 'default'; modelReasoningEffort.value = 'medium'
+  sdk.listen(modelReasoningMode, 'change', () => { modelReasoningEffort.disabled = modelReasoningMode.value !== 'on' })
   const makeDefault = el('input', { type: 'checkbox' })
   const modelStatus = el('p', { class: 'studio-llm-status', role: 'status' })
   const formTitle = el('h4', {}, '添加模型')
@@ -83,6 +91,9 @@ export function createPromptOptimizer(ctx, view, s, sdk) {
     el('label', { class: 'studio-optimizer-field' }, '接口地址（OpenAI Responses API）'), modelBaseUrl,
     el('label', { class: 'studio-optimizer-field' }, '模型 ID'), modelIdInput,
     el('label', { class: 'studio-optimizer-field' }, 'API Key'), modelKey,
+    el('label', { class: 'studio-optimizer-field', htmlFor: modelReasoningMode.id }, '推理模式'), modelReasoningMode,
+    el('label', { class: 'studio-optimizer-field', htmlFor: modelReasoningEffort.id }, '推理强度'), modelReasoningEffort,
+    el('p', { class: 'studio-llm-reasoning-hint' }, '跟随服务默认时不指定推理参数。关闭推理或选择强度需要模型和接口支持；不支持时可切回服务默认。'),
     defaultLabel, modelStatus, modelActions,
   )
   settingsHost.append(
@@ -250,6 +261,7 @@ export function createPromptOptimizer(ctx, view, s, sdk) {
   function resetModel() {
     editingModel = null
     modelName.value = ''; modelBaseUrl.value = ''; modelIdInput.value = ''; modelKey.value = ''; makeDefault.checked = false
+    modelReasoningMode.value = 'default'; modelReasoningEffort.value = 'medium'; modelReasoningEffort.disabled = true
     modelKey.placeholder = '填写 API Key'
     formTitle.textContent = '添加模型'; saveModelButton.textContent = '保存模型'; modelStatus.textContent = ''
   }
@@ -257,6 +269,8 @@ export function createPromptOptimizer(ctx, view, s, sdk) {
   function editModel(item) {
     editingModel = item
     modelName.value = item.name; modelBaseUrl.value = item.baseUrl; modelIdInput.value = item.model; modelKey.value = ''
+    modelReasoningMode.value = item.reasoningMode || 'default'; modelReasoningEffort.value = item.reasoningEffort || 'medium'
+    modelReasoningEffort.disabled = modelReasoningMode.value !== 'on'
     modelKey.placeholder = item.hasKey ? '已保存 Key；留空表示不修改' : '填写 API Key'
     makeDefault.checked = item.id === data.defaultModelId
     formTitle.textContent = '编辑模型'; saveModelButton.textContent = '保存修改'; modelStatus.textContent = ''
@@ -265,11 +279,11 @@ export function createPromptOptimizer(ctx, view, s, sdk) {
 
   function drawSettings() {
     const current = data.models.find(item => item.id === data.defaultModelId)
-    modelSummary.textContent = current ? `默认模型：${current.name} · ${current.model}` : '尚未设置默认模型。提示词优化按钮需要先配置并选择一个默认模型。'
+    modelSummary.textContent = current ? `默认模型：${current.name} · ${current.model} · ${reasoningLabel(current)}` : '尚未设置默认模型。提示词优化按钮需要先配置并选择一个默认模型。'
     modelList.replaceChildren(...data.models.map(item => {
       const row = el('article', { class: 'studio-llm-model' + (item.id === data.defaultModelId ? ' is-default' : '') }), actions = el('div')
       const copy = el('div', { class: 'studio-llm-model-copy' })
-      copy.append(el('strong', {}, item.name), el('small', {}, item.model), el('code', {}, item.baseUrl))
+      copy.append(el('strong', {}, item.name), el('small', {}, item.model), el('small', {}, reasoningLabel(item)), el('code', {}, item.baseUrl))
       if (item.id === data.defaultModelId) copy.append(el('span', { class: 'studio-llm-default-badge' }, '默认'))
       row.append(copy, actions)
       actions.append(button('编辑', () => editModel(item), 'studio-optimizer-secondary'), button('测试', () => testModel(item), 'studio-optimizer-secondary'))
@@ -286,6 +300,7 @@ export function createPromptOptimizer(ctx, view, s, sdk) {
       const config = await view.api('/llm/config', {
         ...(editingModel ? { id: editingModel.id } : {}),
         name: modelName.value.trim(), baseUrl: modelBaseUrl.value.trim(), model: modelIdInput.value.trim(), apiKey: modelKey.value,
+        reasoningMode: modelReasoningMode.value, reasoningEffort: modelReasoningEffort.value,
         default: makeDefault.checked,
       })
       data.models = config.models; data.defaultModelId = config.defaultModelId

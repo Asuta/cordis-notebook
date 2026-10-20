@@ -54,7 +54,7 @@ async function setup(t, { models = {}, systemDark = false, library = null, libra
           if (state.llmConfig.defaultModelId === body.id) state.llmConfig.defaultModelId = state.llmConfig.models[0]?.id || null
         } else if (body.action === 'default') state.llmConfig.defaultModelId = body.id
         else {
-          const item = { id: body.id || 'llm-config-test', name: body.name, baseUrl: body.baseUrl, model: body.model, hasKey: true }
+          const item = { id: body.id || 'llm-config-test', name: body.name, baseUrl: body.baseUrl, model: body.model, hasKey: true, reasoningMode: body.reasoningMode, reasoningEffort: body.reasoningEffort }
           const index = models.findIndex(model => model.id === item.id)
           if (index >= 0) models[index] = item; else models.push(item)
           if (body.default || !state.llmConfig.defaultModelId) state.llmConfig.defaultModelId = item.id
@@ -221,6 +221,39 @@ test('应用设置展示多个大模型且默认模型用于优化', async t => 
   assert.match(dialog.textContent, /https:\/\/one\.example\.com\/v1/)
   assert.match(dialog.textContent, /管理优化按钮/)
   assert.doesNotMatch(dialog.textContent, /sk-secret/)
+})
+
+test('大模型设置可保存推理模式和强度，编辑时回显且清空时恢复默认', async t => {
+  const { window, state } = await setup(t)
+  await window.document.querySelector('.studio-app-settings-entry').onclick()
+  const host = window.document.querySelector('.studio-llm-settings')
+  const mode = host.querySelector('[aria-label="推理模式"]'), effort = host.querySelector('[aria-label="推理强度"]')
+  const clickButton = (parent, text) => [...parent.querySelectorAll('button')].find(button => button.textContent === text).onclick()
+  const changeMode = value => { mode.value = value; mode.dispatchEvent(new window.Event('change')) }
+  assert.equal(mode.value, 'default'); assert.equal(effort.disabled, true)
+  host.querySelector('input[type=text]').value = '测试推理模型'
+  host.querySelector('input[type=url]').value = 'https://api.example.com/v1'
+  host.querySelector('input[placeholder="例如：gpt-5.1"]').value = 'model-a'
+  host.querySelector('input[type=password]').value = 'secret-test'
+  changeMode('on'); assert.equal(effort.disabled, false)
+  effort.value = 'xhigh'
+  await clickButton(host, '保存模型')
+  assert.equal(state.llmConfig.models[0].reasoningMode, 'on')
+  assert.equal(state.llmConfig.models[0].reasoningEffort, 'xhigh')
+  assert.equal(mode.value, 'default'); assert.equal(effort.value, 'medium'); assert.equal(effort.disabled, true)
+  assert.match(host.querySelector('.studio-llm-model').textContent, /推理：极高/)
+  await clickButton(host.querySelector('.studio-llm-model'), '编辑')
+  assert.equal(mode.value, 'on'); assert.equal(effort.value, 'xhigh'); assert.equal(effort.disabled, false)
+  assert.equal(host.querySelector('input[type=password]').value, '')
+  changeMode('off'); assert.equal(effort.disabled, true)
+  await clickButton(host, '保存修改')
+  assert.equal(state.llmConfig.models[0].reasoningMode, 'off')
+  assert.match(host.querySelector('.studio-llm-model').textContent, /推理：关闭/)
+  await clickButton(host.querySelector('.studio-llm-model'), '编辑')
+  assert.equal(mode.value, 'off'); assert.equal(effort.disabled, true)
+  changeMode('on'); assert.equal(effort.value, 'xhigh')
+  await clickButton(host, '清空')
+  assert.equal(mode.value, 'default'); assert.equal(effort.value, 'medium'); assert.equal(effort.disabled, true)
 })
 
 test('模型参数快速输入后立即生成使用最新值，change 与 blur 同时保存只写一次', async t => {

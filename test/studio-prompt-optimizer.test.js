@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeSnapshot } from '../shared/persistence.js'
@@ -89,4 +89,59 @@ test('优化按钮模板可编辑、删除并阻止过期覆盖', async t => {
   await assert.rejects(() => service.saveTemplate({ id: item.id, updatedAt: item.updatedAt, title: '过期', instruction: '过期修改' }), error => error.status === 409)
   const removed = await service.saveTemplate({ action: 'delete', id: item.id })
   assert.deepEqual(removed.templates, [])
+})
+
+test('推理配置保存和重启后保留，旧配置继续跟随服务默认', async t => {
+  const { directory, documents, service } = await setup(t)
+  const input = { name: '推理模型', baseUrl: 'https://api.example.com/v1', model: 'model-a', apiKey: 'secret-a' }
+  const config = await service.saveModel({ ...input, reasoningMode: 'on', reasoningEffort: 'high' })
+  const id = config.models[0].id
+  const edited = await service.saveModel({ ...input, id, name: '修改名称', apiKey: '' })
+  assert.equal(edited.models[0].reasoningMode, 'on')
+  assert.equal(edited.models[0].reasoningEffort, 'high')
+  const reopened = await createPromptOptimizerServer(documents, { directory, writeSnapshot })
+  assert.equal(reopened.publicConfig().models[0].reasoningEffort, 'high')
+  assert.equal(reopened.publicConfig().models[0].reasoningMode, 'on')
+  assert.doesNotMatch(JSON.stringify(reopened.publicConfig()), /secret-a/)
+
+  const file = join(directory, 'llm-private.json')
+  const stored = JSON.parse(await readFile(file, 'utf8'))
+  delete stored.models[0].reasoningMode; delete stored.models[0].reasoningEffort
+  await writeSnapshot(file, JSON.stringify(stored))
+  const legacy = await createPromptOptimizerServer(documents, { directory, writeSnapshot })
+  assert.equal(legacy.publicConfig().models[0].reasoningMode, 'default')
+  assert.equal(legacy.publicConfig().models[0].reasoningEffort, 'medium')
+
+  for (const invalid of [{ reasoningMode: 'invalid' }, { reasoningMode: null }, { reasoningEffort: 'invalid' }, { reasoningEffort: 5 }]) {
+    await assert.rejects(() => service.saveModel({ ...input, id, ...invalid }), error => error.status === 400 && /推理/.test(error.message))
+  }
+  assert.equal(service.publicConfig().models[0].reasoningEffort, 'high')
+})
+
+test('连接测试和优化请求使用保存的推理模式与强度', async t => {
+  const bodies = []
+  const request = async (url, options) => {
+    bodies.push(JSON.parse(options.body))
+    return new Response(JSON.stringify({ output_text: 'OK' }), { status: 200 })
+  }
+  const { service, directory, documents } = await setup(t, request)
+  const input = { name: '推理模型', baseUrl: 'https://api.example.com/v1', model: 'model-a', apiKey: 'secret-a' }
+  const config = await service.saveModel(input), id = config.models[0].id
+  const { templates } = await service.saveTemplate({ title: '精简', instruction: '精简提示词' })
+  for (const [reasoningMode, reasoningEffort] of [
+    ['default', 'medium'], ['off', 'high'],
+    ...['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map(effort => ['on', effort]),
+    ['default', 'max'],
+  ]) {
+    await service.saveModel({ ...input, id, apiKey: '', reasoningMode, reasoningEffort })
+    const reopened = await createPromptOptimizerServer(documents, { directory, writeSnapshot, request })
+    await reopened.testModel({ id })
+    await reopened.optimize({ prompt: '测试提示词', templateId: templates[0].id })
+    const expected = reasoningMode === 'default' ? undefined : { effort: reasoningMode === 'off' ? 'none' : reasoningEffort }
+    for (const body of bodies.slice(-2)) {
+      assert.deepEqual(body.reasoning, expected)
+      assert.equal(Object.hasOwn(body, 'reasoning'), reasoningMode !== 'default')
+    }
+    assert.equal(bodies.at(-2).max_output_tokens, 4096)
+  }
 })

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { reasoningModes, reasoningEfforts } from './prompt-optimizer-reasoning.js'
 
 const fail = (message, status = 400) => { throw Object.assign(Error(message), { status }) }
 const boundedText = (value, max, label) => {
@@ -8,6 +9,14 @@ const boundedText = (value, max, label) => {
   return value.trim()
 }
 const modelId = value => typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value) ? value : fail('模型配置不存在', 404)
+
+function normalizeReasoning(input, existing = {}) {
+  const reasoningMode = input.reasoningMode === undefined ? existing.reasoningMode ?? 'default' : input.reasoningMode
+  const reasoningEffort = input.reasoningEffort === undefined ? existing.reasoningEffort ?? 'medium' : input.reasoningEffort
+  if (!reasoningModes.some(([value]) => value === reasoningMode)) fail('推理模式无效')
+  if (!reasoningEfforts.some(([value]) => value === reasoningEffort)) fail('推理强度无效')
+  return { reasoningMode, reasoningEffort }
+}
 
 function normalizeBaseUrl(value) {
   if (typeof value !== 'string' || !value.trim() || value.length > 2000) fail('接口地址格式无效')
@@ -60,6 +69,7 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
             baseUrl: normalizeBaseUrl(item.baseUrl),
             model: boundedText(item.model, 200, '模型 ID'),
             apiKey: boundedText(item.apiKey, 8000, 'API Key'),
+            ...normalizeReasoning(item),
           }]
         } catch { return [] }
       }),
@@ -153,6 +163,7 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
       baseUrl,
       model: boundedText(input.model, 200, '模型 ID'),
       apiKey: apiKey || existing.apiKey,
+      ...normalizeReasoning(input, existing),
     }
     if (index >= 0) next.models[index] = saved
     else next.models.push(saved)
@@ -167,7 +178,12 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
       response = await request(responsesUrl(item.baseUrl), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + item.apiKey },
-        body: JSON.stringify({ model: item.model, instructions, input, store: false, ...(maxOutputTokens ? { max_output_tokens: maxOutputTokens } : {}) }),
+        body: JSON.stringify({
+          model: item.model, instructions, input, store: false,
+          ...(item.reasoningMode === 'off' ? { reasoning: { effort: 'none' } } : {}),
+          ...(item.reasoningMode === 'on' ? { reasoning: { effort: item.reasoningEffort } } : {}),
+          ...(maxOutputTokens ? { max_output_tokens: maxOutputTokens } : {}),
+        }),
         signal: controller.signal,
       })
     } catch (error) {
@@ -189,7 +205,8 @@ export async function createPromptOptimizerServer(documents, { directory, writeS
   async function testModel(input) {
     const id = modelId(input?.id), item = config.models.find(item => item.id === id)
     if (!item) fail('模型配置不存在', 404)
-    const result = await callModel(item, 'Return exactly OK. Do not add any explanation.', 'Connection test', 32)
+    // 输出预算也包含推理 token，给开启推理的模型留出生成答案的空间。
+    const result = await callModel(item, 'Return exactly OK. Do not add any explanation.', 'Connection test', 4096)
     return { ok: true, message: result.slice(0, 200) }
   }
 

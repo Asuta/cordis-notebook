@@ -144,7 +144,7 @@
 .studio-app[data-theme='dark'] .studio-llm-model,
 .studio-app[data-theme='dark'] .studio-llm-summary{background:#202820}
 .studio-app[data-theme='dark'] .studio-optimizer-dialog :is(input,textarea),
-.studio-app[data-theme='dark'] .studio-llm-settings :is(input,textarea){background:#151b15}
+.studio-app[data-theme='dark'] .studio-llm-settings :is(input,textarea,select){background:#151b15}
 .studio-app[data-theme='dark'] .studio-reference-row.is-selected{border-color:#91b269;background:#253024;box-shadow:0 0 0 2px #91b26933}
 .studio-app[data-theme='dark'] .studio-reference-paste-hint{color:#a5c77f}
 .studio-app[data-theme='dark'] .studio-favorite-info{background:#1e261e;border-color:#394438;box-shadow:0 16px 48px #0008}
@@ -181,8 +181,10 @@
 .studio-optimizer-editor{margin-top:16px;padding-top:15px;border-top:1px solid var(--line)}
 .studio-optimizer-editor h3{margin:0 0 10px;font-size:13px}
 .studio-optimizer-field{display:block;margin:10px 0 5px;color:var(--muted);font-size:10px}
-.studio-optimizer-dialog :is(input,textarea),.studio-llm-settings :is(input,textarea){box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--asset-card-bg);color:var(--ink);font:inherit;font-size:11px;outline:none}
-.studio-optimizer-dialog :is(input,textarea):focus,.studio-llm-settings :is(input,textarea):focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+.studio-optimizer-dialog :is(input,textarea),.studio-llm-settings :is(input,textarea,select){box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--asset-card-bg);color:var(--ink);font:inherit;font-size:11px;outline:none}
+.studio-optimizer-dialog :is(input,textarea):focus,.studio-llm-settings :is(input,textarea,select):focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+.studio-llm-settings select:disabled{opacity:.5;cursor:not-allowed}
+.studio-llm-reasoning-hint{margin:7px 0 0;color:var(--muted);font-size:10px;line-height:1.6}
 .studio-optimizer-dialog textarea{resize:vertical;line-height:1.6}
 .studio-optimizer-status,.studio-llm-status{min-height:17px;margin:9px 0;color:var(--muted);font-size:10px;line-height:1.5;overflow-wrap:anywhere}
 .studio-optimizer-editor-actions{display:flex;gap:7px;flex-wrap:wrap}
