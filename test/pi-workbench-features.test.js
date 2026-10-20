@@ -3,12 +3,14 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { fork } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import sharp from 'sharp'
 import { AttachmentStore } from '../workbench/attachments.js'
+
+const messageText = message => typeof message.content === 'string' ? message.content : (message.content || []).filter(part => part.type === 'text').map(part => part.text).join('')
 
 test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动压缩', { timeout: 120000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'cordis-pi-features-')), requests = [], events = []
@@ -16,10 +18,11 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
   await writeFile(join(root, 'agent/ARCHITECTURE.md'), '只运行测试')
   await mkdir(join(root, 'applications/notebook/plugins'))
   await writeFile(join(root, 'applications/notebook/package.json'), JSON.stringify({ cordisApp: { id: 'notebook', name: '测试笔记' } }))
-  let answer = '## 完成\n\n' + '保留测试内容。'.repeat(2000), promptTokens = 10000, toolOnly = false
+  let answer = '## 完成\n\n' + '保留测试内容。'.repeat(2000), promptTokens = 10000, toolOnly = false, providerError = false
   const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk
     const parsed = JSON.parse(body); requests.push(parsed)
+    if (providerError) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'fixture summary request rejected', type: 'invalid_request_error' } })); return }
     const usage = { prompt_tokens: promptTokens, completion_tokens: 100, total_tokens: promptTokens + 100 }
     if (parsed.stream === false) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: answer, reasoning_content: '思考示例' }, finish_reason: 'stop' }], usage })); return }
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -47,13 +50,14 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
       resolveRun = resolve
       worker.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'),
         config: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: options.model || 'deepseek-flash', thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, compaction: options.compaction || { enabled: false, threshold: 128000, keepRecentTokens: 1000 } },
-        task: { appId: 'notebook', browserVerificationEnabled: true, prompt: '继续分析' + '测试文字'.repeat(1500), sessionFile, images: options.images || [], mode: options.mode || 'chat' } })
+        task: { appId: 'notebook', browserVerificationEnabled: true, prompt: options.prompt ?? '继续分析' + '测试文字'.repeat(1500), sessionFile, images: options.images || [], mode: options.mode || 'chat' } })
     })
     assert.ok(requests.slice(requestStart).every(request => request.model === 'deepseek-flash'))
     const result = events.slice(start)
-    assert.deepEqual(result.filter(e => e.type === 'error'), [], stderr)
+    if (options.expectError) assert.ok(result.some(e => e.type === 'error'), stderr)
+    else assert.deepEqual(result.filter(e => e.type === 'error'), [], stderr)
     const timings = result.filter(e => e.type === 'trace' && e.event.kind === 'model' && e.event.status === 'done').map(e => e.event.timing)
-    assert.equal(timings.length, requests.length - requestStart, '正常回复及只读 result 的压缩请求均记录完成时间')
+    if (!options.expectError) assert.equal(timings.length, requests.length - requestStart, '正常回复及只读 result 的压缩请求均记录完成时间')
     for (const timing of timings) {
       assert.ok(timing.requestStartedAt >= timing.invokedAt)
       assert.ok(timing.firstOutputAt >= timing.requestStartedAt)
@@ -83,6 +87,14 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
   assert.equal(compactionEvents[0].event.status, 'running'); assert.equal(compactionEvents.at(-1).event.status, 'done')
   assert.match(compactionEvents.at(-1).event.text, /压缩摘要/)
   assert.ok(compact.requests.every(request => (request.max_tokens || request.max_completion_tokens) <= 16384))
+  await t.test('压缩后立即再次压缩无需请求模型且不改写历史', async () => {
+    const before = await readFile(sessionFile, 'utf8')
+    const repeated = await run('low', { mode: 'compact' })
+    assert.equal(repeated.requests.length, 0)
+    assert.match(repeated.events.findLast(e => e.type === 'trace' && e.event.kind === 'compaction').event.output, /已经压缩/)
+    assert.equal(repeated.events.some(e => e.type === 'trace' && e.event.status === 'error'), false)
+    assert.equal(await readFile(sessionFile, 'utf8'), before)
+  })
   const off = await run('off'); assert.equal(off.requests[0].thinking.type, 'disabled')
   // A provider usage report beyond our chosen threshold triggers Pi's own
   // compression without altering the real 1,048,576-token model window.
@@ -93,4 +105,36 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
   if (!auto.events.some(e => e.type === 'trace' && e.event.kind === 'compaction')) t.diagnostic(JSON.stringify(auto.events.filter(e => e.type !== 'assistant' && e.event?.kind !== 'text')))
   assert.equal(auto.events.some(e => e.type === 'trace' && e.event.name === '自动压缩上下文'), true)
   assert.equal(auto.events.some(e => e.type === 'trace' && e.event.kind === 'compaction' && e.event.status === 'done'), true)
+  await t.test('默认保留量下短对话压缩显示无需压缩，原记录不变且仍能继续对话', async () => {
+    sessionFile = undefined; answer = '简短回复。'; promptTokens = 12000
+    const compaction = { enabled: true, threshold: 128000, keepRecentTokens: 20000 }
+    await run('low', { prompt: '你好', compaction })
+    const before = await readFile(sessionFile, 'utf8')
+    for (let i = 0; i < 2; i++) {
+      const small = await run('low', { mode: 'compact', compaction })
+      assert.equal(small.requests.length, 0)
+      const event = small.events.findLast(e => e.type === 'trace' && e.event.kind === 'compaction').event
+      assert.equal(event.status, 'done'); assert.match(event.output, /当前对话较短.*20,000 tokens.*可以继续对话/)
+      assert.equal(small.events.some(e => e.type === 'trace' && e.event.status === 'error'), false)
+      assert.equal(await readFile(sessionFile, 'utf8'), before)
+    }
+    const continued = await run('low', { prompt: '继续这段对话', compaction })
+    assert.ok(continued.requests[0].messages.some(message => message.role === 'user' && messageText(message) === '你好'))
+    assert.ok(continued.requests[0].messages.some(message => message.role === 'assistant' && messageText(message) === '简短回复。'))
+  })
+  await t.test('真实压缩请求失败仍报告错误并保留原始历史', async () => {
+    sessionFile = undefined; answer = '保留测试内容。'.repeat(2000); promptTokens = 10000
+    await run('low')
+    const before = await readFile(sessionFile, 'utf8')
+    providerError = true
+    const failed = await run('low', { mode: 'compact', expectError: true })
+    providerError = false
+    assert.ok(failed.requests.length > 0)
+    const event = failed.events.findLast(e => e.type === 'trace' && e.event.kind === 'compaction').event
+    assert.equal(event.status, 'error'); assert.match(event.output, /fixture summary request rejected/)
+    assert.equal(await readFile(sessionFile, 'utf8'), before)
+    const continued = await run('low', { prompt: '失败后继续' })
+    const restored = messageText(continued.requests[0].messages.find(message => message.role === 'assistant'))
+    assert.ok(restored.includes('保留测试内容。'.repeat(50)))
+  })
 })

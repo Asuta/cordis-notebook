@@ -90,6 +90,25 @@ test('每轮仅展示最终答复，过程默认收起且手动展开跨流式�
   } finally { globalThis.document = previous; globalThis.CustomEvent = previousEvent; window.happyDOM.abort() }
 })
 
+test('手动压缩在折叠状态直接展示无需压缩、成功与失败提示', () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const element = createTurn(), turn = { mode: 'compact', status: 'done', startedAt: 1, endedAt: 2, events: [
+      { id: 'compact', kind: 'compaction', status: 'done', output: '当前对话较短，没有更早的内容需要压缩。可以继续对话。' },
+    ] }
+    updateTurn(element, turn)
+    const notice = element.querySelector('.turn-notice')
+    assert.equal(element.querySelector('.turn-header').getAttribute('aria-expanded'), 'false')
+    assert.equal(notice.hidden, false); assert.equal(notice.dataset.status, 'done')
+    assert.match(notice.textContent, /当前对话较短.*可以继续对话/); assert.doesNotMatch(notice.textContent, /失败|压缩已完成/)
+    turn.events[0].output = '压缩前 30000 tokens → 压缩后约 5000 tokens。原始聊天记录保留。'
+    updateTurn(element, turn); assert.match(notice.textContent, /压缩前 30000.*5000/)
+    turn.status = 'error'; turn.events[0].status = 'error'; turn.events[0].output = '真实请求失败'
+    updateTurn(element, turn); assert.equal(notice.dataset.status, 'error'); assert.match(notice.textContent, /本轮执行失败/)
+  } finally { globalThis.document = previous; window.happyDOM.abort() }
+})
+
 test('旧记录匹配末条完整答复，工具前说明和失败输出不冒充最终答复', () => {
   const turn = { id: 'old', status: 'done', events: [
     { id: 'a', kind: 'text', text: '先检查' }, { id: 'b', kind: 'tool' },

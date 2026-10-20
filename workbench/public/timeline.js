@@ -96,7 +96,7 @@ export function updateTurn(element, turn, options = {}) {
     : turn.status === 'error' ? '本轮执行失败，展开过程查看原因。'
     : turn.status === 'stopped' ? '本轮已停止，已完成的操作和输出保留在执行过程中。'
     : final?.truncated ? '已达到单次输出长度限制，回复可能不完整。可以发送“继续”获取后续内容。'
-    : turn.mode === 'compact' ? '上下文压缩已完成，展开查看详情。' : '本轮已结束，没有最终文字答复。')
+    : turn.mode === 'compact' ? (turn.events.findLast(event => event.kind === 'compaction' && event.status === 'done')?.output || '上下文压缩已完成，展开查看详情。') : '本轮已结束，没有最终文字答复。')
   // Trace rows are expensive to build and update. Keep a closed process panel
   // to its summary; the header's refresh callback creates rows on first open.
   if (!element.classList.contains('process-open')) return

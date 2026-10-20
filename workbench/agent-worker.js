@@ -110,6 +110,15 @@ async function run(input) {
     send({ type: 'session', file: manager.getSessionFile() })
     const usage = () => send({ type: 'usage', usage: session.getContextUsage() })
     const trace = event => send({ type: 'trace', event })
+    // Pi reports these two manual no-op outcomes as exceptions. Keep all
+    // provider, storage and other compaction errors on the normal failure path.
+    const compactionNotice = error => {
+      if (task.mode !== 'compact') return ''
+      const message = String(error || '').replace(/^Compaction failed: /, '')
+      if (message === 'Already compacted') return '上下文已经压缩，暂无新的内容需要压缩。原始聊天记录保留。'
+      if (message === 'Nothing to compact (session too small)') return `当前对话较短，按设置保留最近 ${config.compaction.keepRecentTokens.toLocaleString()} tokens 后，没有更早的内容需要压缩。可以继续对话，原始聊天记录保留。`
+      return ''
+    }
     const output = result => {
       const text = (result?.content || []).map(part => part.type === 'text' ? part.text : part.type === 'image' ? '[工具返回图片]' : '').join('\n')
       return text.length > 63000 ? text.slice(0, 63000) + '\n[界面输出已截断，完整记录保存在 Pi 会话中。]' : text
@@ -131,8 +140,9 @@ async function run(input) {
       if (event.type === 'tool_execution_end') trace({ id: event.toolCallId, output: output(event.result), status: event.isError ? 'error' : 'done' })
       if (event.type === 'compaction_start') { compactId = randomUUID(); trace({ id: compactId, kind: 'compaction', name: event.reason === 'manual' ? '手动压缩上下文' : '自动压缩上下文', status: 'running' }) }
       if (event.type === 'compaction_end') {
-        trace({ id: compactId || randomUUID(), kind: 'compaction', name: '压缩上下文', status: event.errorMessage ? 'error' : event.aborted ? 'stopped' : 'done',
-          output: event.errorMessage || (event.aborted ? '压缩已取消，原上下文保留。' : `压缩前 ${event.result?.tokensBefore ?? '未知'} tokens → 压缩后约 ${event.result?.estimatedTokensAfter ?? '待下轮确认'} tokens。原始聊天记录保留。`),
+        const notice = !event.aborted && compactionNotice(event.errorMessage)
+        trace({ id: compactId || randomUUID(), kind: 'compaction', name: notice ? '无需压缩上下文' : '压缩上下文', status: notice ? 'done' : event.errorMessage ? 'error' : event.aborted ? 'stopped' : 'done',
+          output: notice || event.errorMessage || (event.aborted ? '压缩已取消，原上下文保留。' : `压缩前 ${event.result?.tokensBefore ?? '未知'} tokens → 压缩后约 ${event.result?.estimatedTokensAfter ?? '待下轮确认'} tokens。原始聊天记录保留。`),
           text: event.result?.summary || '' })
         usage()
       }
@@ -146,7 +156,11 @@ async function run(input) {
     })
     if (cancelled) return
     usage()
-    if (task.mode === 'compact') { await session.compact(); usage(); return }
+    if (task.mode === 'compact') {
+      try { await session.compact() }
+      catch (error) { if (!compactionNotice(error.message)) throw error }
+      usage(); return
+    }
     const store = new AttachmentStore(input.dataDir || join(agentDir, '..'))
     const images = await Promise.all((task.images || []).map(async image => ({ type: 'image', mimeType: image.mimeType, data: (await store.bytes(image.id)).toString('base64') })))
     if (Buffer.byteLength(JSON.stringify(session.messages)) + Buffer.byteLength(JSON.stringify(images)) + Buffer.byteLength(task.prompt || '') > 40 * 1024 * 1024) throw Error('对话附件及文字已接近请求大小限制，请压缩上下文或新建对话。')
