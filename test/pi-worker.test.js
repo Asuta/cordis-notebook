@@ -35,7 +35,7 @@ for (const invalidProfile of [false, true]) test('真实 Pi SDK 读取双层上�
     worker.on('exit', code => reject(Error('Pi 提前退出 ' + code + ': ' + stderr)))
     worker.on('message', message => {
       events.push(message)
-      if (message.type === 'ready') worker.send({ type: 'run', root, agentDir: join(root, '.pi'), config: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'fixture', thinking: false }, task: { appId: 'notebook', prompt: '测试文件和工具' } })
+      if (message.type === 'ready') worker.send({ type: 'run', root, agentDir: join(root, '.pi'), config: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'fixture', thinking: false }, task: { appId: 'notebook', prompt: '测试文件和工具', customSystemPrompt: 'WORKBENCH_CUSTOM_SYSTEM_SENTINEL' } })
       if (message.type === 'tool') worker.send({ type: 'result', id: message.id, result: { tools: [{ name: 'notebook_read' }] } })
       if (message.type === 'done') resolve()
     })
@@ -56,6 +56,7 @@ for (const invalidProfile of [false, true]) test('真实 Pi SDK 读取双层上�
   assert.equal(requests.length, 3); assert.equal(requests[0].url, '/v1/chat/completions')
   const instructions = JSON.stringify(requests[0].messages)
   assert.match(instructions, /HOST_CONTEXT_SENTINEL/); assert.match(instructions, /APP_CONTEXT_SENTINEL/)
+  assert.match(instructions, /WORKBENCH_CUSTOM_SYSTEM_SENTINEL/)
   if (invalidProfile) assert.match(instructions, /应用开发路径目录暂不可用/)
   else { assert.match(instructions, /EDITOR_PATH_SENTINEL/); assert.match(instructions, /test-editor/) }
   assert.equal(instructions.includes('test-key'), false)

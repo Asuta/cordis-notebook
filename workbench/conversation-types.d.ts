@@ -4,9 +4,10 @@ export interface Command { session_id:string; turnId?:string; [key:string]:unkno
 export interface Conversation {
   id:string; appId?:string; title?:string; revision?:number; messages:Message[]; turns?:Turn[]; commands?:Command[];
   browserVerificationEnabled?:boolean; contextUsage?:unknown; hasImages?:boolean; sessionFile?:string; running?:boolean;
+  queued?:boolean;
 }
 export interface PublicThread {
   id:string; appId?:string; title?:string; revision?:number; messages?:Message[]; turns?:Turn[]; commands?:Command[];
-  browserVerificationEnabled?:boolean; contextUsage?:unknown; hasImages?:boolean; canCompact?:boolean; running?:boolean;
+  browserVerificationEnabled?:boolean; contextUsage?:unknown; hasImages?:boolean; canCompact?:boolean; running?:boolean; queued?:boolean;
   messageCount?:number; turnCount?:number; detailRevision?:number; history?:{before:number; end:number; total:number}; unchanged?:boolean;
 }

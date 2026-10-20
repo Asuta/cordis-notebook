@@ -208,18 +208,26 @@ function refreshSignature(value) {
     applications: value.applications,
     application: value.application,
     activeThreadId: value.activeThreadId,
+    activeThreadIds: value.activeThreadIds, queuedThreadIds: value.queuedThreadIds, runningCount: value.runningCount,
     threads: (value.threads || []).map(({ messages, turns, commands, history, detailRevision, ...summary }) => summary),
   })
+}
+function syncScheduledState(value = state) {
+  const scheduled = (value?.threads || []).filter(thread => thread.running)
+  value.activeThreadId = scheduled[0]?.id || null
+  value.activeThreadIds = scheduled.filter(thread => !thread.queued).map(thread => thread.id)
+  value.queuedThreadIds = scheduled.filter(thread => thread.queued).map(thread => thread.id)
+  value.runningCount = value.activeThreadIds.length
 }
 function upsert(thread, options) {
   const index = state.threads.findIndex(t => t.id === thread.id), previous = state.threads[index]
   thread = mergeThread(previous, thread, options)
   if (index < 0) state.threads.push(thread); else state.threads[index] = thread
-  if (thread.running) state.activeThreadId = thread.id; else if (state.activeThreadId === thread.id) state.activeThreadId = null
+  syncScheduledState()
 }
 function renderThreads() {
-  const select = $('threads'), entries = [...state.threads].reverse().filter(t => t.appId === appId), signature = JSON.stringify(entries.map(t => [t.id, t.title, t.running]))
-  if (select.dataset.signature !== signature) { select.dataset.signature = signature; select.replaceChildren(new Option('新对话', ''), ...entries.map(t => new Option((t.running ? '● ' : '') + t.title, t.id))) }
+  const select = $('threads'), entries = [...state.threads].reverse().filter(t => t.appId === appId), signature = JSON.stringify(entries.map(t => [t.id, t.title, t.running, t.queued]))
+  if (select.dataset.signature !== signature) { select.dataset.signature = signature; select.replaceChildren(new Option('新对话', ''), ...entries.map(t => new Option((t.queued ? '⏳ ' : t.running ? '● ' : '') + t.title, t.id))) }
   select.value = threadId
 }
 function scheduleRender() { if (!renderTimer) renderTimer = setTimeout(() => { renderTimer = null; render(); }, 80) }
@@ -260,9 +268,11 @@ function render() {
   messages.scrollTop = nearBottom ? messages.scrollHeight : scrollTop
   followButton()
   $('older').hidden = !thread?.history?.before
-  $('stop').hidden = !state.activeThreadId
-  $('send').hidden = !!state.activeThreadId
-  $('activity').textContent = state.activeThreadId && state.activeThreadId !== threadId ? '另一个对话正在执行任务' : ''
+  const threadBusy = !!thread?.running
+  $('stop').hidden = !threadBusy
+  $('send').hidden = false
+  const otherRunning = Math.max(0, (state.runningCount || 0) - (threadBusy && !thread?.queued ? 1 : 0))
+  $('activity').textContent = thread?.queued ? '当前对话正在排队，前面的任务完成后会自动开始' : otherRunning ? `${otherRunning} 个其他对话正在执行任务` : ''
   const progress = developmentStatus(state.application.development)
   const hot = state.application.online && state.application.managed && state.application.mode === 'development'
     ? ' · ' + progress.label : ''
@@ -273,15 +283,15 @@ function render() {
   const usage = thread?.contextUsage, threshold = config?.compaction?.threshold || 128000
   $('context-usage').textContent = `上下文 ${usage?.tokens == null ? '待下轮确认' : '约 ' + usage.tokens.toLocaleString()} / ${threshold.toLocaleString()} tokens${config?.compaction?.enabled === false ? ' · 自动压缩关闭' : ''}`
   $('context-usage').title = `模型窗口 ${(usage?.contextWindow || 1048576).toLocaleString()} tokens；用量含估算，以接口后续回报为准。`
-  $('compact').disabled = !!state.activeThreadId || !thread?.canCompact || submitting
-  $('compose-model').disabled = $('compose-effort').disabled = !!state.activeThreadId || submitting
+  $('compact').disabled = threadBusy || !thread?.canCompact || submitting
+  $('compose-model').disabled = $('compose-effort').disabled = threadBusy || submitting
   renderThreads(); renderComposer()
   sessionStorage.setItem('agent-thread', threadId); sessionStorage.setItem('agent-app', appId)
 }
 function renderComposer() {
   $('browser-verification').checked = browserChoice()
   $('browser-verification').disabled = submitting
-  $('send').disabled = !!state?.activeThreadId || uploading > 0 || submitting
+  $('send').disabled = !!current()?.running || uploading > 0 || submitting
   $('composer-hint').textContent = uploading ? `正在上传 ${uploading} 张图片…` : 'Enter 发送 · Shift + Enter 换行'
   $('upload-status').hidden = !uploading
   $('upload-status').textContent = uploading ? `正在上传 ${uploading} 张图片…` : ''
@@ -348,7 +358,7 @@ async function refresh() {
     if (state) {
       fresh.threads = fresh.threads.map(thread => mergeThread(state.threads.find(t => t.id === thread.id), thread))
       for (const thread of state.threads) if (!fresh.threads.some(t => t.id === thread.id)) fresh.threads.push(thread)
-      fresh.activeThreadId = fresh.threads.find(t => t.running)?.id || null
+      syncScheduledState(fresh)
     }
     const changed = !state || refreshSignature(fresh) !== before
     state = fresh
@@ -458,7 +468,7 @@ $('browser-verification').onchange = () => {
   }).catch(error => toast('验收偏好保存失败：' + error.message)).finally(() => { preferenceWrites-- })
 }
 async function send(mode = 'chat') {
-  if (state.activeThreadId || uploading || submitting) return
+  if (current()?.running || uploading || submitting) return
   const prompt = $('prompt').value.trim(); if (mode === 'chat' && !prompt && !images.length) return
   const submitted = { appId, threadId, generation: draftGeneration, prompt: $('prompt').value, revision: promptRevision,
     browserVerificationEnabled: browserChoice(),
@@ -505,7 +515,7 @@ $('composer').addEventListener('paste', event => {
 $('chat').addEventListener('dragover', event => { if ([...(event.dataTransfer?.types || [])].includes('Files')) { event.preventDefault(); $('composer').classList.add('dragging') } })
 $('chat').addEventListener('dragleave', event => { if (!$('chat').contains(event.relatedTarget)) $('composer').classList.remove('dragging') })
 $('chat').addEventListener('drop', event => { event.preventDefault(); $('composer').classList.remove('dragging'); void uploadImages(event.dataTransfer.files) })
-$('stop').onclick = safe(() => api('interrupt', {}))
+$('stop').onclick = safe(() => api('interrupt', { threadId }))
 $('compact').onclick = safe(() => send('compact'))
 $('start-app').onclick = safe(async () => {
   const status = await api('application/start', {})
@@ -518,13 +528,14 @@ function setModelOptions() {
 }
 $('settings-open').onclick = safe(async () => {
   config = await api('config'); $('base-url').value = config.baseUrl; $('model').value = config.model; $('effort').value = config.thinking ? config.reasoningEffort : 'off'
+  $('custom-system-prompt').value = config.customSystemPrompt || ''; $('max-concurrent-agents').value = config.maxConcurrentAgents || 3
   $('auto-compact').checked = config.compaction.enabled; $('compact-threshold').value = config.compaction.threshold; $('keep-recent').value = config.compaction.keepRecentTokens
   $('api-key').value = ''; $('api-key').placeholder = config.hasKey ? '已配置，留空保留现有密钥' : '输入 DeepSeek API 密钥'; $('settings').showModal()
 })
 $('settings-close').onclick = () => { $('api-key').value = ''; $('settings').close() }
 $('settings-form').onsubmit = safe(async event => {
   event.preventDefault(); const effort = $('effort').value
-  await api('config', { baseUrl: $('base-url').value, model: $('model').value, thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, apiKey: $('api-key').value, compaction: { enabled: $('auto-compact').checked, threshold: Number($('compact-threshold').value), keepRecentTokens: Number($('keep-recent').value) } })
+  await api('config', { baseUrl: $('base-url').value, model: $('model').value, thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, apiKey: $('api-key').value, customSystemPrompt: $('custom-system-prompt').value, maxConcurrentAgents: Number($('max-concurrent-agents').value), compaction: { enabled: $('auto-compact').checked, threshold: Number($('compact-threshold').value), keepRecentTokens: Number($('keep-recent').value) } })
   config = await api('config'); setModelOptions(); $('api-key').value = ''; $('settings').close(); render(); toast('Agent 设置已保存')
 })
 const events = new EventSource('/api/events')

@@ -45,8 +45,14 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   const apps = (await discoverApplications(join(root, 'applications')))
     .filter(app => /^[a-z][a-z0-9-]{1,49}$/.test(app.id))
     .map(({ id, name, error }) => ({ id, name, ...(error ? { error } : {}) }))
-  let active, worker, closing = false
-  const publicThread = item => ({ id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, browserVerificationEnabled: item.browserVerificationEnabled === true, commands: item.commands || [], revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, partial: active?.thread === item ? active.partial : '' })
+  const tasks = new Map(), queued = [], workers = new Set()
+  let closing = false
+  const taskFor = item => tasks.get(item.id)
+  const runningTasks = () => [...tasks.values()].filter(task => task.phase === 'running')
+  const publicThread = item => {
+    const task = taskFor(item)
+    return { id: item.id, appId: item.appId, title: item.title, messages: item.messages, turns: item.turns, browserVerificationEnabled: item.browserVerificationEnabled === true, commands: item.commands || [], revision: item.revision, contextUsage: item.contextUsage, hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running, queued: item.queued === true, partial: task?.phase === 'running' ? task.partial : '' }
+  }
   const changed = item => { item.revision++; notify({ type: 'thread', thread: threadPage(item, { limit: 1 }) }); store.mark(item) }
   const commands = new CommandSessions({ root, onChange(command) {
     const item = conversations.find(item => item.id === command.threadId)
@@ -63,77 +69,107 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   } })
   const application = new ApplicationProcess({ root, port: appPort, dataDir: appDataDir, diagnosticDir: join(dataDir, 'diagnostics'), commands, mode: appMode })
   const ownerFor = task => ({ threadId: task.thread.id, turnId: task.turn.id, signal: task.controller?.signal, cancelled: () => !!task.cancelled || closing })
-  const { updateTrace, clearTrace } = createTraceReporter({ redact, notify, persist: item => store.mark(item) })
   const bridge = createPageBridge({ application, notify, apps })
   const { clients, bindingFor, pageCall } = bridge
   const execute = createToolExecutor({ root, dataDir, application, commands, ownerFor, browserFactory, changed, notify, bridge })
-  function finish(error) {
-    if (!active) return
-    if (active.browser && !active.browser.closed && !active.stopping) {
-      const task = active
+  function finish(task, error) {
+    if (!task || task.finished) return
+    if (task.browser && !task.browser.closed && !task.stopping) {
       task.stopping = task.browser.close(task.cancelled ? 'stopped' : 'incomplete').catch(error => {
-        task.failed = true; updateTrace(task, { kind: 'notice', text: '浏览器验收清理失败：' + error.message, status: 'error' })
+        task.failed = true; task.updateTrace({ kind: 'notice', text: '浏览器验收清理失败：' + error.message, status: 'error' })
       })
     }
-    if (active.stopping) {
-      const task = active, stopping = task.stopping
-      if (!task.finishing) { task.finishing = true; void stopping.catch(() => {}).then(() => { if (active === task) { task.stopping = null; finish(error) } }) }
+    if (task.stopping) {
+      const stopping = task.stopping
+      if (!task.finishing) { task.finishing = true; void stopping.catch(() => {}).then(() => { task.stopping = null; task.finishing = false; finish(task, error) }) }
       return
     }
-    const item = active.thread
-    if (active.partial) item.messages.push({ role: 'assistant', text: redact(active.partial), turnId: active.turn.id })
-    if (error) updateTrace(active, { id: randomUUID(), kind: 'notice', text: error, status: active.cancelled ? 'stopped' : 'error' })
-    active.turn.status = active.cancelled ? 'stopped' : error || active.failed || active.modelError ? 'error' : 'done'; active.turn.endedAt = Date.now()
-    for (const event of active.turn.events.filter(event => event.status === 'running')) { event.status = active.turn.status === 'done' ? 'done' : 'stopped'; event.endedAt = Date.now() }
-    clearTrace()
-    item.running = false; active = null; changed(item)
+    const item = task.thread
+    if (task.partial) item.messages.push({ role: 'assistant', text: redact(task.partial), turnId: task.turn.id })
+    if (error) task.updateTrace({ id: randomUUID(), kind: 'notice', text: error, status: task.cancelled ? 'stopped' : 'error' })
+    task.turn.status = task.cancelled ? 'stopped' : error || task.failed || task.modelError ? 'error' : 'done'; task.turn.endedAt = Date.now()
+    for (const event of task.turn.events.filter(event => event.status === 'running')) { event.status = task.turn.status === 'done' ? 'done' : 'stopped'; event.endedAt = Date.now() }
+    task.clearTrace()
+    task.finished = true; task.phase = 'finished'; item.running = false; item.queued = false
+    tasks.delete(item.id)
+    if (task.worker?.task === task) task.worker.task = null
+    task.worker = null
+    changed(item)
+    launchQueued()
   }
   function startWorker() {
     const child = fork(workerFile, [], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
-    worker = child
+    const record = { child, ready: false, task: null }
+    workers.add(record)
     child.stdout.on('data', () => {})
-    child.stderr.on('data', data => { if (active) updateTrace(active, { id: 'worker-log', kind: 'notice', name: 'Agent 日志', delta: String(data), status: 'done' }) })
-    child.on('error', error => finish(error.message))
-    child.on('exit', () => { if (worker === child) {
-      worker = null
-      if (active && !closing) {
-        const task = active; task.cancelled = true; task.controller?.abort()
-        task.stopping ||= Promise.all([commands.stopTurn(ownerFor(task)), task.browser?.close('stopped')]).catch(error => updateTrace(task, { kind: 'notice', text: error.message, status: 'error' }))
+    child.stderr.on('data', data => { if (record.task) record.task.updateTrace({ id: 'worker-log', kind: 'notice', name: 'Agent 日志', delta: String(data), status: 'done' }) })
+    child.on('error', error => { if (record.task) finish(record.task, error.message) })
+    child.on('exit', () => {
+      const task = record.task; record.task = null; workers.delete(record)
+      if (task && !task.finished) {
+        task.cancelled = true; task.controller?.abort()
+        task.stopping ||= Promise.all([commands.stopTurn(ownerFor(task)), task.browser?.close('stopped')]).catch(error => task.updateTrace({ kind: 'notice', text: error.message, status: 'error' }))
+        finish(task, 'Agent 进程已退出；会话已保留，可以重试。')
       }
-      finish('Agent 进程已退出；会话已保留，可以重试。')
-    } })
+      launchQueued()
+    })
     child.on('message', message => {
-      if (message.type === 'ready') { child.ready = true; return }
-      if (!active) return
-      const task = active, item = task.thread
+      if (message.type === 'ready') { record.ready = true; launchQueued(); return }
+      const task = record.task
+      if (!task || task.finished) return
+      const item = task.thread
       if (message.type === 'tool') {
         execute(task, message.name, message.args).then(result => { if (child.connected) child.send({ type: 'result', id: message.id, result }) }, error => { if (child.connected) child.send({ type: 'result', id: message.id, error: redact(error.message), errorDetail: { ...errorDetail(error), message: redact(error.message) } }) })
       } else if (message.type === 'session') { item.sessionFile = message.file; store.mark(item) }
       else if (message.type === 'assistant-start') { task.turn.currentMessageId = message.messageId; delete task.turn.finalAnswer; changed(item) }
-      else if (message.type === 'trace') updateTrace(task, message.event)
+      else if (message.type === 'trace') task.updateTrace(message.event)
       else if (message.type === 'usage') { item.contextUsage = message.usage; changed(item) }
-      else if (message.type === 'delta') { task.partial += message.text; updateTrace(task, { id: 'legacy-text', kind: 'text', delta: message.text }) }
+      else if (message.type === 'delta') { task.partial += message.text; task.updateTrace({ id: 'legacy-text', kind: 'text', delta: message.text }) }
       else if (message.type === 'assistant') {
         // An unsuccessful model attempt can recover. Worker/setup errors remain fatal.
         task.modelError = message.error || null
-        if (message.error) updateTrace(task, { id: randomUUID(), kind: 'notice', text: message.error, status: 'error' })
+        if (message.error) task.updateTrace({ id: randomUUID(), kind: 'notice', text: message.error, status: 'error' })
         const eventIds = message.textEventIds || []
         if (message.text) {
           item.messages.push({ role: 'assistant', text: redact(message.text), turnId: task.turn.id, messageId: message.messageId })
-          if (!eventIds.length) { const id = randomUUID(); eventIds.push(id); updateTrace(task, { id, messageId: message.messageId, kind: 'text', text: message.text, status: 'done' }) }
+          if (!eventIds.length) { const id = randomUUID(); eventIds.push(id); task.updateTrace({ id, messageId: message.messageId, kind: 'text', text: message.text, status: 'done' }) }
         }
         if (!message.error && message.final !== false && (message.text || message.stopReason === 'length')) task.turn.finalAnswer = {
           text: redact(message.text || ''), eventIds, messageId: message.messageId, truncated: message.stopReason === 'length',
         }
         task.partial = ''; changed(item)
-      } else if (message.type === 'error') { task.failed = true; updateTrace(task, { id: randomUUID(), kind: 'notice', text: message.error, status: 'error' }); changed(item) }
-      else if (message.type === 'activity') updateTrace(task, { id: message.name, kind: 'tool', name: message.name, status: message.phase === 'start' ? 'running' : message.phase })
-      else if (message.type === 'done') finish(message.cancelled ? '任务已停止。已完成的操作不会自动撤销。' : '')
+      } else if (message.type === 'error') { task.failed = true; task.updateTrace({ id: randomUUID(), kind: 'notice', text: message.error, status: 'error' }); changed(item) }
+      else if (message.type === 'activity') task.updateTrace({ id: message.name, kind: 'tool', name: message.name, status: message.phase === 'start' ? 'running' : message.phase })
+      else if (message.type === 'done') finish(task, message.cancelled ? '任务已停止。已完成的操作不会自动撤销。' : '')
     })
-    return child
+    return record
+  }
+  function launchTask(task) {
+    if (task.finished || task.cancelled || closing) return
+    task.phase = 'running'; task.thread.queued = false; task.turn.status = 'running'; task.turn.startedAt = Date.now(); task.turn.queueWaitMs = task.turn.startedAt - task.turn.queuedAt
+    changed(task.thread)
+    let record
+    try { record = [...workers].find(record => !record.task && record.child.connected) || startWorker() }
+    catch (error) { finish(task, error.message); return }
+    record.task = task; task.worker = record
+    void (async () => {
+      for (let i = 0; !record.ready && i < 900; i++) { if (!tasks.has(task.thread.id) || task.cancelled || closing) return; await new Promise(resolve => setTimeout(resolve, 100)) }
+      if (!tasks.has(task.thread.id) || task.cancelled || closing) return
+      if (!record.ready || !record.child.connected) { finish(task, '任务在启动阶段已停止'); return }
+      const status = await application.status()
+      if (!tasks.has(task.thread.id) || task.cancelled || closing) return
+      task.dispatched = true
+      record.child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi', task.thread.id), config: task.config, task: { mode: task.mode, browserVerificationEnabled: task.browserVerificationEnabled, customSystemPrompt: task.config.customSystemPrompt, appMode: status.mode, appOnline: status.online, appManaged: status.managed, appError: status.error, appId: task.thread.appId, prompt: task.prompt || '请分析这些图片。', attachments: task.attachments, images: task.images, sessionFile: task.thread.sessionFile } })
+    })().catch(error => { if (!task.finished) finish(task, error.message) })
+  }
+  function launchQueued() {
+    while (!closing && runningTasks().length < config.maxConcurrentAgents && queued.length) {
+      const task = queued.shift()
+      if (!task || task.finished || task.cancelled) continue
+      launchTask(task)
+    }
   }
   async function run(input, mode = 'chat') {
-    if (active) throw fail(409, '已有任务执行中，请等待或先停止')
     if (!config.apiKey) throw fail(400, '请先在设置中填写 DeepSeek API 密钥')
     if (mode === 'chat' && (typeof input.prompt !== 'string' || !input.prompt.trim() && !input.images?.length || input.prompt.length > 100000)) throw fail(400, '消息内容无效')
     if (!apps.some(app => app.id === input.appId)) throw fail(400, '应用不存在')
@@ -149,28 +185,24 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     let taskConfig
     try { taskConfig = validateSettings({ model: input.model || config.model, reasoningEffort: input.reasoningEffort || config.reasoningEffort, thinking: input.thinking ?? config.thinking }, config) } catch (error) { throw fail(400, error.message) }
     const images = await imageStore.select(input.images)
-    if (active || closing) throw fail(409, '已有任务执行中，请等待或先停止')
+    if (closing) throw fail(409, '工作台正在关闭')
     if (!item) { item = { id: randomUUID(), appId: input.appId, title: input.prompt.trim().slice(0, 35) || '图片对话', messages: [], turns: [], revision: 0 }; conversations.push(item) }
+    if (item.running || tasks.has(item.id)) throw fail(409, '此对话已有任务执行中，请等待或先停止')
     if (mode === 'chat' && input.browserVerificationEnabled !== undefined) item.browserVerificationEnabled = input.browserVerificationEnabled
     const browserVerificationEnabled = mode === 'chat' && item.browserVerificationEnabled === true
-    const turn = { id: randomUUID(), presentationVersion: 1, mode, startedAt: Date.now(), status: 'running', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [],
+    const turn = { id: randomUUID(), presentationVersion: 1, mode, queuedAt: Date.now(), startedAt: Date.now(), status: 'queued', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [],
       browserVerificationEnabled, ...(mode === 'chat' ? { browserVerification: { status: browserVerificationEnabled ? 'not-run' : 'disabled' } } : {}) }
     item.turns.push(turn); item.hasImages ||= images.length > 0
-    active = { thread: item, turn, appId: item.appId, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController(),
+    const task = { thread: item, turn, mode, prompt: input.prompt, attachments, images, config: taskConfig, browserVerificationEnabled, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController(), phase: 'queued', browser: null, finished: false,
       devSequence: application.sequence, reloads: application.reloads }
-    item.running = true
+    const trace = createTraceReporter({ redact, notify, persist: value => store.mark(value) })
+    task.updateTrace = event => trace.updateTrace(task, event)
+    task.clearTrace = trace.clearTrace
+    tasks.set(item.id, task)
+    item.running = true; item.queued = runningTasks().length >= config.maxConcurrentAgents
     if (mode === 'chat') item.messages.push({ id: randomUUID(), role: 'user', turnId: turn.id, text: input.prompt, attachments, images })
     changed(item)
-    const task = active
-    void (async () => {
-      const child = worker || startWorker()
-      for (let i = 0; !child.ready && i < 900; i++) { if (!worker || task.cancelled || closing) break; await new Promise(resolve => setTimeout(resolve, 100)) }
-      if (active !== task) return
-      if (!child.ready || !child.connected || task.cancelled || closing) { finish('任务在启动阶段已停止'); return }
-      const status = await application.status()
-      if (active !== task || task.cancelled || closing) return
-      child.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'), config: taskConfig, task: { mode, browserVerificationEnabled, appMode: status.mode, appOnline: status.online, appManaged: status.managed, appError: status.error, appId: item.appId, prompt: input.prompt || '请分析这些图片。', attachments, images, sessionFile: item.sessionFile } })
-    })().catch(error => { if (active === task) finish(error.message) })
+    if (!item.queued) launchTask(task); else queued.push(task)
     return threadPage(item)
   }
   const server = createServer(async (req, res) => {
@@ -202,23 +234,27 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         const id = path.slice('/api/images/'.length), image = await imageStore.get(id)
         res.writeHead(200, { 'Content-Type': image.mimeType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=86400' }); res.end(await imageStore.bytes(id)); return
       }
-      if (req.method === 'GET' && path === '/api/state') result = { applications: apps, application: await application.status(), appUrl: `http://127.0.0.1:${application.port}`, threads: conversations.map(url.searchParams.get('summary') === '1' ? threadSummary : publicThread), activeThreadId: active?.thread.id || null }
+      if (req.method === 'GET' && path === '/api/state') {
+        const scheduled = [...tasks.values()].filter(task => !task.finished)
+        result = { applications: apps, application: await application.status(), appUrl: `http://127.0.0.1:${application.port}`, threads: conversations.map(url.searchParams.get('summary') === '1' ? threadSummary : publicThread),
+          activeThreadId: scheduled[0]?.thread.id || null, activeThreadIds: runningTasks().map(task => task.thread.id), queuedThreadIds: scheduled.filter(task => task.phase === 'queued').map(task => task.thread.id), runningCount: runningTasks().length, maxConcurrentAgents: config.maxConcurrentAgents }
+      }
       else if (req.method === 'GET' && path.startsWith('/api/threads/')) {
         const item = conversations.find(thread => thread.id === path.slice('/api/threads/'.length))
         if (!item) throw fail(404, '聊天不存在')
         result = threadPage(item, Object.fromEntries(url.searchParams))
       }
-      else if (req.method === 'GET' && path === '/api/config') result = { baseUrl: config.baseUrl, model: config.model, thinking: config.thinking, reasoningEffort: config.reasoningEffort, compaction: config.compaction, models: MODELS, imageLimits: IMAGE_LIMITS, hasKey: !!config.apiKey }
+      else if (req.method === 'GET' && path === '/api/config') result = { baseUrl: config.baseUrl, model: config.model, thinking: config.thinking, reasoningEffort: config.reasoningEffort, customSystemPrompt: config.customSystemPrompt, maxConcurrentAgents: config.maxConcurrentAgents, compaction: config.compaction, models: MODELS, imageLimits: IMAGE_LIMITS, hasKey: !!config.apiKey }
       else if (req.method === 'POST' && path === '/api/config') {
-        if (active) throw fail(409, '请等待当前任务结束后修改设置')
         const input = await body(req), url = new URL(input.baseUrl || config.baseUrl)
+        if (tasks.size && typeof input.apiKey === 'string' && input.apiKey.trim()) throw fail(409, '任务执行中不能更换 API 密钥；其他设置会从下一轮生效')
         if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw fail(400, '模型地址必须是 HTTPS 基础地址')
         if (input.model !== undefined && (typeof input.model !== 'string' || !/^[\w./:-]{1,100}$/.test(input.model))) throw fail(400, '模型名称无效')
         let next
         try { next = validateSettings({ ...input, baseUrl: url.href.replace(/\/chat\/completions\/?$/, '').replace(/\/$/, '') }, config) } catch (error) { throw fail(400, error.message) }
         next.apiKey = config.apiKey
         if (typeof input.apiKey === 'string' && input.apiKey.trim()) next.apiKey = input.apiKey.trim()
-        await writeSnapshot(join(dataDir, 'config.json'), JSON.stringify(next, null, 2)); config = next; result = { saved: true }
+        await writeSnapshot(join(dataDir, 'config.json'), JSON.stringify(next, null, 2)); config = next; launchQueued(); result = { saved: true }
       } else if (req.method === 'POST' && path === '/api/images') result = await imageStore.upload(req)
       else if (req.method === 'POST' && path === '/api/images/remove') {
         const { id } = await body(req)
@@ -232,13 +268,19 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       } else if (req.method === 'POST' && path === '/api/run') result = await run(await body(req))
       else if (req.method === 'POST' && path === '/api/compact') result = await run(await body(req), 'compact')
       else if (req.method === 'POST' && path === '/api/interrupt') {
-        const task = active
+        const input = await body(req)
+        const task = input.threadId ? tasks.get(input.threadId) : [...tasks.values()].find(task => !task.finished)
         if (task) {
           task.cancelled = true
           task.controller?.abort()
-          task.stopping ||= Promise.all([commands.stopTurn(ownerFor(task)), task.browser?.close('stopped')])
-          if (worker?.connected) worker.send({ type: 'interrupt' })
-          await task.stopping
+          // Before dispatch the worker cannot send done; release the slot here
+          // without sending an interrupt that could reach its next task.
+          if (!task.dispatched) finish(task, '任务已停止。已完成的操作不会自动撤销。')
+          else {
+            task.stopping ||= Promise.all([commands.stopTurn(ownerFor(task)), task.browser?.close('stopped')])
+            if (task.worker?.child.connected) task.worker.child.send({ type: 'interrupt' })
+            await task.stopping
+          }
         }
         result = { requested: true }
       } else if (req.method === 'POST' && path === '/api/commands/terminate') {
@@ -273,16 +315,20 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   }
   return { server, application, commands, execute, clients, async close() {
     closing = true
-    if (active) { active.cancelled = true; active.controller?.abort(); await active.browser?.close('stopped') }
-    const child = worker
-    const workerClosed = child ? new Promise(resolve => child.once('close', resolve)) : Promise.resolve()
-    child?.kill()
-    await workerClosed
+    const scheduled = [...tasks.values()]
+    for (const task of scheduled) {
+      task.cancelled = true; task.controller?.abort()
+      task.stopping ||= Promise.all([commands.stopTurn(ownerFor(task)), task.browser?.close('stopped')]).catch(() => {})
+      if (task.phase === 'queued') finish(task, '工作台已关闭')
+    }
+    const workerClosures = [...workers].map(record => new Promise(resolve => { record.child.once('close', resolve); record.child.kill() }))
+    await Promise.all(workerClosures)
+    await Promise.all(scheduled.map(task => task.stopping?.catch(() => {})))
+    for (const task of [...tasks.values()]) { task.stopping = null; task.finishing = false; finish(task, '工作台已关闭') }
     await commands.close()
     bridge.close()
     for (const res of streams) res.end()
     if (application.child) await application.stop()
-    finish('工作台已关闭')
     try { await store.flush() } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
     await lock.release()
   } }

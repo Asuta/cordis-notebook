@@ -2,6 +2,7 @@
 export function threadSummary(item) {
   return { id: item.id, appId: item.appId, title: item.title, revision: item.revision || 0,
     browserVerificationEnabled: item.browserVerificationEnabled === true, contextUsage: item.contextUsage,
+    queued: item.queued === true,
     hasImages: !!item.hasImages, canCompact: !!item.sessionFile, running: !!item.running,
     messageCount: item.messages.length, turnCount: (item.turns || []).length }
 }

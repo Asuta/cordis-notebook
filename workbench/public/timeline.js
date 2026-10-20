@@ -3,7 +3,7 @@ const node = (tag, className, text) => { const element = document.createElement(
 const setText = (element, value) => { value = String(value ?? ''); if (element.textContent !== value) element.textContent = value }
 const setData = (element, key, value) => { value = String(value ?? ''); if (element.dataset[key] !== value) element.dataset[key] = value }
 const setHidden = (element, value) => { value = !!value; if (element.hidden !== value) element.hidden = value }
-const statusNames = { running: '进行中', done: '完成', error: '失败', stopped: '已停止' }
+const statusNames = { queued: '排队中', running: '进行中', done: '完成', error: '失败', stopped: '已停止' }
 export const duration = (start, end = Date.now()) => { const seconds = Math.max(0, Math.floor(((end || Date.now()) - start) / 1000)); return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)}分${seconds % 60}秒` }
 function modelTiming(event) {
   const timing = event.timing || {}, parts = [], seconds = ms => (ms / 1000).toFixed(1) + ' 秒'

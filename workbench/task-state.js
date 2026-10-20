@@ -5,15 +5,16 @@ import { writeSnapshot } from '../shared/persistence.js'
 // Restore only interrupted lifecycle state; never rerun old commands or tools.
 export async function recoverConversations(conversations, { dataDir, mark }) {
   for (const item of conversations) {
-    const interrupted = item.running || item.commands?.some(command => command.status === 'running')
     item.turns ||= []; item.revision ||= 0
     item.commands ||= []
+    const interruptedTurns = item.turns.filter(turn => ['running', 'queued'].includes(turn.status))
+    const interrupted = item.running || interruptedTurns.length > 0 || item.commands.some(command => command.status === 'running')
     for (const command of item.commands) if (command.status === 'running') {
       command.status = 'interrupted'; command.endedAt = Date.now(); command.error = '工作台已重启，旧命令会话不可恢复。'
     }
-    if (item.running) {
-      item.running = false; item.messages.push({ role: 'system', text: '工作台曾中断；可以继续此会话。' })
-      for (const turn of item.turns.filter(turn => turn.status === 'running')) {
+    if (item.running || interruptedTurns.length) {
+      item.running = false; item.queued = false; item.messages.push({ role: 'system', text: '工作台曾中断；可以继续此会话。' })
+      for (const turn of interruptedTurns) {
         turn.status = 'stopped'; turn.endedAt = Date.now()
         if (turn.browserVerification && !turn.browserVerification.endedAt && !['disabled', 'not-run'].includes(turn.browserVerification.status)) {
           const report = turn.browserVerification
@@ -21,7 +22,7 @@ export async function recoverConversations(conversations, { dataDir, mark }) {
           report.errors ||= []; report.errors.push('工作台中断，浏览器验收未完成。')
           if (/^[a-f0-9-]{36}$/.test(report.id || '')) await writeSnapshot(join(dataDir, 'browser', report.id, 'report.json'), JSON.stringify(report, null, 2)).catch(error => { if (error.code !== 'ENOENT') throw error })
         }
-        for (const event of turn.events.filter(event => event.status === 'running')) { event.status = 'stopped'; event.endedAt = turn.endedAt }
+        for (const event of turn.events.filter(event => ['running', 'queued'].includes(event.status))) { event.status = 'stopped'; event.endedAt = turn.endedAt }
       }
     }
     if (interrupted) { item.revision++; mark(item) }

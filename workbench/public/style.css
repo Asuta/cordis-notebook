@@ -989,6 +989,13 @@ dialog label {
   font-size: 12px;
   gap: 5px;
 }
+dialog textarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.5;
+}
 dialog .checkbox {
   flex-direction: row;
   align-items: center;

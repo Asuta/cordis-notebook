@@ -238,17 +238,24 @@ for (const scenario of ['late-error', 'finish-exit']) test('结束验收必须�
   assert.equal(v.child, null)
 })
 
-test('工作台重启把未完成的验收记录标记停止，报告文件与页面状态一致', async t => {
+test('工作台重启把运行中和排队中的轮次标记停止，并恢复验收报告', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-browser-recovery-')), id = '00000000-0000-0000-0000-000000000002'
   const report = { id, status: 'running', steps: [], errors: [], screenshots: [] }
   await mkdir(join(dir, 'browser', id), { recursive: true })
   await writeFile(join(dir, 'browser', id, 'report.json'), JSON.stringify(report))
-  await writeFile(join(dir, 'conversations.json'), JSON.stringify([{ id: 'thread', appId: 'notebook', title: '中断', running: true, messages: [], turns: [{ id: 'turn', status: 'running', events: [], browserVerification: report }] }]))
+  await writeFile(join(dir, 'conversations.json'), JSON.stringify([
+    { id: 'thread', appId: 'notebook', title: '中断', running: true, messages: [], turns: [{ id: 'turn', status: 'running', events: [], browserVerification: report }] },
+    { id: 'queued-thread', appId: 'notebook', title: '排队中断', running: true, queued: true, messages: [], turns: [{ id: 'queued-turn', status: 'queued', events: [{ id: 'queued-event', status: 'queued' }] }] },
+  ]))
   const wb = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: dir })
   t.after(async () => { await wb.close(); await rm(dir, { recursive: true, force: true }) })
   const base = 'http://127.0.0.1:' + wb.server.address().port
   const state = await (await fetch(base + '/api/state')).json()
   assert.equal(state.threads[0].turns[0].browserVerification.status, 'stopped')
+  const queued = state.threads.find(thread => thread.id === 'queued-thread')
+  assert.equal(queued.running, false); assert.equal(queued.queued, false)
+  assert.equal(queued.turns[0].status, 'stopped'); assert.ok(queued.turns[0].endedAt)
+  assert.equal(queued.turns[0].events[0].status, 'stopped')
   const saved = await (await fetch(base + `/api/browser-artifacts/${id}/report.json`)).json()
   assert.equal(saved.status, 'stopped'); assert.match(saved.errors[0], /中断/)
   assert.equal((await fetch(base + '/api/browser-artifacts/00000000-0000-0000-0000-000000000003/report.json')).status, 404)

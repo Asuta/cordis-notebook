@@ -5,6 +5,7 @@ export const MODELS = [
 ]
 export const OUTPUT_TOKENS = 16384
 export const DEFAULT_COMPACTION = { enabled: true, threshold: 128000, keepRecentTokens: 20000 }
+export const DEFAULT_MAX_CONCURRENT_AGENTS = 3
 export function modelInfo(id) {
   const model = MODELS.find(model => model.id === id)
   if (!model) throw Error('不支持的模型选项')
@@ -12,12 +13,15 @@ export function modelInfo(id) {
 }
 export function normalizeConfig(input = {}) {
   // Persisted settings may name a removed model; all new tasks use Flash.
-  return { baseUrl: 'https://api.deepseek.com/v1', thinking: true, reasoningEffort: 'high', ...input, model: MODELS[0].id,
+  return { baseUrl: 'https://api.deepseek.com/v1', thinking: true, reasoningEffort: 'high', customSystemPrompt: '',
+    maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS, ...input, model: MODELS[0].id,
     compaction: { ...DEFAULT_COMPACTION, ...input.compaction } }
 }
 export function validateSettings(input, previous) {
   if (input.model !== undefined) modelInfo(input.model)
   const next = normalizeConfig({ ...previous, ...input, compaction: { ...previous.compaction, ...input.compaction } })
+  if (typeof next.customSystemPrompt !== 'string' || next.customSystemPrompt.length > 50000) throw Error('自定义系统提示词必须是 50000 字以内的文本')
+  if (!Number.isInteger(next.maxConcurrentAgents) || next.maxConcurrentAgents < 1 || next.maxConcurrentAgents > 8) throw Error('并行 Agent 数量只能设置为 1–8')
   if (!['low', 'high', 'max'].includes(next.reasoningEffort)) throw Error('推理强度只能选择 Low、High 或 Max')
   const { threshold, keepRecentTokens, enabled } = next.compaction
   if (typeof enabled !== 'boolean' || !Number.isInteger(threshold) || !Number.isInteger(keepRecentTokens)
