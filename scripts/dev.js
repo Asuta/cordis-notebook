@@ -350,7 +350,7 @@ export async function startDevelopment({ port = Number(process.env.PORT || 3210)
               const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
               if (pathname === '/__cordis/identity') {
                 res.setHeader('Content-Type', 'application/json'); res.setHeader('Cache-Control', 'no-store')
-                res.end(JSON.stringify({ mode: 'development', session, pid: process.pid, backendPid: backend?.pid })); return
+                res.end(JSON.stringify({ mode: 'development', session, pid: process.pid, backendPid: backend?.pid, root, dataDir: resolve(dataDir) })); return
               }
               if (pathname === '/__cordis/dev') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ version, plugins })); return }
               if (pathname === '/') {

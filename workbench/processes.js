@@ -1,6 +1,6 @@
 import { fork } from 'node:child_process'
 import { once } from 'node:events'
-import { join } from 'node:path'
+import { join, normalize, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdir, readdir, rename, stat, unlink } from 'node:fs/promises'
@@ -12,6 +12,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const defaultDiagnosticBytes = 4 * 1024 * 1024
 const defaultDiagnosticPendingBytes = 1024 * 1024
 const maxDiagnosticChunkBytes = 256 * 1024
+
+/** Compare a reported path with a local path without depending on separator or Windows casing. */
+function pathKey(value, base = process.cwd()) {
+  if (!value) return ''
+  try {
+    const key = normalize(resolve(base, String(value)))
+    return process.platform === 'win32' ? key.toLowerCase() : key
+  } catch { return '' }
+}
 
 function truncateDiagnostic(value, maxBytes) {
   const bytes = Buffer.from(value)
@@ -183,10 +192,18 @@ export class ApplicationProcess {
       if (this.mode === 'development') {
         const response = await fetch(`http://127.0.0.1:${this.port}/__cordis/identity`, { signal: AbortSignal.timeout(1500) })
         const identity = response.ok ? await response.json().catch(() => null) : null
+        const dataKey = identity?.dataDir ? pathKey(identity.dataDir) : ''
+        const rootKey = identity?.root ? pathKey(identity.root) : ''
+        const sameDataDir = !!dataKey && dataKey === pathKey(this.dataDir, this.root)
+        const sameRoot = !!rootKey && rootKey === pathKey(this.root)
+        // Old identities do not report a location. Keep the conservative block in that case;
+        // only skip the port when the occupant proves it uses another data directory.
+        const sharedData = !!identity && (sameDataDir || (!dataKey && (sameRoot || !rootKey)))
         if (!this.child || !this.session || identity?.session !== this.session || identity?.pid !== this.child.pid || identity?.mode !== 'development') {
           return { online: false, mode: 'external', requestedMode: this.mode, managed: false,
             cordis: ['development', 'runtime'].includes(identity?.mode),
-            error: `端口 ${this.port} 已被其他服务占用。若占用者是本项目的应用实例，请停止它或修改 WORKBENCH_APP_PORT；其他服务会在启动时自动跳过。`, logs: this.logs.slice(-30) }
+            sameDataDir, sameRoot, sharedData,
+            error: `端口 ${this.port} 已被其他服务占用。若占用者使用同一数据目录，请停止它或修改 WORKBENCH_APP_PORT；其他服务会在启动时自动跳过。`, logs: this.logs.slice(-30) }
         }
       }
       const response = await fetch(`http://127.0.0.1:${this.port}/api/applications`, { signal: AbortSignal.timeout(1500) })
@@ -200,7 +217,8 @@ export class ApplicationProcess {
     if (this.child) throw Error('应用进程尚未就绪，请稍后重试')
     // Another Cordis app may be writing the same DATA_DIR; spawning a second one
     // would let two processes save over each other. Only unrelated services are skipped.
-    if (current.mode === 'external' && current.cordis) throw Error(current.error + '检测到同项目的应用仍在运行，为避免两个进程同时写数据目录，工作台没有自动更换端口。')
+    if (current.mode === 'external' && current.cordis && current.sharedData) throw Error(current.error + '检测到同一数据目录的 Cordis 应用仍在运行，为避免两个进程同时写数据目录，工作台没有自动更换端口。')
+    if (current.mode === 'external' && current.cordis) this.log(`端口 ${this.port} 上是使用其他数据目录的 Cordis 应用，将自动改用其他端口`)
     // Start from the configured port, then keep moving up until a free one is found.
     const requested = this.port
     this.port = await findAvailablePort(requested)

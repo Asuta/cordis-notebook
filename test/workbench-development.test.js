@@ -29,6 +29,8 @@ test('开发模式由工作台启动 Vite 服务，状态报告模式并能受�
   const first = wb.application.child.pid
   const identity = await (await fetch(base + '/__cordis/identity')).json()
   assert.equal(identity.pid, first); assert.equal(identity.session, wb.application.session)
+  assert.equal(resolve(identity.dataDir), resolve(wb.application.dataDir))
+  assert.equal(resolve(identity.root), resolve('.'))
   await wb.application.restart()
   assert.notEqual(wb.application.child.pid, first)
   assert.notEqual(wb.application.session, identity.session)
@@ -124,7 +126,47 @@ test('应用端口上是另一个 Cordis 实例时不会另起第二个', async 
   const app = new ApplicationProcess({ root: resolve('.'), port: blocked.address().port, dataDir: join(tmpdir(), 'unused'), commands: {}, mode: 'development' })
   await assert.rejects(app.start(), /被其他服务占用/)
   assert.equal(app.child, null)
-  assert.equal(app.port, blocked.address().port, '检测到同项目实例时不应换端口')
+  assert.equal(app.port, blocked.address().port, '占用者没有上报数据目录时，应保守阻止第二个实例')
+})
+
+test('另一个数据目录的 Cordis 应用占用端口时自动顺延', { timeout: 60000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cordis-workbench-other-data-'))
+  await mkdir(join(dir, 'scripts'), { recursive: true })
+  await writeFile(join(dir, 'scripts/dev.js'), [
+    "const http = require('node:http')",
+    "const port = Number(process.env.PORT)",
+    "const server = http.createServer((req, res) => {",
+    "  res.setHeader('Content-Type', 'application/json')",
+    "  if (req.url === '/__cordis/identity') return res.end(JSON.stringify({ mode: 'development', session: process.env.CORDIS_DEV_SESSION, pid: process.pid, root: process.cwd(), dataDir: process.env.DATA_DIR }))",
+    "  res.end(JSON.stringify({ current: { id: 'notebook' } }))",
+    "})",
+    "server.listen(port, '127.0.0.1', () => { if (process.connected) process.send({ type: 'cordis-vite', port }) })",
+    "process.on('message', message => { if (message?.type === 'workbench-shutdown') server.close(() => process.exit(0)) })",
+  ].join('\n'))
+  let identity = { mode: 'development', session: 'other-session', pid: 4242, root: dir, dataDir: join(dir, 'data') }
+  const blocked = createHTTPServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (req.url === '/__cordis/identity') { res.end(JSON.stringify(identity)); return }
+    res.end('{}')
+  })
+  await new Promise(resolve => blocked.listen(0, '127.0.0.1', resolve))
+  const startPort = blocked.address().port
+  const options = { root: dir, port: startPort, dataDir: join(dir, 'data'), commands: {}, mode: 'development' }
+  const same = new ApplicationProcess(options)
+  await assert.rejects(same.start(), /同一数据目录/)
+  assert.equal(same.port, startPort)
+  assert.equal(same.child, null)
+
+  identity = { ...identity, root: join(dir, 'other'), dataDir: join(dir, 'other-data') }
+  const other = new ApplicationProcess(options)
+  t.after(async () => {
+    if (other.child) await other.stop().catch(() => {})
+    await new Promise(resolve => { blocked.closeAllConnections(); blocked.close(resolve) })
+    await rm(dir, { recursive: true, force: true })
+  })
+  const status = await other.start()
+  assert.equal(status.online, true); assert.equal(status.managed, true)
+  assert.ok(other.port > startPort, `应跳过被其他数据目录占用的 ${startPort}，实际 ${other.port}`)
 })
 
 test('同一 checkout 的并行工作台使用不同缓存，单实例重启复用自己的缓存', { timeout: 120000 }, async t => {
