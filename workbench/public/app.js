@@ -2,6 +2,7 @@ import { mergeThread } from './thread-cache.js'
 import { createMessage, createTurn, updateTurn, developmentStatus } from './timeline.js'
 const $ = id => document.getElementById(id)
 const frame = $('application'), standalone = location.pathname === '/chat', clientId = crypto.randomUUID()
+const scopeToggle = $('scope-toggle'), scopeMenu = $('scope-menu')
 let state, config, binding, lastPageAppId, threadId = sessionStorage.getItem('agent-thread') || '', appId = sessionStorage.getItem('agent-app') || ''
 let attachments = [], images = [], appOrigin, toastTimer, polling = false, uploading = 0, submitting = false, renderedThread, renderTimer
 let promptRevision = 0, pendingImages = new Set()
@@ -88,10 +89,16 @@ const showChat = () => {
   resizePrompt()
 }
 const hideChat = () => {
+  setScopeMenu(false)
   const finish = () => { $('chat').hidden = true; $('launcher').hidden = false; $('launcher').focus() }
   if (!motion() || !$('chat').animate) return finish()
   closingAnimation = $('chat').animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: '0 10px' }], { duration: 160, easing: 'ease-in' })
   closingAnimation.onfinish = finish
+}
+function setScopeMenu(open, focus = false) {
+  scopeMenu.hidden = !open
+  scopeToggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+  if (open && focus) $('app-select').focus()
 }
 let chatDrag, chatResize, launcherDrag, launcherMovedAt = -1e9
 const releasePointer = (element, pointerId) => { try { element.releasePointerCapture?.(pointerId) } catch {} }
@@ -192,7 +199,7 @@ function endLauncherDrag(event) {
   launcherDrag = null
   document.body.classList.remove('layout-dragging')
 }
-function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = Math.max(64, Math.min(180, input.scrollHeight)) + 'px' }
+function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = Math.max(46, Math.min(160, input.scrollHeight)) + 'px' }
 function followButton() { const box = $('messages'); $('latest').hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 100 }
 if (standalone) showChat()
 function toast(text) { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 8000) }
@@ -229,6 +236,11 @@ function renderThreads() {
   const select = $('threads'), entries = [...state.threads].reverse().filter(t => t.appId === appId), signature = JSON.stringify(entries.map(t => [t.id, t.title, t.running, t.queued]))
   if (select.dataset.signature !== signature) { select.dataset.signature = signature; select.replaceChildren(new Option('新对话', ''), ...entries.map(t => new Option((t.queued ? '⏳ ' : t.running ? '● ' : '') + t.title, t.id))) }
   select.value = threadId
+  const appName = state.applications?.find(app => app.id === appId)?.name || '当前应用'
+  const active = entries.find(entry => entry.id === threadId)
+  const label = appName + ' · ' + (active ? (active.queued ? '⏳ ' : active.running ? '● ' : '') + active.title : '新对话')
+  $('scope-label').textContent = label
+  scopeToggle.title = label + ' · 点击切换应用或对话'
 }
 function scheduleRender() { if (!renderTimer) renderTimer = setTimeout(() => { renderTimer = null; render(); }, 80) }
 function render() {
@@ -276,13 +288,19 @@ function render() {
   const progress = developmentStatus(state.application.development)
   const hot = state.application.online && state.application.managed && state.application.mode === 'development'
     ? ' · ' + progress.label : ''
-  $('connection').textContent = (binding?.appId === appId ? '应用已连接 · 可操作当前页面' : '代码模式 · 当前会话未连接应用页面') + hot
+  const connected = binding?.appId === appId
+  $('connection').textContent = (connected ? '已连接' : '代码模式')
+    + (progress.attention ? ' · 需确认' : state.application.development?.pending ? ' · 更新中' : '')
+  $('connection').title = (connected ? '应用已连接 · 可操作当前页面' : '代码模式 · 当前会话未连接应用页面') + hot
   $('development-progress').hidden = !progress.details
   $('development-details').textContent = progress.details
   if (progress.attention) $('development-progress').open = true
   const usage = thread?.contextUsage, threshold = config?.compaction?.threshold || 128000
-  $('context-usage').textContent = `上下文 ${usage?.tokens == null ? '待下轮确认' : '约 ' + usage.tokens.toLocaleString()} / ${threshold.toLocaleString()} tokens${config?.compaction?.enabled === false ? ' · 自动压缩关闭' : ''}`
-  $('context-usage').title = `模型窗口 ${(usage?.contextWindow || 1048576).toLocaleString()} tokens；用量含估算，以接口后续回报为准。`
+  const compactTokens = value => value >= 1e6 ? (value / 1e6).toFixed(1).replace(/\.0$/, '') + 'M'
+    : value >= 1e4 ? Math.round(value / 1000) + 'k'
+      : value >= 1000 ? (value / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(value)
+  $('context-usage').textContent = (usage?.tokens == null ? '待确认' : compactTokens(usage.tokens)) + ' / ' + compactTokens(threshold)
+  $('context-usage').title = `上下文 ${usage?.tokens == null ? '待下轮确认' : '约 ' + usage.tokens.toLocaleString()} / ${threshold.toLocaleString()} tokens；模型窗口 ${(usage?.contextWindow || 1048576).toLocaleString()} tokens；用量含估算，以接口后续回报为准。${config?.compaction?.enabled === false ? '自动压缩已关闭。' : ''}`
   $('compact').disabled = threadBusy || !thread?.canCompact || submitting
   $('compose-model').disabled = $('compose-effort').disabled = threadBusy || submitting
   renderThreads(); renderComposer()
@@ -451,9 +469,16 @@ $('chat-close').onclick = hideChat
 $('messages').addEventListener('scroll', followButton)
 $('messages').addEventListener('process-toggle', () => requestAnimationFrame(followButton))
 $('latest').onclick = () => { const box = $('messages'); box.scrollTo({ top: box.scrollHeight, behavior: motion() ? 'smooth' : 'auto' }) }
-$('new-thread').onclick = newThread
-$('app-select').onchange = () => { appId = $('app-select').value; newThread() }
-$('threads').onchange = safe(async () => { threadId = $('threads').value; clearDraftAttachments(); render(); await loadThread(); $('messages').scrollTop = $('messages').scrollHeight })
+scopeToggle.onclick = event => { event.stopPropagation(); setScopeMenu(scopeMenu.hidden, true) }
+document.addEventListener('pointerdown', event => {
+  if (!scopeMenu.hidden && event.target instanceof Node && !scopeMenu.contains(event.target) && !scopeToggle.contains(event.target)) setScopeMenu(false)
+})
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !scopeMenu.hidden) { setScopeMenu(false); scopeToggle.focus() }
+})
+$('new-thread').onclick = () => { newThread(); setScopeMenu(false); scopeToggle.focus() }
+$('app-select').onchange = () => { appId = $('app-select').value; newThread(); setScopeMenu(false); scopeToggle.focus() }
+$('threads').onchange = safe(async () => { threadId = $('threads').value; setScopeMenu(false); scopeToggle.focus(); clearDraftAttachments(); render(); await loadThread(); $('messages').scrollTop = $('messages').scrollHeight })
 $('browser-verification').onchange = () => {
   const key = browserChoiceKey(), enabled = $('browser-verification').checked, id = threadId
   const draft = { enabled }
@@ -572,7 +597,10 @@ events.onopen = () => {
   for (const thread of state?.threads || []) for (const field of ['messages', 'turns', 'commands', 'history', 'detailRevision']) delete thread[field]
   void refresh().catch(error => toast(error.message))
 }
-events.onerror = () => { $('connection').textContent = '工作台连接中断，正在重连…' }
+events.onerror = () => {
+  $('connection').textContent = '连接中断'
+  $('connection').title = '工作台连接中断，正在重连…'
+}
 config = await api('config'); setModelOptions()
 await refresh().catch(error => toast(error.message))
 setInterval(() => void refresh().catch(() => {}), 3000)

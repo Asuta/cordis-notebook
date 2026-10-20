@@ -25,7 +25,7 @@ pnpm workbench
 
 `pnpm workbench:runtime` 以正式模式启动且跳过构建。环境变量：`WORKBENCH_PORT` 默认 3211，`WORKBENCH_APP_PORT` 默认 3210，`WORKBENCH_APP_MODE` 可设为 development 或 runtime，`WORKBENCH_DATA_DIR` 指定工作台私有目录，`DATA_DIR` 指定业务数据目录。工作台使用本仓库的 applications；单目录 PLUGINS_DIR 开发入口不属于此启动方式。
 
-启动时会先检查端口：`WORKBENCH_PORT` 和 `WORKBENCH_APP_PORT` 被占用时，工作台继续向上寻找空闲端口，并在控制台和应用日志中说明改动。它不会杀死或接管已有服务。如果占用应用端口的是另一个 Cordis 实例（包括旧会话），工作台不会顺延，而是保持 `mode: external`，避免两个进程同时写 `DATA_DIR`；停止该实例或改用 `WORKBENCH_APP_PORT` 后再启动。同一 `WORKBENCH_DATA_DIR` 只允许一个工作台：启动时写入 `workbench.lock`，检测到仍在运行的实例就提示它的地址并退出，避免两个进程写同一份会话文件；确认没有运行时删除该文件即可。正式模式仍优先连接端口上已有的运行服务，但不能代替它重启。不要同时用两个业务进程写同一数据目录。
+启动时会先检查端口：`WORKBENCH_PORT` 和 `WORKBENCH_APP_PORT` 被占用时，工作台继续向上寻找空闲端口，并在控制台和应用日志中说明改动。它不会杀死或接管已有服务。应用端口上是 Cordis 实例时，工作台读取它的 `/__cordis/identity` 并比较 `dataDir`：同一数据目录（包括同一 worktree 的旧会话）才保持 `mode: external`，避免两个进程同时写 `DATA_DIR`；不同数据目录（例如另一个 worktree）按普通端口占用处理并自动顺延。旧版本实例不上报 `dataDir`，会被保守拦截，在旧 worktree 重启一次工作台即可。同一 `WORKBENCH_DATA_DIR` 只允许一个工作台：启动时写入 `workbench.lock`，检测到仍在运行的实例就提示它的地址并退出，避免两个进程写同一份会话文件；确认没有运行时删除该文件即可。正式模式仍优先连接端口上已有的运行服务，但不能代替它重启。不要同时用两个业务进程写同一数据目录。
 
 ## 崩溃诊断
 
