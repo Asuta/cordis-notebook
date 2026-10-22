@@ -45,6 +45,23 @@ test('后续刷新有自己的等待期限，切换应用不自动改绑，取�
   await assert.rejects(bridge.rebindPage(task), /停止/)
 })
 
+test('页面自行刷新时同一应用会话接管新 pageId，切换应用或过期心跳不接管', async t => {
+  const { bridge, task, ready } = fixture(t)
+  ready({ reloadToken: 'generation-1' })
+  await bridge.rebindPage(task)
+  ready({ pageId: 'page-2' })
+  const live = await bridge.rebindPage(task)
+  assert.equal(live.pageId, 'page-2'); assert.equal(task.pageId, 'page-2')
+  assert.equal(task.pageAdoption.pageId, 'page-2')
+  ready({ appId: 'other', pageId: 'other-page' })
+  await bridge.rebindPage(task)
+  assert.equal(task.pageId, 'page-2')
+  ready({ pageId: 'page-3' })
+  bridge.clients.get('client').seen = Date.now() - 11000
+  assert.equal(await bridge.rebindPage(task), null)
+  assert.equal(task.pageId, 'page-2')
+})
+
 test('等待中的连续刷新跟进最新批次，忽略旧确认并给新批次完整期限', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 })
   const { application, bridge, task, ready } = fixture(t)

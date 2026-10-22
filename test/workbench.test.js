@@ -45,17 +45,70 @@ test('工作台隐藏密钥、拒绝跨站请求，保存独立会话并在应�
   assert.deepEqual(saved[0].turns[0].finalAnswer.eventIds, [saved[0].turns[0].events[0].id])
 })
 
-test('工具绑定页面和服务会话，切换应用后拒绝旧任务，刷新后拒绝旧附件', async t => {
+test('工具绑定页面和服务会话，同会话内页面自刷新后接管新页面，切换应用后拒绝旧任务，刷新后拒绝旧附件', async t => {
   const { wb, request } = await fixture(t)
   wb.application.status = async () => ({ online: true, state: { current: { id: 'notebook' }, session: 's1' } })
   const task = { appId: 'notebook', clientId: 'browser', pageId: 'p1', session: 's1' }
   await request('bridge', { ...task, type: 'ready', tools: [{ name: 'notebook_read' }] })
   assert.equal((await wb.execute(task, 'app_list_tools', {})).tools[0].name, 'notebook_read')
   await request('bridge', { ...task, type: 'ready', pageId: 'p2', tools: [] })
-  await assert.rejects(wb.execute(task, 'app_list_tools', {}), /断开或切换/)
+  assert.deepEqual((await wb.execute(task, 'app_list_tools', {})).tools.map(tool => tool.name), ['replace_selection'])
+  assert.equal(task.pageId, 'p2')
   assert.equal((await request('run', { ...task, prompt: '过期选区', attachments: [{ appId: 'notebook', pageId: 'p1', session: 's1', text: '文字' }] })).status, 409)
   await request('bridge', { ...task, type: 'ready', appId: 'drawing', tools: [] })
   await assert.rejects(wb.execute(task, 'app_list_tools', {}), /断开或切换/)
+})
+
+test('发送任务后 worker 的工具路由保留应用身份并能调用绑定页面', async t => {
+  const { wb, request, dir, url } = await fixture(t)
+  wb.application.status = async () => ({ online: true, state: { current: { id: 'notebook' }, session: 's1' } })
+  await writeFile(join(dir, 'worker.cjs'), `
+    process.send({ type: 'ready' });
+    process.on('message', m => {
+      if (m.type === 'run') process.send({ type: 'tool', id: 'status', name: 'workspace_status', args: {} });
+      else if (m.type === 'result') {
+        process.send({ type: 'assistant', text: JSON.stringify(m) });
+        if (m.error || m.id === 'read') process.send({ type: 'done' });
+        else if (m.id === 'status') process.send({ type: 'tool', id: 'tools', name: 'app_list_tools', args: {} });
+        else process.send({ type: 'tool', id: 'read', name: 'app_call', args: { name: 'notebook_read', arguments: {} } });
+      }
+    });
+  `)
+  await request('bridge', { type: 'ready', clientId: 'browser', appId: 'notebook', pageId: 'p1', session: 's1', tools: [{ name: 'notebook_read' }] })
+  const controller = new AbortController()
+  t.after(() => controller.abort())
+  const response = await fetch(url + '/api/events', { signal: controller.signal })
+  const reader = response.body.getReader()
+  const pageResult = (async () => {
+    let buffer = ''
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) return
+      buffer += new TextDecoder().decode(chunk.value)
+      let end
+      while ((end = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, end); buffer = buffer.slice(end + 2)
+        const line = block.split('\n').find(line => line.startsWith('data: '))
+        if (!line) continue
+        const event = JSON.parse(line.slice(6))
+        if (event.type !== 'page-call') continue
+        assert.equal(event.clientId, 'browser'); assert.equal(event.pageId, 'p1'); assert.equal(event.session, 's1')
+        assert.equal(event.name, 'notebook_read')
+        await request('bridge', { ...event, type: 'result', result: { title: '页面中的笔记' } })
+        return
+      }
+    }
+  })().catch(error => { if (!controller.signal.aborted) throw error })
+  const run = await request('run', { appId: 'notebook', clientId: 'browser', prompt: '读取笔记' })
+  assert.equal(run.status, 200)
+  const state = await until(async () => { const s = (await request('state')).body; return !s.activeThreadId && s.threads.length && s })
+  const replies = state.threads[0].messages.filter(message => message.role === 'assistant').map(message => JSON.parse(message.text))
+  assert.equal(replies[0].result.appId, 'notebook')
+  assert.equal(replies[1].error, undefined)
+  assert.equal(replies[1].result.appId, 'notebook')
+  assert.equal(replies[1].result.tools[0].name, 'notebook_read')
+  assert.deepEqual(replies[2].result, { title: '页面中的笔记' })
+  controller.abort(); await pageResult
 })
 
 test('页面调用只由绑定客户端回传，插件停用后不能继续调用', async t => {

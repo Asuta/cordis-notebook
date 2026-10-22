@@ -84,7 +84,7 @@ Windows 上可运行 `powershell -ExecutionPolicy Bypass -File scripts/windows-c
 
 ## 两层上下文与应用绑定
 
-每次任务读取 `agent/ARCHITECTURE.md` 和 `applications/<app>/agent.md`，因此业务应用离线时仍可理解架构。会话有固定 appId，页面工具进一步绑定工作台标签页、业务页面 pageId 和后端 session。
+每次任务读取 `agent/ARCHITECTURE.md` 和 `applications/<app>/agent.md`，因此业务应用离线时仍可理解架构。会话有固定 appId，页面工具进一步绑定工作台标签页、业务页面 pageId 和后端 session。页面在任务执行中自行刷新（F5、HMR 整页重载）会得到新的 pageId 但保留同一应用会话；工具调用前会接管这个新 pageId，任务继续对话当前页面，旧页面的选区附件仍按过期处理。切换应用或应用会话变化不接管，旧任务继续被拒绝。
 
 搜索统一通过 `exec_command` 执行 `rg`（内容）或 `rg --files`（路径），先限定相关源码范围；默认工具集不再暴露 Pi 的 `grep/find/ls/powershell/bash`。文件读取、编辑和写入仍用 `read/edit/write`。工作台把随依赖安装的 ripgrep 和项目 `node_modules/.bin` 加入命令 PATH；Windows 使用 PowerShell，其他平台使用 Bash。这是模型行为指导，不按命令名称封禁搜索。文档每轮重新读取；命令工具代码更新需重启工作台。
 

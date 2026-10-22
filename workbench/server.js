@@ -193,7 +193,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
     const turn = { id: randomUUID(), presentationVersion: 1, mode, queuedAt: Date.now(), startedAt: Date.now(), status: 'queued', model: taskConfig.model, effort: taskConfig.thinking ? taskConfig.reasoningEffort : 'off', events: [],
       browserVerificationEnabled, ...(mode === 'chat' ? { browserVerification: { status: browserVerificationEnabled ? 'not-run' : 'disabled' } } : {}) }
     item.turns.push(turn); item.hasImages ||= images.length > 0
-    const task = { thread: item, turn, mode, prompt: input.prompt, attachments, images, config: taskConfig, browserVerificationEnabled, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController(), phase: 'queued', browser: null, finished: false,
+    const task = { thread: item, appId: item.appId, turn, mode, prompt: input.prompt, attachments, images, config: taskConfig, browserVerificationEnabled, clientId: input.clientId, pageId: client?.pageId, session: client?.session, partial: '', controller: new AbortController(), phase: 'queued', browser: null, finished: false,
       devSequence: application.sequence, reloads: application.reloads }
     const trace = createTraceReporter({ redact, notify, persist: value => store.mark(value) })
     task.updateTrace = event => trace.updateTrace(task, event)

@@ -3,7 +3,7 @@ import { operationError, restoreError } from '../shared/errors.js'
 
 /** @typedef {{name:string, [key:string]:unknown}} Tool */
 /** @typedef {{appId:string, pageId:string, session:string, reloadToken?:string, tools:Tool[], seen:number}} Binding */
-/** @typedef {{appId:string, clientId?:string, pageId?:string, session?:string, cancelled?:boolean, reloads?:number, awaitingRebind?:boolean, expectedReloadToken?:string, rebindStartedAt?:number, rebind?:object}} Task */
+/** @typedef {{appId:string, clientId?:string, pageId?:string, session?:string, cancelled?:boolean, reloads?:number, awaitingRebind?:boolean, expectedReloadToken?:string, rebindStartedAt?:number, rebind?:object, pageAdoption?:{pageId:string, at:number}}} Task */
 /**
  * Owns page identity, request lifetimes and reload rebinding. No file or tool access.
  * @param {{application:{mode:string, reloads:number, reloadToken?:string, settle:(options?:{delay:number})=>Promise<unknown>}, notify:(message:object)=>void, apps:{id:string}[], timeoutMs?:number, rebindTimeoutMs?:number}} options
@@ -69,7 +69,15 @@ export function createPageBridge({ application, notify, apps, timeoutMs = 20000,
     }
     if (task.cancelled) throw Error('任务已停止')
     const live = clients.get(task.clientId || '')
-    return live && Date.now() - live.seen <= 10000 ? live : null
+    const fresh = live && Date.now() - live.seen <= 10000
+    // A page that reloads on its own (refresh, HMR full reload) keeps the client and the
+    // application session but gets a new pageId. Adopt it so the running task is not stuck
+    // until the user sends another message; a switched application or session still rejects.
+    if (fresh && live.appId === task.appId && live.session === task.session && live.pageId !== task.pageId) {
+      task.pageId = live.pageId
+      task.pageAdoption = { pageId: live.pageId, at: Date.now() }
+    }
+    return fresh ? live : null
   }
   return { clients, bindingFor, pageCall, rebindPage,
     /** @param {{clientId?:unknown, type?:string, id?:string, appId?:string, pageId?:string, session?:string, reloadToken?:string, tools?:Tool[], error?:string, errorDetail?:unknown, result?:unknown}} input */

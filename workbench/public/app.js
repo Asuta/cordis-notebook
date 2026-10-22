@@ -3,7 +3,7 @@ import { createMessage, createTurn, updateTurn, developmentStatus } from './time
 const $ = id => document.getElementById(id)
 const frame = $('application'), standalone = location.pathname === '/chat', clientId = crypto.randomUUID()
 const scopeToggle = $('scope-toggle'), scopeMenu = $('scope-menu')
-let state, config, binding, lastPageAppId, threadId = sessionStorage.getItem('agent-thread') || '', appId = sessionStorage.getItem('agent-app') || ''
+let state, config, binding, lastPageAppId, lastReadyAt = 0, threadId = sessionStorage.getItem('agent-thread') || '', appId = sessionStorage.getItem('agent-app') || ''
 let attachments = [], images = [], appOrigin, toastTimer, polling = false, uploading = 0, submitting = false, renderedThread, renderTimer
 let promptRevision = 0, pendingImages = new Set()
 const rows = new Map()
@@ -426,7 +426,7 @@ window.addEventListener('message', safe(async event => {
   if (standalone || event.source !== frame.contentWindow || event.origin !== appOrigin || message?.channel !== 'cordis-agent') return
   if (message.type === 'ready') {
     if (binding && (binding.pageId !== message.pageId || binding.session !== message.session)) { attachments = []; renderAttachments() }
-    binding = message
+    binding = message; lastReadyAt = Date.now()
     if (message.appId && message.appId !== lastPageAppId) {
       lastPageAppId = message.appId
       if (message.appId !== appId) { appId = message.appId; $('app-select').value = appId; newThread() }
@@ -440,6 +440,15 @@ window.addEventListener('message', safe(async event => {
   else if (message.type === 'disconnect') { binding = null; await api('bridge', { type: 'disconnect', clientId }); render() }
 }))
 frame.addEventListener('load', connectFrame)
+// A frame can lose its message peer without a load event (HMR full reload, renderer
+// restart). Re-ask for the handshake when ready pulses stop, and drop the stale
+// binding after a longer silence so the UI matches the server's 10s freshness rule.
+setInterval(() => {
+  if (standalone || !appOrigin || !frame.contentWindow) return
+  const silent = Date.now() - lastReadyAt
+  if (!binding || silent > 6000) connectFrame()
+  if (binding && silent > 15000) { binding = null; render() }
+}, 2000)
 const chatHeaderElement = document.querySelector('#chat .chat-header')
 if (chatHeaderElement) {
   chatHeaderElement.addEventListener('pointerdown', startChatDrag)
