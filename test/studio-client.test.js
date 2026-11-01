@@ -22,7 +22,7 @@ async function setup(t, { models = {}, systemDark = false, library = null, libra
     boards: [board], assets: {}, jobs: [], config: { hasKey: true, model: 'test-model', baseUrl: 'https://example.com' },
     llmConfig: llmConfig || { format: 'openai-responses', defaultModelId: null, models: [] }, promptOptimizations: promptOptimizations || { templates: [] },
   }
-  const generated = [], toasts = []
+  const generated = [], toasts = [], assetFavorites = new Set()
   const ctx = { effect: fn => cleanups.push(fn()), on: (name, fn) => hooks.set(name, fn) }
   const sdk = {
     application: { id: 'studio', name: '灵感画布', manageData: true },
@@ -37,6 +37,10 @@ async function setup(t, { models = {}, systemDark = false, library = null, libra
       if (path === '/api/studio/generation-library') {
         if (libraryService) return libraryService({ method, body, state })
         return library ? structuredClone(library) : { prompts: [], models: [], cards: [], results: [], suffixes: [], history: [] }
+      }
+      if (path === '/api/studio/asset-favorites') {
+        if (method === 'POST') { if (body.favorite) assetFavorites.add(body.assetId); else assetFavorites.delete(body.assetId) }
+        return { assetIds: [...assetFavorites] }
       }
       if (path === '/api/studio/result-parameters') {
         const sourceBoard = state.boards.find(board => board.id === body.boardId), result = sourceBoard?.nodes.find(node => node.id === body.nodeId)
@@ -83,11 +87,13 @@ async function setup(t, { models = {}, systemDark = false, library = null, libra
       }
       if (path.startsWith('/api/studio/providers/wavespeed/models?')) return { items: Object.values(models), total: Object.keys(models).length, catalogTotal: Object.keys(models).length, types: [], offset: 0, limit: 30 }
       if (path === '/api/studio/edit') {
-        if (body.revision !== state.boards[0].revision) throw Object.assign(Error('画布已变化'), { status: 409 })
+        const boardIndex = state.boards.findIndex(board => board.id === body.boardId)
+        if (boardIndex < 0) throw Error('画板不存在')
+        if (body.revision !== state.boards[boardIndex].revision) throw Object.assign(Error('画布已变化'), { status: 409 })
         editBatches.push(structuredClone(body.operations))
         const inverse = []
-        for (const op of body.operations) { const result = applyOperation(state.boards[0], op, state.assets); state.boards[0] = result.board; inverse.unshift(result.inverse) }
-        return { board: structuredClone(state.boards[0]), inverse }
+        for (const op of body.operations) { const result = applyOperation(state.boards[boardIndex], op, state.assets); state.boards[boardIndex] = result.board; inverse.unshift(result.inverse) }
+        return { board: structuredClone(state.boards[boardIndex]), inverse }
       }
       if (path === '/api/studio/generate') { generated.push(structuredClone(state.boards[0])); return { id: 'job', status: 'queued' } }
       if (path === '/api/studio/cancel') { state.cancelledJob = body.id; const job = state.jobs.find(item => item.id === body.id); if (job) job.status = 'interrupted'; return { ok: true } }
@@ -384,7 +390,22 @@ test('参考区共同排序卡片内和连线素材，可绑定首尾帧；Agent
   assert.equal(editor.open, true)
   assert.ok(editor.querySelector('.studio-quick-edit-canvas'))
   assert.ok(editor.querySelector('[aria-label="笔刷粗细"]'))
-  assert.equal(editor.querySelector('.studio-quick-edit-actions .studio-primary').disabled, true, '未画线前不能保存')
+  const mirror = editor.querySelector('.studio-quick-edit-mirror')
+  assert.ok(mirror, '快速编辑提供一键镜像')
+  assert.equal(mirror.getAttribute('aria-pressed'), 'false')
+  await mirror.onclick()
+  assert.equal(mirror.getAttribute('aria-pressed'), 'true')
+  await mirror.onclick()
+  assert.equal(mirror.getAttribute('aria-pressed'), 'false')
+  const rotation = editor.querySelector('[aria-label="旋转角度"]')
+  assert.ok(rotation, '快速编辑提供 360 度旋转')
+  rotation.value = '90'; rotation.oninput()
+  assert.match(editor.querySelector('.studio-quick-edit-tools').textContent, /90°/)
+  const crop = editor.querySelector('.studio-quick-edit-crop-toggle')
+  assert.ok(crop, '快速编辑提供裁切')
+  assert.equal(crop.disabled, true, '原图加载前不能裁切')
+  assert.equal(editor.querySelector('.studio-quick-edit-crop-clear').disabled, true, '未选择裁切区域时不能重置')
+  assert.equal(editor.querySelector('.studio-quick-edit-actions .studio-primary').disabled, true, '未画线或未变换前不能保存')
   editor.close()
   assert.equal(editor.open, false)
   const rows = [...window.document.querySelectorAll('.studio-reference-row')]
@@ -833,12 +854,63 @@ test('素材库支持模糊搜索、类型筛选、排序和完整视图', async
   await window.document.querySelector('.studio-assets-all').onclick()
   const manager = window.document.querySelector('.studio-asset-manager')
   assert.equal(manager.open, true)
+  assert.equal(manager.querySelectorAll('.studio-asset-card').length, 0)
+  assert.match(manager.querySelector('.studio-asset-manager-empty').textContent, /还没有收藏素材/)
+
+  await manager.querySelector('.studio-asset-filter[data-kind="all"]').onclick()
   assert.equal(manager.querySelectorAll('.studio-asset-card').length, 4)
+  const star = manager.querySelector('.studio-asset-favorite')
+  assert.equal(star.getAttribute('aria-pressed'), 'false')
+  await star.onclick()
+  assert.equal(manager.querySelector('.studio-asset-favorite').getAttribute('aria-pressed'), 'true')
+  await manager.querySelector('.studio-asset-filter[data-kind="favorites"]').onclick()
+  assert.equal(manager.querySelectorAll('.studio-asset-card').length, 1)
+
+  await manager.querySelector('.studio-asset-filter[data-kind="all"]').onclick()
   const sort = manager.querySelector('[aria-label="素材排序"]')
   sort.value = 'name'; sort.onchange()
   const names = [...manager.querySelectorAll('.studio-asset-card .studio-asset-caption strong')].map(node => node.textContent)
   const expected = [...assets].sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })).map(asset => asset.name)
   assert.deepEqual(names, expected)
+
+  await window.document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
+  assert.equal(window.document.querySelector('#studio-side-canvas').hidden, true)
+  assert.equal(window.document.querySelector('#studio-side-assets').hidden, false)
+  const sidebarMedia = window.document.querySelectorAll('.studio-assets .studio-asset-card img, .studio-assets .studio-asset-card video')
+  assert.equal(sidebarMedia.length, 4)
+  const favoriteOnly = window.document.querySelector('.studio-asset-favorite-only')
+  await favoriteOnly.onclick()
+  assert.equal(favoriteOnly.getAttribute('aria-pressed'), 'true')
+  assert.equal(window.document.querySelectorAll('.studio-assets .studio-asset-card').length, 1)
+  await window.document.querySelector('.studio-sidebar-tab[data-side-page="canvas"]').onclick()
+  assert.equal(window.document.querySelector('#studio-side-canvas').hidden, false)
+})
+
+test('收藏页临时置顶只调整当前排序，再次置顶时前一张顺位', async t => {
+  const { window, ctx } = await setup(t)
+  const document = window.document
+  const assets = [
+    { id: 'asset-a', kind: 'image', name: 'A.png', width: 300, height: 200, createdAt: 100 },
+    { id: 'asset-b', kind: 'image', name: 'B.png', width: 320, height: 240, createdAt: 200 },
+    { id: 'asset-c', kind: 'image', name: 'C.png', width: 360, height: 280, createdAt: 300 },
+  ]
+  for (const asset of assets) ctx.canvasSession.rememberAsset(asset)
+
+  await document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
+  for (const id of ['asset-a', 'asset-b', 'asset-c']) await document.querySelector(`[data-favorite-asset="${id}"]`).onclick()
+  await document.querySelector('.studio-asset-favorite-only').onclick()
+  const sideOrder = () => [...document.querySelectorAll('.studio-assets .studio-asset-card')].map(card => card.dataset.asset)
+  const managerOrder = () => [...document.querySelectorAll('.studio-asset-manager-grid .studio-asset-card')].map(card => card.dataset.asset)
+  assert.deepEqual(sideOrder(), ['asset-c', 'asset-b', 'asset-a'])
+
+  await document.querySelector('[data-promote-asset="asset-b"]').onclick()
+  assert.deepEqual(sideOrder(), ['asset-b', 'asset-c', 'asset-a'])
+  assert.deepEqual(managerOrder(), ['asset-b', 'asset-c', 'asset-a'])
+
+  await document.querySelector('[data-promote-asset="asset-a"]').onclick()
+  assert.deepEqual(sideOrder(), ['asset-a', 'asset-b', 'asset-c'])
+  assert.equal(document.querySelector('[data-promote-asset="asset-a"]').getAttribute('aria-pressed'), 'true')
+  assert.equal(document.querySelector('[data-promote-asset="asset-b"]').getAttribute('aria-pressed'), 'false')
 })
 
 test('用户与 Agent 共用画布操作、自动保存、撤销和版本冲突规则，连线不自动生图', async t => {
@@ -1445,4 +1517,100 @@ test('单张图片参考会默认选择模型的首帧输入', async t => {
   const select = window.document.querySelector('[aria-label="参考素材 1 输入位置"]')
   assert.equal(select.value, '/start_image')
   assert.match(select.selectedOptions[0].textContent, /首帧/)
+})
+
+test('粘贴多张图片后逐张删除，不残留卡片或重叠位置', async t => {
+  const { window, state, editBatches } = await setup(t)
+  const stage = window.document.querySelector('.studio-stage')
+  const files = [1, 2, 3].map(index => new window.File([new Uint8Array([137, 80, 78, 71, index])], `clip-${index}.png`, { type: 'image/png' }))
+  const event = new window.Event('paste', { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'clipboardData', { value: { files, items: [], getData: () => '' } })
+  stage.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientX: 500, clientY: 300 }))
+  stage.dispatchEvent(event)
+  await waitUntil(() => state.boards[0].nodes.length === 3)
+  assert.equal(editBatches.filter(batch => batch.some(operation => operation.type === 'add')).length, 1, '多张图片应一次原子添加')
+  assert.deepEqual({ x: state.boards[0].nodes[0].x, y: state.boards[0].nodes[0].y }, { x: 440, y: 240 }, '第一张图片应落在鼠标位置')
+  assert.equal(new Set(state.boards[0].nodes.map(node => `${node.x},${node.y}`)).size, 3, '多张图片不应重叠')
+  for (const node of [...state.boards[0].nodes]) {
+    const card = window.document.querySelector(`[data-node="${node.id}"]`)
+    card.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: 20, clientY: 20 }))
+    window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1, clientX: 20, clientY: 20 }))
+    stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }))
+    await waitUntil(() => !state.boards[0].nodes.some(item => item.id === node.id))
+    await waitUntil(() => !window.document.querySelector(`[data-node="${node.id}"]`))
+  }
+  assert.equal(state.boards[0].nodes.length, 0)
+})
+
+test('连续粘贴两批图片时排队添加，位置不重叠', async t => {
+  const { window, state } = await setup(t)
+  const stage = window.document.querySelector('.studio-stage')
+  let release
+  state.uploadGate = new Promise(resolve => { release = resolve })
+  const paste = prefix => {
+    const files = [1, 2].map(index => new window.File([new Uint8Array([137, 80, 78, 71, index])], `${prefix}-${index}.png`, { type: 'image/png' }))
+    const event = new window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', { value: { files, items: [], getData: () => '' } })
+    stage.dispatchEvent(event)
+  }
+  paste('a'); paste('b')
+  await waitUntil(() => state.uploadRequested)
+  release()
+  await waitUntil(() => state.boards[0].nodes.length === 4)
+  assert.equal(new Set(state.boards[0].nodes.map(node => `${node.x},${node.y}`)).size, 4)
+})
+
+test('上传期间切换画板，排队粘贴仍使用原画板和原位置', async t => {
+  const { window, state, ctx, toasts } = await setup(t)
+  const originalId = state.boards[0].id, other = newBoard('另一个画板')
+  state.boards.push(other)
+  await ctx.canvasSession.refresh()
+  await ctx.canvasSession.edit([{ type: 'add', node: { id: 'occupied', type: 'text', x: 440, y: 240, text: '占位' } }])
+  const stage = window.document.querySelector('.studio-stage')
+  stage.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientX: 500, clientY: 300 }))
+  let release
+  state.uploadGate = new Promise(resolve => { release = resolve })
+  for (const name of ['first.png', 'second.png']) {
+    const files = [new window.File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })]
+    const event = new window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', { value: { files, items: [], getData: () => '' } })
+    stage.dispatchEvent(event)
+  }
+  await waitUntil(() => state.uploadRequested)
+  await ctx.canvasSession.choose(other.id)
+  stage.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientX: 100, clientY: 100 }))
+  release()
+  await waitUntil(() => state.boards.flatMap(board => board.nodes).filter(node => node.type === 'image').length === 2)
+  const original = state.boards.find(board => board.id === originalId)
+  assert.deepEqual(original.nodes.filter(node => node.type === 'image').map(({ title, x, y }) => ({ title, x, y })), [
+    { title: 'first.png', x: 780, y: 240 },
+    { title: 'second.png', x: 1120, y: 240 },
+  ])
+  assert.deepEqual(state.boards.find(board => board.id === other.id).nodes, [])
+  assert.equal(ctx.canvasSession.boardId, other.id)
+  assert.deepEqual(toasts, [])
+})
+
+test('删除失败后立即同步其他页面改动，后续删除不被阻断', async t => {
+  const { window, state, tools } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'a', type: 'text', x: 0, y: 0, text: 'A' } },
+    { type: 'add', node: { id: 'b', type: 'text', x: 340, y: 0, text: 'B' } },
+  ] })
+  await waitUntil(() => window.document.querySelectorAll('.studio-card').length === 2)
+  state.boards[0] = applyOperation(state.boards[0], { type: 'remove', ids: ['b'] }, state.assets).board
+  const stage = window.document.querySelector('.studio-stage')
+  const select = id => {
+    const card = window.document.querySelector(`[data-node="${id}"]`)
+    card.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: 20, clientY: 20 }))
+    window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1, clientX: 20, clientY: 20 }))
+  }
+  select('a')
+  stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }))
+  await new Promise(resolve => setTimeout(resolve, 150))
+  assert.equal(window.document.querySelectorAll('.studio-card').length, 1, '删除失败后应立即同步其他页面的改动')
+  select('a')
+  stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }))
+  await waitUntil(() => state.boards[0].nodes.length === 0)
+  assert.equal(window.document.querySelectorAll('.studio-card').length, 0)
 })

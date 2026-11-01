@@ -113,14 +113,43 @@ export default async function (ctx, sdk) {
     target.set(s.boardId, next);
     render();
   }
+  const newBoardButton = button("＋ 新建画板", () => newBoard(), "studio-new-board")
+  const sideTabs = el("div", { class: "studio-sidebar-tabs", role: "tablist", "aria-label": "侧栏页面" })
+  const sideCanvas = el("div", { class: "studio-sidebar-page is-canvas", id: "studio-side-canvas", role: "tabpanel", "aria-label": "画板" })
+  const sideAssets = el("div", { class: "studio-sidebar-page is-assets", id: "studio-side-assets", role: "tabpanel", "aria-label": "素材库", hidden: true })
+  const sideMain = el("div", { class: "studio-sidebar-main" })
+  const canvasTab = button("画板", () => showSidePage("canvas"), "studio-sidebar-tab")
+  const assetsTab = button("素材库", () => showSidePage("assets"), "studio-sidebar-tab")
+  for (const [tab, page, label] of [[canvasTab, "canvas", "画板"], [assetsTab, "assets", "素材库"]]) {
+    tab.dataset.sidePage = page
+    tab.id = "studio-side-tab-" + page
+    tab.setAttribute("role", "tab")
+    tab.setAttribute("aria-controls", "studio-side-" + page)
+    tab.setAttribute("aria-label", label)
+  }
+  sideCanvas.setAttribute("aria-labelledby", canvasTab.id)
+  sideAssets.setAttribute("aria-labelledby", assetsTab.id)
+  sideTabs.append(canvasTab, assetsTab)
+  sideCanvas.append(newBoardButton, boardList, sideMain, themeToggle)
+  sideAssets.append(assetPanel)
   side.append(
     el("div", { class: "studio-brand" }, "✳ 灵感画布"),
     el("p", { class: "studio-tagline" }, "让想法，有形可见。"),
-    button("＋ 新建画板", () => newBoard(), "studio-new-board"),
-    boardList,
-    assetPanel,
-    themeToggle
-  );
+    sideTabs,
+    sideCanvas,
+    sideAssets
+  )
+  function showSidePage(name) {
+    const assets = name === "assets"
+    sideCanvas.hidden = assets
+    sideAssets.hidden = !assets
+    for (const [tab, active] of [[canvasTab, !assets], [assetsTab, assets]]) {
+      tab.classList.toggle("is-active", active)
+      tab.setAttribute("aria-selected", String(active))
+      tab.tabIndex = active ? 0 : -1
+    }
+  }
+  showSidePage("canvas")
   sdk.listen(document, 'pointerdown', event => {
     if (event.target.closest('.studio-board-menu')) return;
     for (const menu of boardList.querySelectorAll('.studio-board-menu[open]')) menu.open = false;
@@ -165,7 +194,7 @@ export default async function (ctx, sdk) {
   main.append(toolbar, stage);
   root.append(side, main);
   sdk.mount("app", root);
-  const applicationSettings = createApplicationSettings({ ctx, sdk, el, button, root, side });
+  const applicationSettings = createApplicationSettings({ ctx, sdk, el, button, root, side: sideCanvas });
   function transform() {
     world.style.transform = `translate(${s.viewport.x}px,${s.viewport.y}px) scale(${s.viewport.zoom})`;
     const inverseZoom = 1 / s.viewport.zoom;
@@ -215,11 +244,28 @@ export default async function (ctx, sdk) {
     scheduleViewport();
     updateSelectionTools();
   }
+  async function removeNodes(ids) {
+    const existing = ids.filter((id) => board().nodes.some((node) => node.id === id));
+    if (!existing.length) {
+      for (const id of ids) selected.delete(id);
+      render();
+      return;
+    }
+    try {
+      await edit([{ type: "remove", ids: existing }]);
+      for (const id of existing) selected.delete(id);
+      render();
+    } catch (error) {
+      // 其他页面可能已删除或修改卡片；先同步最新画布，避免持续用过期 revision 删除。
+      try { await refresh({ fresh: true }) } catch {}
+      for (const id of [...selected]) if (!board().nodes.some((node) => node.id === id)) selected.delete(id);
+      render();
+      throw error;
+    }
+  }
   async function removeSelection() {
     await flush();
-    if (selected.size) await edit([{ type: "remove", ids: [...selected] }]);
-    selected.clear();
-    render();
+    await removeNodes([...selected]);
   }
   async function arrangeSelection() {
     await flush();
@@ -850,9 +896,7 @@ export default async function (ctx, sdk) {
     }
     if (event.key === "Delete" && selected.size) {
       event.preventDefault();
-      await edit([{ type: "remove", ids: [...selected] }]);
-      selected.clear();
-      render();
+      await removeNodes([...selected]);
     }
   }));
   const resizeObserver = typeof window.ResizeObserver === "function" ? new window.ResizeObserver(placeContextTools) : null;
@@ -878,7 +922,11 @@ export default async function (ctx, sdk) {
     api,
     root,
     empty,
-    side,
+    side: sideCanvas,
+    sideCanvas,
+    sideAssets,
+    sideMain,
+    showSidePage,
     stage,
     assetsList,
     assetPanel,
@@ -900,6 +948,7 @@ export default async function (ctx, sdk) {
       updateSelectionTools();
       setPasteTarget(target);
     },
+    pointer: () => lastPointer ? { x: lastPointer.x, y: lastPointer.y } : null,
     render,
     select(nodeIds) {
       selected.clear();

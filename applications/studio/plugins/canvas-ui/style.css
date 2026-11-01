@@ -6,6 +6,16 @@
 .studio-app .studio-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .studio-app .studio-primary:hover{background:#405831}
 .studio-sidebar{width:248px;min-height:0;flex-shrink:0;background:#fafbf7;border-right:1px solid var(--line);padding:24px 16px 16px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.studio-sidebar-tabs{display:flex;gap:2px;padding:2px;border-radius:9px;background:var(--asset-soft);flex:0 0 auto}
+.studio-app .studio-sidebar-tab{flex:1;min-width:0;padding:6px 8px!important;border:0!important;border-radius:7px!important;background:transparent!important;color:var(--muted);font-size:11px;line-height:1.5;cursor:pointer}
+.studio-app .studio-sidebar-tab:hover{color:var(--ink)}
+.studio-app .studio-sidebar-tab.is-active{background:var(--asset-card-bg)!important;color:var(--accent);font-weight:600;box-shadow:0 1px 4px #26351f16}
+.studio-sidebar-page{display:flex;flex-direction:column;gap:12px;flex:1;min-height:0}
+.studio-sidebar-page[hidden]{display:none}
+.studio-sidebar-page.is-canvas{overflow:auto}
+.studio-sidebar-page.is-assets{overflow:hidden}
+.studio-sidebar-main{display:flex;flex-direction:column;gap:8px}
+.studio-sidebar-page.is-canvas>.studio-theme-toggle{margin-top:auto}
 .studio-brand{font-size:21px;font-weight:700;letter-spacing:-1px}
 .studio-tagline{font-size:11px;color:var(--muted);margin:-4px 0 12px}
 .studio-new-board{width:100%}

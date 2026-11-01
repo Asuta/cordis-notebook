@@ -21,7 +21,7 @@ export interface ReferencePasteTarget {
   apply(assetId: string): Promise<void> | void
 }
 export interface CanvasUI {
-  root: HTMLElement; empty: HTMLElement; side: HTMLElement; stage: HTMLElement; assetsList: HTMLElement; assetPanel: HTMLElement; assetHeader: HTMLElement; assetCount: HTMLElement; assetsTools: HTMLElement; cards: HTMLElement
+  root: HTMLElement; empty: HTMLElement; side: HTMLElement; sideCanvas: HTMLElement; sideAssets: HTMLElement; sideMain: HTMLElement; showSidePage(name: 'canvas' | 'assets'): void; stage: HTMLElement; assetsList: HTMLElement; assetPanel: HTMLElement; assetHeader: HTMLElement; assetCount: HTMLElement; assetsTools: HTMLElement; cards: HTMLElement
   el: ClientSDK['el']
   button(label: string, callback: (event?: Event) => unknown, className?: string): HTMLButtonElement
   field(node: CanvasNode, property: string, area?: boolean): HTMLInputElement | HTMLTextAreaElement
@@ -49,6 +49,7 @@ export interface CanvasUI {
   setPasteTarget(target: ReferencePasteTarget | null): void
   clearPasteTarget(): void
   focusReference(target: ReferencePasteTarget): void
+  pointer(): { x: number; y: number } | null
   position(): { x: number; y: number }
   coordinates(event: { clientX: number; clientY: number }): { x: number; y: number }
   safe(callback: (event: any) => unknown): (event?: any) => Promise<void>

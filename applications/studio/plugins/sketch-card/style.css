@@ -1,0 +1,19 @@
+.studio-card.studio-sketch-card{ border-color:#9fb383 }
+.studio-sketch-body{ display:flex; flex-direction:column; gap:8px; padding:11px 13px 13px }
+.studio-sketch-tools{ display:flex; align-items:center; gap:7px }
+.studio-sketch-colors{ display:flex; gap:5px }
+.studio-app .studio-card .studio-sketch-color{ width:22px; height:22px; padding:0; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px #c9d1bf; transition:box-shadow .12s }
+.studio-app .studio-card .studio-sketch-color:hover{ background:inherit }
+.studio-app .studio-card .studio-sketch-color.is-active{ box-shadow:0 0 0 2px #526c3e, 0 0 0 4px #526c3e33 }
+.studio-sketch-size{ flex:1; min-width:44px; padding:0; margin:0; accent-color:var(--accent); cursor:pointer }
+.studio-app .studio-card .studio-sketch-eraser{ width:28px; height:22px; padding:0; border-radius:6px; font-size:11px; line-height:1; border:1px solid var(--line) }
+.studio-app .studio-card .studio-sketch-eraser.is-active{ background:var(--accent); border-color:var(--accent); color:#fff }
+.studio-sketch-surface{ display:block; width:100%; height:auto; aspect-ratio:3/2; box-sizing:border-box; background:#fff; border:1px solid #d9dfcf; border-radius:8px; touch-action:none; cursor:crosshair }
+.studio-sketch-foot{ display:flex; align-items:center; gap:5px; min-height:26px }
+.studio-sketch-status{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--muted) }
+.studio-app .studio-card .studio-sketch-foot button{ padding:4px 7px; font-size:11px; line-height:1.25; border-radius:6px }
+.studio-app .studio-card .studio-sketch-export{ background:var(--accent); border-color:var(--accent); color:#fff; white-space:nowrap }
+.studio-app .studio-card .studio-sketch-export:hover{ background:#435a33 }
+.studio-app[data-theme='dark'] .studio-card.studio-sketch-card{ border-color:#5c7347 }
+.studio-app[data-theme='dark'] .studio-sketch-surface{ border-color:#48553f }
+.studio-app[data-theme='dark'] .studio-sketch-color{ border-color:#1c231c }

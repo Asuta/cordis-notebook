@@ -272,7 +272,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
     dispose() { view.cards.querySelectorAll('.studio-favorite-result,.studio-result-parameter').forEach(element => element.remove()) },
   })
   const openCards = async () => { await load(); if (!stopped) { drawCards(); hideFavoriteInfo(true); panel.hidden = false } }
-  const libraryButton = button('★ 生成卡片收藏', openCards, 'studio-library-entry'); view.side.insertBefore(libraryButton, view.assetPanel)
+  const libraryButton = button('★ 生成卡片收藏', openCards, 'studio-library-entry'); view.sideMain.append(libraryButton)
   view.menu(ctx, { id: 'generator-library', label: '★ 卡片收藏', order: 35, run: openCards })
   sdk.listen(view.stage, 'dragover', event => { if ([...event.dataTransfer.types].some(type => type === dragType || type === resultDragType)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy' } })
   sdk.listen(view.stage, 'drop', safe(async event => {

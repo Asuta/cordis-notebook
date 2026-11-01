@@ -1,0 +1,58 @@
+{
+  "name": "@cordis-studio/sketch-card",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "sketch-card",
+    "name": "手绘参考卡片",
+    "description": "一张可手绘的小画板卡片，把画好的内容导出为参考图片，连接到生成卡片。",
+    "defaultEnabled": false,
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "requires": {
+      "client": [
+        "canvasUI",
+        "canvasSession"
+      ],
+      "server": [
+        "canvasDocuments"
+      ]
+    },
+    "provides": {
+      "client": [],
+      "server": []
+    },
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ],
+    "styles": [
+      "style.css"
+    ]
+  }
+}

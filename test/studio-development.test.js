@@ -1,12 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, cp, symlink, readdir, writeFile, appendFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, cp, symlink, readdir, readFile, writeFile, appendFile, rm } from 'node:fs/promises'
 import { resolve, join, basename, sep } from 'node:path'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { startDevelopment } from '../scripts/dev.js'
 
-test('七插件从源码启动，视图和 Pixel 更新不重启宿主，原画板与任务历史保留', { timeout: 45000 }, async t => {
+test('应用插件从源码启动，视图和 Pixel 更新不重启宿主，原画板与任务历史保留', { timeout: 45000 }, async t => {
   const workspace = resolve('.'), directory = await mkdtemp(join(workspace, 'studio-dev-test-'))
   const apps = join(directory, 'applications'), target = join(apps, 'studio'), dataDir = join(directory, 'data'), events = []
   let dev, calls = 0
@@ -28,8 +28,13 @@ test('七插件从源码启动，视图和 Pixel 更新不重启宿主，原画�
   const json = async path => { const response = await fetch(base + path); assert.equal(response.ok, true, await response.clone().text()); return response.json() }
   let before = await json('/api/studio')
   const catalog = await json('/api/plugins')
-  assert.equal(catalog.plugins.length, 7)
-  assert.ok(catalog.plugins.every(plugin => plugin.state === 'enabled'), JSON.stringify(catalog.plugins.map(p => ({ id: p.id, state: p.state, error: p.error }))))
+  const manifests = await Promise.all((await readdir(join(target, 'plugins'))).map(async id => ({ id, enabled: JSON.parse(await readFile(join(target, 'plugins', id, 'package.json'), 'utf8')).cordis?.defaultEnabled !== false })))
+  assert.equal(catalog.plugins.length, manifests.length)
+  for (const { id, enabled } of manifests) {
+    const plugin = catalog.plugins.find(item => item.id === id)
+    assert.ok(plugin, id)
+    assert.equal(plugin.state, enabled ? 'enabled' : 'disabled', JSON.stringify(plugin))
+  }
   const sources = (await json('/__cordis/dev')).plugins.studio
   for (const entry of Object.values(sources)) if (entry.client) assert.equal((await fetch(base + entry.client)).status, 200)
   const eventually = async predicate => { const deadline = Date.now() + 15000; while (!predicate()) { if (Date.now() > deadline) assert.fail('插件更新超时：' + JSON.stringify(events)); await new Promise(r => setTimeout(r, 40)) } }

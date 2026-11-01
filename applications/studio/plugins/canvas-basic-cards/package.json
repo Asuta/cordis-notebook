@@ -15,6 +15,7 @@
     "order": 10,
     "requires": {
       "server": [
+        "http",
         "canvasDocuments"
       ],
       "client": [
