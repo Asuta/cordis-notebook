@@ -205,7 +205,7 @@ test('界面增强在真实 canvasUI 中处理既有及复用视频卡片，刷�
   const enable = () => apply(Object.assign(plugin, { canvasUI: f.view }))
   enable()
   for (let i = 0; i < 4; i++) f.view.render()
-  assert.equal(f.view.cards.querySelector('[data-node=video]'), video, '保留播放中的 DOM')
+  assert.ok(f.view.cards.querySelector('[data-node=video]') === video, '保留播放中的 DOM')
   assert.equal(f.view.cards.querySelectorAll(selector).length, 2)
   const button = video.querySelector(selector), detail = f.view.side.querySelector('[data-studio-extension-panel] [role=status]')
   await button.onclick()

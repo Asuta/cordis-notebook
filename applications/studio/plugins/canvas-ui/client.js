@@ -8,7 +8,7 @@ export default async function (ctx, sdk) {
   const { board, api, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
   const renderers = new Map(), menus = new Map(), extensions = new Map(), renderedNodes = new Map();
   const cardElements = new Map(), cardSizes = new Map(), wireElements = new Map();
-  let pointerFrame = null, pendingPointer = null, canvasWindowFrame = null, windowBounds = null, boardsSignature = '', extensionRevision = 0;
+  let pointerFrame = null, pendingPointer = null, canvasWindowFrame = null, windowBounds = null, boardsSignature = '';
   let overviewEnabled = true, overviewMode = s.viewport.zoom <= 0.32;
   let stopped = false, drag = null, connecting = null, connectDrag = null, space = false, viewTimer, selectionSignature = "", editingField = null, suppressCardClick = false, renamingBoardId = null;
   let clipboard = null, lastPointer = null, pasteTarget = null;
@@ -520,7 +520,7 @@ export default async function (ctx, sdk) {
   }
   function cardSignature(node, overview = false) {
     const renderer = renderers.get(node.type);
-    return JSON.stringify([node, overview ? renderer?.overviewKey?.(node, view) : renderer?.renderKey?.(node, view), extensionRevision, overview]);
+    return JSON.stringify([node, overview ? renderer?.overviewKey?.(node, view) : renderer?.renderKey?.(node, view), overview]);
   }
   function shouldOverview(node) {
     if (!overviewMode || selected.has(node.id) || s.drafts.has(node.id)) return false;
@@ -1127,12 +1127,16 @@ export default async function (ctx, sdk) {
       if (extensions.has(id)) throw Error("界面扩展重复");
       return owner.effect(() => {
         extensions.set(id, extension);
-        if (extension.card) { extensionRevision++; render(); }
-        extension.refresh?.();
+        if (extension.refresh) extension.refresh();
+        else if (extension.card) {
+          const nodes = new Map(board().nodes.map(node => [node.id, node]));
+          for (const card of cardElements.values()) {
+            if (!card.studioOverview && nodes.has(card.dataset.node)) extension.card(nodes.get(card.dataset.node), card, view);
+          }
+        }
         return () => {
           extensions.delete(id);
           extension.dispose?.();
-          if (extension.card) { extensionRevision++; render(); }
         };
       });
     }
