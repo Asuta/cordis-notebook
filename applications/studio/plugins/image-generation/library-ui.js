@@ -288,6 +288,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
   void load().then(() => { if (!stopped) view.render() }).catch(error => { if (!stopped) sdk.toast(error.message) })
   return {
     load,
+    renderKey: () => data.suffixes,
     suffixBar,
     isResultFavorite: assetId => data.results.some(item => item.assetId === assetId),
     toggleResult,

@@ -1,3 +1,11 @@
+import { createHash } from 'node:crypto'
+
+export function clientStateRevision(store, snapshots) {
+  // Include plugin/config changes too. A fresh store instance invalidates clients
+  // after a backend restart, even when its in-memory counter starts over.
+  return createHash('sha256').update(JSON.stringify([store.revision?.(), store.types.list().map(({ id, label, fields, accepts, output }) => ({ id, label, fields, accepts, output })), snapshots.list().map(item => [item.id, item.revision ? item.revision() : item.read()])])).digest('hex')
+}
+
 export function serializeClientBoard(board, types) {
   const result = structuredClone(board)
   for (const node of result.nodes) {
@@ -21,6 +29,7 @@ export function serializeClientState(store, snapshots) {
     ...store.read(),
     ...Object.assign({}, ...snapshots.list().map(item => item.read())),
     types: store.types.list().map(({ id, label, fields, accepts, output }) => ({ id, label, fields, accepts, output })),
+    stateRevision: clientStateRevision(store, snapshots),
   }
   state.boards = state.boards.map(board => serializeClientBoard(board, store.types))
   return state

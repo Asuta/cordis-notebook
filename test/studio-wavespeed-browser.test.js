@@ -29,7 +29,7 @@ async function fixture(t, setup) {
   ]) {
     const path = join(dir, 'apps/studio/plugin-data', provider); await mkdir(path, { recursive: true }); await writeFile(join(path, file), JSON.stringify(value))
   }
-  app = await createHost({ port: 0, dataDir: dir, initialApplication: 'studio' })
+  app = await createHost({ port: 0, dataDir: dir, locationRoot: dir, initialApplication: 'studio' })
   const origin = 'http://127.0.0.1:' + app.server.address().port
   const request = async (path = '', body) => {
     const response = await fetch(origin + '/api/studio' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Application-Session': app.applications.session }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
@@ -159,7 +159,7 @@ test('画布浏览器：上传与连线参考共同排序、首尾帧、原任�
   })
   const { card, frame, page, mock, request, edit, call, ready, errors, dir } = f
   await card.getByLabel('参数 duration', { exact: true }).waitFor()
-  await card.getByRole('button', { name: '＋ 新建参考槽位', exact: true }).click()
+  await card.getByRole('button', { name: '添加参考素材', exact: true }).click()
   await card.getByLabel('选择参考素材 1', { exact: true }).click()
   await frame.locator('.studio-asset-picker input[type=file]').setInputFiles({ name: '卡片内参考图.png', mimeType: 'image/png', buffer: mock.png })
   await until(async () => (await card.locator('.studio-reference-row').count()) === 2)

@@ -5,6 +5,11 @@ import type {} from '@cordis-notebook/host'
 export interface CardView {
   id: string; label: string; icon: string; input?: boolean; output?: boolean; height?: number
   preserveDOM?: boolean | ((node: CanvasNode) => boolean)
+  renderKey?(node: CanvasNode, view: CanvasUI): unknown
+  overviewKey?(node: CanvasNode, view: CanvasUI): unknown
+  renderOverview?(node: CanvasNode, card: HTMLElement, view: CanvasUI): void
+  attachCard?(node: CanvasNode, card: HTMLElement, view: CanvasUI): void
+  detachCard?(node: CanvasNode, card: HTMLElement, view: CanvasUI): void
   render(node: CanvasNode, card: HTMLElement, view: CanvasUI): void
   actions?: { label: string; run(node: CanvasNode, view: CanvasUI): unknown }[]
   selectionActions?(nodes: CanvasNode[], view: CanvasUI): SelectionAction[]
@@ -28,10 +33,12 @@ export interface CanvasUI {
   beginEditing(input: HTMLElement): void
   endEditing(input: HTMLElement): void
   register(owner: Context, definition: CardView): () => unknown
-  menu(owner: Context, definition: { id: string; label: string; order?: number; className?: string; run(): unknown }): () => unknown
+  menu(owner: Context, definition: { id: string; label: string | (() => string); title?: string | (() => string); pressed?: boolean | (() => boolean); order?: number; className?: string; run(): unknown }): () => unknown
   settings(owner: Context, definition: { id: string; title: string; description?: string; scope?: string; render?(container: HTMLElement): void | (() => void); refresh?(): unknown }): () => unknown
   extend(owner: Context, id: string, extension: { refresh?(): void; card?(node: CanvasNode, card: HTMLElement, view: CanvasUI): void; dispose?(): void }): () => unknown
   render(): void
+  isOverview(): boolean
+  setOverviewEnabled(value: boolean): void
   board(): CanvasBoard
   boardId(): string
   state(): CanvasState
@@ -44,7 +51,7 @@ export interface CanvasUI {
   refresh(): Promise<void>
   execute(id: string, args?: Record<string, unknown>, source?: 'user' | 'agent'): Promise<unknown>
   api<T = unknown>(path: string, body?: unknown): Promise<T>
-  imageUrl(id: string, thumbnail?: boolean): string
+  imageUrl(id: string, thumbnail?: boolean | 'small'): string
   openMedia(assetId: string): void
   setPasteTarget(target: ReferencePasteTarget | null): void
   clearPasteTarget(): void

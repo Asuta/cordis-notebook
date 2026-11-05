@@ -12,18 +12,37 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
   await mkdir(join(directory, 'images'), { recursive: true })
   await mkdir(join(directory, 'videos'), { recursive: true })
   const file = join(directory, 'studio.json')
-  let state
+  const instance = randomUUID()
+  const smallImageJobs = new Map()
+  let state, revision = 0
   try { state = JSON.parse(await readFile(file, 'utf8')) }
   catch (error) { if (error.code !== 'ENOENT') throw error; state = { version: 1, boards: [newBoard('我的灵感画板')], assets: {}, jobs: [] } }
   if (state.version !== 1 || !Array.isArray(state.boards) || !state.assets || !Array.isArray(state.jobs)) throw Error('画布数据无效，原文件已保留')
   for (const board of state.boards) validateBoard(board, state.assets, types)
   await writeSnapshot(file, JSON.stringify(state, null, 2))
+  async function smallImage(id) {
+    const path = join(directory, 'images', id + '.small.webp')
+    try { return await readFile(path) }
+    catch (error) { if (error.code !== 'ENOENT') throw error }
+    let task = smallImageJobs.get(id)
+    if (!task) {
+      task = (async () => {
+        const source = await readFile(join(directory, 'images', id + '.webp'))
+        const bytes = await sharp(source).resize({ width: 240, height: 240, fit: 'inside', withoutEnlargement: true }).webp({ quality: 72 }).toBuffer()
+        await writeFile(path, bytes)
+        return bytes
+      })()
+      smallImageJobs.set(id, task)
+    }
+    try { return await task }
+    finally { if (smallImageJobs.get(id) === task) smallImageJobs.delete(id) }
+  }
   let queue = Promise.resolve()
   const store = {
-    directory, types,
+    directory, types, revision: () => `${instance}:${revision}`,
     read: () => structuredClone(state),
     change(fn) {
-      const task = queue.then(async () => { const next = structuredClone(state), result = await fn(next); await writeSnapshot(file, JSON.stringify(next, null, 2)); state = structuredClone(next); return result })
+      const task = queue.then(async () => { const next = structuredClone(state), result = await fn(next); await writeSnapshot(file, JSON.stringify(next, null, 2)); state = structuredClone(next); revision++; return result })
       queue = task.catch(() => {}); return task
     },
     flush: () => queue,
@@ -92,11 +111,13 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
       if (encoded.data.length > 40 * 1024 * 1024) invalid('解码后的图片过大')
       await writeFile(join(directory, 'images', id + '.png'), encoded.data)
       await sharp(encoded.data).resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true }).webp({ quality: 82 }).toFile(join(directory, 'images', id + '.webp'))
+      await smallImage(id)
       const asset = { id, kind: 'image', mimeType: 'image/png', name: String(name).slice(0, 120), width: encoded.info.width, height: encoded.info.height, createdAt: Date.now() }
       await store.change(state => { state.assets[id] = asset }); return asset
     },
     async image(id, thumbnail = false) {
       if (!state.assets[id] || state.assets[id].kind === 'video' || !/^[a-f0-9-]{36}$/.test(id)) throw Object.assign(Error('图片不存在'), { status: 404 })
+      if (thumbnail === 'small') return smallImage(id)
       return readFile(join(directory, 'images', id + (thumbnail ? '.webp' : '.png')))
     },
     async addVideo(bytes, name = '视频') {

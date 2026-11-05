@@ -19,7 +19,7 @@ export default function (ctx, sdk) {
     if (retry) details.delete(key)
     if (!details.has(key)) {
       const entry = {}; details.set(key, entry)
-      entry.task = api('/providers/' + provider.id + '/model?id=' + encodeURIComponent(id)).then(model => { entry.model = model; return model }, error => { entry.error = error.message; throw error })
+      entry.task = api('/providers/' + provider.id + '/model?id=' + encodeURIComponent(id)).then(model => { entry.model = model; entry.loaded = true; return model }, error => { entry.error = error.message; entry.loaded = true; throw error })
       void entry.task.then(() => { if (!stopped) view.render() }, () => { if (!stopped) view.render() })
       if (details.size > 100) details.delete(details.keys().next().value)
     }
@@ -32,6 +32,12 @@ export default function (ctx, sdk) {
   }, library)
   const providersNow = () => orderedProviders(s.state.providers || [])
   const selectedProvider = node => node?.provider ? providersNow().find(item => item.id === node.provider) : defaultProvider(providersNow())
+  const overviewAssetIds = node => {
+    const connected = board().edges.filter(edge => edge.to === node.id).map(edge => board().nodes.find(source => source.id === edge.from))
+    return [...new Set([...(node.references || []).map(ref => ref.assetId), ...connected.map(source => source?.resolvedOutput?.assetId || source?.assetId)])]
+      .filter(id => s.state.assets[id]?.kind === 'image')
+  }
+  const latestJob = node => (s.state.jobs || []).filter(job => job.boardId === s.boardId && job.nodeId === node.id).at(-1)
   s.actions.register(ctx, { id: 'generate', label: '生成图片或视频', schema: { type: 'object', properties: { nodeId: { type: 'string' } }, required: ['nodeId'] },
     async run({ nodeId, revision }) {
       const boardId = s.boardId
@@ -59,6 +65,27 @@ export default function (ctx, sdk) {
   view.empty.insertBefore(createFirst, view.empty.querySelector('small'))
   ctx.effect(() => () => createFirst.remove())
   view.register(ctx, { id: 'generator', label: '生成卡片', icon: '✦', input: true, height: 720,
+    overviewKey(node) { return [overviewAssetIds(node), latestJob(node)?.status] },
+    renderOverview(node, card) {
+      const provider = selectedProvider(node), job = latestJob(node)
+      const summary = el('div', { class: 'studio-overview-summary' })
+      summary.append(el('strong', {}, node.model || provider?.label || '生成卡片'), el('span', {}, node.prompt || '选择卡片以查看参数'))
+      card.append(summary)
+      const ids = overviewAssetIds(node).slice(0, 3)
+      if (ids.length) {
+        const previews = el('div', { class: 'studio-overview-references' })
+        for (const id of ids) previews.append(el('img', { src: view.imageUrl(id, 'small'), alt: s.state.assets[id].name || '参考图', draggable: false, loading: 'lazy' }))
+        card.append(previews)
+      }
+      if (job) card.append(el('small', { class: 'studio-overview-status' }, job.status === 'running' ? '生成中…' : job.status === 'succeeded' ? '已生成' : job.status === 'failed' ? '生成失败' : job.status))
+    },
+    renderKey(node) {
+      const provider = selectedProvider(node), entry = provider && details.get(provider.id + ':' + (provider.catalogVersion || '') + ':' + node.model);
+      const inputs = board().edges.filter(edge => edge.to === node.id).map(edge => [edge, board().nodes.find(source => source.id === edge.from)]);
+      const assetIds = [...(node.references || []).map(ref => ref.assetId), ...inputs.map(([, source]) => source?.resolvedOutput?.assetId || source?.assetId)];
+      const jobs = (s.state.jobs || []).filter(job => job.boardId === s.boardId && job.nodeId === node.id).map(({ id, status, error, provider, remote }) => [id, status, error, provider, remote?.taskId]);
+      return [s.state.providers, s.state.types, inputs, assetIds.map(id => s.state.assets[id]), jobs, !!entry?.loaded, entry?.error, library.renderKey(), promptOptimizer.renderKey()];
+    },
     selectionGroup(node, cardView) { return node.type === 'generator' ? [node, ...cardView.board().nodes.filter(item => item.sourceNodeId === node.id)] : null },
     selectionActions(nodes, cardView) {
       const generators = nodes.filter(node => node.type === 'generator')

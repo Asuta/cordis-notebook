@@ -1,7 +1,7 @@
 import { writeSnapshot } from '../shared/persistence.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
@@ -55,6 +55,11 @@ test('存储采用版本检查和原子操作，图片独立持久化并生成�
   assert.equal(store.read().boards[0].title, board.title)
   const asset = await store.addImage(await png(), '参考图')
   assert.equal(asset.width, 8); assert.equal(asset.height, 6); assert.ok((await store.image(asset.id, true)).length > 0)
+  const originalImage = await store.image(asset.id), smallPreview = await store.image(asset.id, 'small')
+  assert.ok(smallPreview.length > 0)
+  await unlink(join(directory, 'images', asset.id + '.small.webp'))
+  assert.ok((await store.image(asset.id, 'small')).length > 0, '旧素材缺少小预览时应按需补建')
+  assert.deepEqual(await store.image(asset.id), originalImage, '生成小预览不应改写原图')
   const result = await store.edit(board.id, 0, [{ type: 'add', node: { id: 'img', type: 'image', assetId: asset.id } }])
   const restored = await createStore(directory)
   assert.equal(restored.read().boards[0].revision, result.board.revision)

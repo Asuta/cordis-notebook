@@ -12,7 +12,15 @@ export async function createSession(ctx, sdk) {
   let state = await api(''), boardId = sdk.storage.local.getItem('board'), queue = Promise.resolve(), stopped = false, held = false, editing = false, draftTimer, polling = false, epoch = 0, pendingEdits = 0, flushing, preparing = false
   const board = () => state.boards.find(b => b.id === boardId) || state.boards[0]
   boardId = board().id
-  let viewport = { ...board().viewport }, renderedTitle = board().title
+  const viewportKey = id => 'viewport:' + id
+  function savedViewport(id) {
+    try {
+      const value = JSON.parse(sdk.storage.local.getItem(viewportKey(id)))
+      if (value && Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.zoom) && value.zoom >= .15 && value.zoom <= 3) return value
+    } catch {}
+    return { ...state.boards.find(item => item.id === id).viewport }
+  }
+  let viewport = savedViewport(boardId), renderedTitle = board().title
   const titleDraftId = '$board'
   const enqueue = action => { const task = queue.then(action); queue = task.catch(() => {}); return task }
   function rememberDrafts() {
@@ -21,9 +29,18 @@ export async function createSession(ctx, sdk) {
   }
   async function refresh({ fresh = false } = {}) {
     if (polling) { await polling; if (!fresh) return }
-    if (stopped || view.dragging() || drafts.size || pendingEdits) return
+    if (stopped || (document.hidden && !fresh) || view.dragging() || drafts.size || pendingEdits) return
     const stamp = epoch
-    const task = (async () => { const next = await api(''); if (stopped || stamp !== epoch || view.dragging() || drafts.size || pendingEdits) return; const changed = JSON.stringify(next) !== JSON.stringify(state); state = { ...next, assets: { ...state.assets, ...next.assets } }; if (changed && !editing) render() })()
+    const task = (async () => {
+      const summary = fresh ? null : await api('/summary')
+      if (stopped || stamp !== epoch || view.dragging() || drafts.size || pendingEdits) return
+      if (!fresh && summary.revision === state.stateRevision) return
+      const next = await api('')
+      if (stopped || stamp !== epoch || view.dragging() || drafts.size || pendingEdits) return
+      const changed = next.stateRevision !== state.stateRevision
+      state = { ...next, assets: { ...state.assets, ...next.assets } }
+      if (changed && !editing) render()
+    })()
     polling = task
     try { await task } finally { if (polling === task) polling = false }
   }
@@ -78,7 +95,7 @@ export async function createSession(ctx, sdk) {
   }
   async function choose(id) {
     await flush(); await saveViewport()
-    boardId = id; sdk.storage.local.setItem('board', id); viewport = { ...board().viewport }; view.choose?.(); render()
+    boardId = id; sdk.storage.local.setItem('board', id); viewport = savedViewport(id); view.choose?.(); render()
   }
   async function newBoard(title = '新的灵感画板') {
     await flush(); const created = await api('/boards', { title }); state.boards.push(created); await choose(created.id); return created
@@ -92,30 +109,26 @@ export async function createSession(ctx, sdk) {
     await flush(); await edit([{ type: 'rename', title }], { targetBoard: id })
   }
 
-  const imageUrl = (id, thumb = true) => `/api/studio/images/${id}.${thumb ? 'webp' : 'png'}`
+  const imageUrl = (id, thumb = true) => '/api/studio/images/' + id + '.' + (thumb === 'small' ? 'small.webp' : thumb ? 'webp' : 'png')
   function rememberAsset(asset) { epoch++; state.assets[asset.id] = asset; render(); return asset }
   async function importImage(input) { return rememberAsset(await api('/import', input)) }
   async function saveViewport() {
     if (stopped || held) return
-    try { await edit([{ type: 'viewport', viewport: { ...viewport } }], { history: false, repaint: false }) }
-    catch (error) {
-      // Another page may have saved a newer viewport while both pages prepare
-      // for reload. Keep that saved view instead of blocking their content save.
-      if (error.status !== 409) throw error
-      await refresh()
-    }
+    // A viewport belongs to this browser, not to shared board content. Keeping it
+    // local prevents every pan/zoom from invalidating and repainting other tabs.
+    sdk.storage.local.setItem(viewportKey(boardId), JSON.stringify(viewport))
   }
   const editable = () => !stopped && !held && !preparing && !view.dragging() && !drafts.size && !editing
   const read = () => ({ board: structuredClone(board()), boards: state.boards.map(({ id, title }) => ({ id, title })), assets: structuredClone(state.assets), jobs: structuredClone(state.jobs || []), providers: structuredClone(state.providers || []), types: structuredClone(state.types || []), actions: actions.list().map(({ id, label, schema }) => ({ id, label, schema })), dirty: drafts.size > 0 })
   let recovered
   try { recovered = JSON.parse(sdk.storage.local.getItem('drafts')) } catch {}
-  if (recovered?.boardId && state.boards.some(b => b.id === recovered.boardId) && Array.isArray(recovered.drafts)) { boardId = recovered.boardId; viewport = { ...board().viewport }; for (const [id, value] of recovered.drafts) drafts.set(id, value); notice.textContent = '已恢复未保存草稿'; sdk.toast('已恢复草稿，继续编辑会尝试保存；冲突时不会覆盖另一页面。') }
+  if (recovered?.boardId && state.boards.some(b => b.id === recovered.boardId) && Array.isArray(recovered.drafts)) { boardId = recovered.boardId; viewport = savedViewport(boardId); for (const [id, value] of recovered.drafts) drafts.set(id, value); notice.textContent = '已恢复未保存草稿'; sdk.toast('已恢复草稿，继续编辑会尝试保存；冲突时不会覆盖另一页面。') }
   const timer = setInterval(() => refresh().catch(() => {}), 1500)
   sdk.listen(window, 'beforeunload', event => { if (drafts.size) { event.preventDefault(); event.returnValue = '' } })
   ctx.on('plugins/before-stop', async request => {
     preparing = true; view.hold?.(true)
     request.hold(() => { preparing = false; held = false; view.hold?.(false); render() })
-    await flush(); await saveViewport(); held = true; editing = false
+    await flush(); await refresh({ fresh: true }); await saveViewport(); held = true; editing = false
   })
   ctx.effect(() => () => { stopped = true; clearTimeout(draftTimer); clearInterval(timer) })
   return {

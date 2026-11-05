@@ -1,4 +1,4 @@
-import { renderPending } from './pending.js'
+import { renderPending, pendingLabel } from './pending.js'
 import { clipboardImages } from './clipboard.js'
 
 const ASSET_DRAG_TYPE = 'application/x-cordis-studio-asset'
@@ -8,6 +8,49 @@ export default function (ctx, sdk) {
   const { el, button, safe, edit, imageUrl, position, coordinates, stage, add, board } = view
   const api = (path, body) => sdk.request('/api/studio' + path, body === undefined ? 'GET' : 'POST', body)
   const { rememberAsset, mediaKind, mediaUrl, uploadMedia } = s, uuid = () => crypto.randomUUID()
+  let lightweightOverview = sdk.storage.local.getItem('studio-light-overview') !== '0'
+  view.setOverviewEnabled(lightweightOverview)
+  const overviewTitle = () => lightweightOverview ? '缩小到 32% 以下时自动简化卡片；放大到 38% 后恢复完整卡片' : '开启低倍率简化卡片'
+  function syncLightweightButton() {
+    const control = view.root.querySelector('.studio-light-overview-toggle')
+    if (!control) return
+    control.textContent = lightweightOverview ? '轻量总览：开' : '轻量总览：关'
+    control.setAttribute('aria-pressed', String(lightweightOverview))
+    control.title = overviewTitle()
+  }
+  const mediaObserver = typeof window.IntersectionObserver === 'function' ? new window.IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting && !document.hidden) loadVideo(entry.target)
+  }, { rootMargin: '240px' }) : null
+  function loadVideo(player) {
+    if (!player?.dataset.src) return
+    player.preload = 'metadata'; player.src = player.dataset.src; delete player.dataset.src
+    mediaObserver?.unobserve(player)
+  }
+  function watchVideo(player, src, manual = false) {
+    if (!player || !src) return
+    player.dataset.src = src
+    if (manual) return
+    if (mediaObserver) mediaObserver.observe(player)
+    else loadVideo(player)
+  }
+  function releaseVideo(player) {
+    mediaObserver?.unobserve(player)
+    player.pause()
+    if (player.hasAttribute('src')) { player.removeAttribute('src'); player.load() }
+  }
+  function clearMedia(container) {
+    for (const player of container.querySelectorAll('video')) {
+      assetSideObserver?.unobserve(player); assetManagerObserver?.unobserve(player)
+      releaseVideo(player)
+    }
+    for (const preview of container.querySelectorAll('img')) {
+      assetSideObserver?.unobserve(preview); assetManagerObserver?.unobserve(preview)
+      preview.removeAttribute('src')
+    }
+    container.replaceChildren()
+  }
+  const mediaRenderKey = node => [s.state.assets[node.assetId], !node.assetId ? [(s.state.jobs || []).find(job => job.id === node.jobId), s.state.providers, s.actions.list().map(action => action.id)] : null, view.isOverview()]
+  const overviewMediaKey = node => [s.state.assets[node.assetId], (s.state.jobs || []).find(job => job.id === node.jobId)?.status, Boolean(s.actions.get('generate'))]
   async function storeAsset(file, targetBoard = s.boardId) {
     const uploaded = await uploadMedia(file, sdk.signal)
     if (sdk.signal?.aborted) throw Error('图片卡片插件已停止')
@@ -71,14 +114,41 @@ export default function (ctx, sdk) {
   })
 
   view.root.append(fileInput, videoInput, assetInput)
+  sdk.listen(document, 'visibilitychange', () => {
+    for (const player of view.cards.querySelectorAll('video')) {
+      if (document.hidden) {
+        if (player.hasAttribute('src')) player.dataset.src = player.getAttribute('src')
+        releaseVideo(player)
+      } else if (player.dataset.src) {
+        if (mediaObserver) mediaObserver.observe(player)
+        else loadVideo(player)
+      }
+    }
+  })
   view.menu(ctx, { id: 'text', label: '＋ 文字', order: 10, run: () => add('text') })
   view.menu(ctx, { id: 'image', label: '↑ 图片', order: 20, run: () => fileInput.click() })
   view.menu(ctx, { id: 'video', label: '↑ 视频', order: 40, run: () => videoInput.click() })
+  view.menu(ctx, { id: 'lightweight-overview', label: () => lightweightOverview ? '轻量总览：开' : '轻量总览：关', title: overviewTitle, pressed: () => lightweightOverview, order: 50, className: 'studio-light-overview-toggle', run: () => {
+    lightweightOverview = !lightweightOverview
+    sdk.storage.local.setItem('studio-light-overview', lightweightOverview ? '1' : '0')
+    syncLightweightButton(); view.setOverviewEnabled(lightweightOverview)
+  } })
+  syncLightweightButton()
   view.register(ctx, { id: 'text', label: '文字灵感', icon: 'T', output: true, height: 230,
+    renderKey: () => null,
+    renderOverview(node, card) { card.append(el('div', { class: 'studio-overview-summary' }, node.text || '文字灵感')) },
     actions: [{ label: '编辑文字', run: node => view.cards.querySelector(`[data-node="${node.id}"] textarea`)?.focus() }],
     render(node, card) { card.append(view.field(node, 'text', true)) },
   })
   view.register(ctx, { id: 'image', label: '图片', icon: '▧', output: true, height: 360,
+    renderKey: mediaRenderKey,
+    overviewKey: overviewMediaKey,
+    renderOverview(node, card) {
+      if (!s.state.assets[node.assetId]) { card.append(el('div', { class: 'studio-overview-placeholder' }, node.jobId ? pendingLabel(node, s) : '图片不可用')); return }
+      const image = el('img', { class: 'studio-overview-image', src: imageUrl(node.assetId, 'small'), alt: node.title, draggable: false, loading: 'lazy' })
+      image.ondblclick = event => { event.stopPropagation(); view.openMedia(node.assetId) }
+      card.append(image)
+    },
     actions: [{ label: '预览图片', run: node => view.openMedia(node.assetId) }],
     render(node, card) {
       if (renderPending(node, card, view, s)) return
@@ -91,13 +161,23 @@ export default function (ctx, sdk) {
     },
   })
   view.register(ctx, { id: 'video', label: '视频', icon: '▷', output: true, height: 300, preserveDOM: node => Boolean(node.assetId),
+    renderKey: mediaRenderKey,
+    overviewKey: overviewMediaKey,
+    renderOverview(node, card) {
+      const asset = s.state.assets[node.assetId], preview = el('div', { class: 'studio-overview-placeholder studio-overview-video' })
+      preview.append(el('span', {}, '▶'), el('small', {}, asset ? Number(asset.duration || 0).toFixed(1) + 's · 双击预览' : node.jobId ? pendingLabel(node, s) : '视频不可用'))
+      if (asset) preview.ondblclick = event => { event.stopPropagation(); view.openMedia(node.assetId) }
+      card.append(preview)
+    },
+    attachCard(node, card) { watchVideo(card.querySelector('video'), s.state.assets[node.assetId] ? mediaUrl(s.state.assets[node.assetId]) : '', view.isOverview()) },
+    detachCard(node, card) { const player = card.querySelector('video'); if (player) releaseVideo(player) },
     render(node, card) {
       const unplayed = !!node.sourceNodeId && node.played !== true, head = card.querySelector('.studio-card-head');
       card.classList.toggle('is-unplayed', unplayed);
       head.querySelector('.studio-video-unplayed')?.remove();
       if (unplayed) head.insertBefore(el('span', { class: 'studio-video-unplayed' }, '未播放'), head.lastElementChild);
       if (renderPending(node, card, view, s)) return
-      const asset = s.state.assets[node.assetId], player = el('video', { src: asset ? mediaUrl(asset) : '', preload: 'metadata', playsInline: true, draggable: false, 'aria-label': node.title + ' 视频播放' })
+      const asset = s.state.assets[node.assetId], player = el('video', { preload: 'none', playsInline: true, draggable: false, 'aria-label': node.title + ' 视频播放' })
       const surface = el('div', { class: 'studio-video-surface', title: '单击播放或暂停，按住拖动卡片' }), overlay = el('span', { class: 'studio-video-overlay', 'aria-hidden': 'true' }, '▶'), controls = el('div', { class: 'studio-video-controls' })
       const play = button('▶', () => togglePlay(), 'studio-video-play')
       const progress = el('input', { type: 'range', min: '0', max: '1000', step: '1', value: '0', 'aria-label': '视频进度' })
@@ -130,7 +210,7 @@ export default function (ctx, sdk) {
         if (!seeking) progress.value = duration ? String(player.currentTime / duration * 1000) : '0'
         time.textContent = format(player.currentTime) + ' / ' + format(duration)
       }
-      function togglePlay() { if (player.paused || player.ended) void player.play().catch(() => {}); else player.pause() }
+      function togglePlay() { loadVideo(player); if (player.paused || player.ended) void player.play().catch(() => {}); else player.pause() }
       async function markPlayed() {
         if (playedPending || !node.sourceNodeId || node.played === true) return
         playedPending = true
@@ -160,7 +240,10 @@ export default function (ctx, sdk) {
   })
 
   let assetQuery = '', assetKind = 'all', assetSort = 'newest', assetFavoriteOnly = false, managerFilter = 'favorites', disposed = false
-  let favoriteIds = new Set(), favoriteLoad, favoriteOrder = []
+  let favoriteIds = new Set(), favoriteLoad, favoriteOrder = [], favoriteVersion = 0
+  const favoriteChannel = typeof window.BroadcastChannel === 'function' ? new window.BroadcastChannel('cordis-studio-asset-favorites') : null
+  let sideSignature = '', managerSignature = '', sideMatches = [], managerMatches = [], sideLimit = 0, managerLimit = 0, sideWasVisible = false
+  const assetBatchSize = 48
   const favoritePending = new Set()
   function promoteFavorite(id) {
     if (!favoriteIds.has(id)) return
@@ -169,10 +252,16 @@ export default function (ctx, sdk) {
   }
   async function loadFavorites(force = false) {
     if (!force && favoriteLoad) return favoriteLoad
-    favoriteLoad = api('/asset-favorites').then(result => {
-      if (!disposed) favoriteIds = new Set(result.assetIds || [])
+    const version = ++favoriteVersion
+    const request = api('/asset-favorites').then(result => {
+      if (!disposed && version === favoriteVersion) {
+        favoriteIds = new Set(result.assetIds || [])
+        favoriteOrder = favoriteOrder.filter(id => favoriteIds.has(id))
+        syncAssetControls(); drawAssets()
+      }
       return favoriteIds
-    }).catch(error => { favoriteLoad = undefined; throw error })
+    }).catch(error => { if (favoriteLoad === request) favoriteLoad = undefined; throw error })
+    favoriteLoad = request
     return favoriteLoad
   }
   async function toggleFavorite(asset) {
@@ -181,13 +270,34 @@ export default function (ctx, sdk) {
     try {
       const result = await api('/asset-favorites', { assetId: asset.id, favorite: !favoriteIds.has(asset.id) })
       if (disposed) return
+      favoriteVersion++
       favoriteIds = new Set(result.assetIds || [])
+      favoriteLoad = Promise.resolve(favoriteIds)
       favoriteOrder = favoriteOrder.filter(id => favoriteIds.has(id))
       syncAssetControls(); drawAssets()
+      favoriteChannel?.postMessage('changed')
     } finally { favoritePending.delete(asset.id) }
   }
   const assetManager = el('dialog', { class: 'studio-asset-manager', 'aria-label': '素材库' })
   const assetManagerGrid = el('div', { class: 'studio-asset-manager-grid' })
+  const observeAsset = root => typeof window.IntersectionObserver === 'function' ? new window.IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting && !document.hidden) {
+      const preview = entry.target, src = preview.dataset.src
+      if (src) {
+        if (preview.tagName === 'VIDEO') loadVideo(preview)
+        else { preview.src = src; delete preview.dataset.src }
+      }
+      (root === view.assetsList ? assetSideObserver : assetManagerObserver)?.unobserve(preview)
+    }
+  }, { root, rootMargin: '160px' }) : null
+  const assetSideObserver = observeAsset(view.assetsList), assetManagerObserver = observeAsset(assetManagerGrid)
+  function watchAssetPreview(preview, src, manager) {
+    preview.dataset.src = src
+    const observer = manager ? assetManagerObserver : assetSideObserver
+    if (observer) observer.observe(preview)
+    else if (preview.tagName === 'VIDEO') loadVideo(preview)
+    else { preview.src = src; delete preview.dataset.src }
+  }
   const assetManagerCount = el('small', { class: 'studio-asset-manager-count' })
   const assetManagerEmpty = el('p', { class: 'studio-asset-manager-empty' })
   const assetManagerSort = el('select', { 'aria-label': '素材排序' })
@@ -267,7 +377,7 @@ export default function (ctx, sdk) {
     for (const asset of sorted) if (byId.has(asset.id)) ordered.push(asset)
     return ordered
   }
-  function createAssetCard(asset, detailed = false, favoritesView = false) {
+  function createAssetCard(asset, detailed = false, favoritesView = false, manager = false) {
     const type = mediaKind(asset), label = assetTypeLabel(asset), card = button('', () => view.openMedia(asset.id), 'studio-asset-card')
     card.dataset.asset = asset.id; card.draggable = true; card.title = `单击放大预览，拖到画布添加：${asset.name}`
     card.setAttribute('aria-label', `预览${label}：${asset.name}`)
@@ -277,9 +387,11 @@ export default function (ctx, sdk) {
     }
     card.ondragend = () => card.classList.remove('is-dragging')
     const media = el('span', { class: 'studio-asset-card-media' })
-    media.append(el(type === 'video' ? 'video' : 'img', type === 'video'
-      ? { src: mediaUrl(asset), preload: 'metadata', muted: true, playsInline: true, draggable: false }
-      : { src: mediaUrl(asset), alt: asset.name, loading: 'lazy', draggable: false }))
+    const preview = el(type === 'video' ? 'video' : 'img', type === 'video'
+      ? { preload: 'none', muted: true, playsInline: true, draggable: false }
+      : { alt: asset.name, loading: 'lazy', draggable: false })
+    media.append(preview)
+    watchAssetPreview(preview, type === 'video' ? mediaUrl(asset) : imageUrl(asset.id, 'small'), manager)
     media.append(el('span', { class: 'studio-asset-type', 'data-kind': type }, type === 'video' ? '▷' : '▧'))
     if (type === 'video') media.append(el('span', { class: 'studio-asset-duration' }, `${Number(asset.duration || 0).toFixed(1)}s`))
     const caption = el('span', { class: 'studio-asset-caption' })
@@ -306,23 +418,63 @@ export default function (ctx, sdk) {
     }
     return shell
   }
-  function drawAssets() {
-    const sideScroll = view.assetsList.scrollTop, managerScroll = assetManagerGrid.scrollTop
-    const total = Object.keys(s.state.assets).length, sideMatches = matchingAssets({ favoritesOnly: assetFavoriteOnly })
-    const managerKind = managerFilter === 'image' || managerFilter === 'video' ? managerFilter : 'all'
-    const matches = matchingAssets({ favoritesOnly: managerFilter === 'favorites', kind: managerKind })
+  function appendAssetBatch(manager = false) {
+    const list = manager ? assetManagerGrid : view.assetsList
+    const matches = manager ? managerMatches : sideMatches
+    const limit = manager ? managerLimit : sideLimit
+    if (limit >= matches.length) return
+    list.append(...matches.slice(limit, limit + assetBatchSize).map(asset => createAssetCard(asset, true, manager ? managerFilter === 'favorites' : assetFavoriteOnly, manager)))
+    if (manager) managerLimit = Math.min(matches.length, limit + assetBatchSize)
+    else sideLimit = Math.min(matches.length, limit + assetBatchSize)
+  }
+  function maybeAppendAssets(manager = false) {
+    const list = manager ? assetManagerGrid : view.assetsList
+    if ((manager ? assetManager.open : !view.sideAssets.hidden) && !document.hidden && list.scrollTop + list.clientHeight >= list.scrollHeight - 240) appendAssetBatch(manager)
+  }
+  function drawAssets({ force = false } = {}) {
+    const assets = Object.values(s.state.assets), total = assets.length
     view.assetCount.textContent = String(total)
-    assetManagerCount.textContent = managerFilter !== 'all' || assetQuery ? `${matches.length} / ${total} 项` : `共 ${total} 项素材`
-    view.assetsList.replaceChildren()
-    if (sideMatches.length) view.assetsList.append(...sideMatches.map(asset => createAssetCard(asset, true, assetFavoriteOnly)))
-    else {
-      const emptyState = el('div', { class: 'studio-assets-empty' })
-      const emptyTitle = !total ? '素材库还是空的' : assetFavoriteOnly ? (assetQuery ? '没有匹配的收藏素材' : '还没有收藏素材') : (assetQuery ? '没有匹配素材' : '没有这个类型的素材')
-      const emptyHint = !total ? '导入图片或视频后，会显示在这里' : assetFavoriteOnly ? '点击素材右上角的 ☆ 收藏，或关闭「只看收藏」' : '换个关键词或类型试试'
-      emptyState.append(el('span', {}, total ? '⌕' : '＋'), el('strong', {}, emptyTitle), el('small', {}, emptyHint))
-      view.assetsList.append(emptyState)
+    assetAllButton.disabled = !total
+    assetAllButton.textContent = '完整素材库 →'
+    const sideVisible = !view.sideAssets.hidden && !document.hidden
+    const managerVisible = assetManager.open && !document.hidden
+    const sideOpened = sideVisible && !sideWasVisible
+    sideWasVisible = sideVisible
+    if (sideOpened) void loadFavorites(true).catch(error => { if (!disposed) sdk.toast(error.message) })
+    if (!sideVisible && sideSignature) {
+      clearMedia(view.assetsList); sideSignature = ''; sideMatches = []; sideLimit = 0
     }
-    assetManagerGrid.replaceChildren(...matches.map(asset => createAssetCard(asset, true, managerFilter === 'favorites')))
+    if (!managerVisible && managerSignature) {
+      clearMedia(assetManagerGrid); managerSignature = ''; managerMatches = []; managerLimit = 0
+    }
+    if (!sideVisible && !managerVisible) return
+    const shared = JSON.stringify([assets, assetQuery, assetSort, [...favoriteIds].sort(), favoriteOrder])
+    const nextSide = JSON.stringify([shared, assetKind, assetFavoriteOnly])
+    if (sideVisible && (force || nextSide !== sideSignature)) {
+      const sideScroll = view.assetsList.scrollTop
+      sideSignature = nextSide
+      sideMatches = matchingAssets({ favoritesOnly: assetFavoriteOnly })
+      clearMedia(view.assetsList); sideLimit = 0
+      if (sideMatches.length) appendAssetBatch()
+      else {
+        const emptyState = el('div', { class: 'studio-assets-empty' })
+        const emptyTitle = !total ? '素材库还是空的' : assetFavoriteOnly ? (assetQuery ? '没有匹配的收藏素材' : '还没有收藏素材') : (assetQuery ? '没有匹配素材' : '没有这个类型的素材')
+        const emptyHint = !total ? '导入图片或视频后，会显示在这里' : assetFavoriteOnly ? '点击素材右上角的 ☆ 收藏，或关闭「只看收藏」' : '换个关键词或类型试试'
+        emptyState.append(el('span', {}, total ? '⌕' : '＋'), el('strong', {}, emptyTitle), el('small', {}, emptyHint))
+        view.assetsList.append(emptyState)
+      }
+      view.assetsList.scrollTop = sideScroll
+    }
+    if (!managerVisible) return
+    const nextManager = JSON.stringify([shared, managerFilter])
+    if (!force && nextManager === managerSignature) return
+    const managerScroll = assetManagerGrid.scrollTop
+    managerSignature = nextManager
+    const managerKind = managerFilter === 'image' || managerFilter === 'video' ? managerFilter : 'all'
+    const matches = managerMatches = matchingAssets({ favoritesOnly: managerFilter === 'favorites', kind: managerKind })
+    assetManagerCount.textContent = managerFilter !== 'all' || assetQuery ? `${matches.length} / ${total} 项` : `共 ${total} 项素材`
+    clearMedia(assetManagerGrid)
+    managerLimit = 0; appendAssetBatch(true)
     const nothing = !matches.length
     assetManagerEmpty.hidden = !nothing
     assetManagerEmpty.textContent = !total
@@ -330,9 +482,7 @@ export default function (ctx, sdk) {
       : managerFilter === 'favorites'
         ? (assetQuery ? '没有符合条件的收藏素材。' : '还没有收藏素材。切换到「全部」，点击素材右上角的 ☆ 收藏。')
         : '没有找到符合条件的素材。'
-    assetAllButton.disabled = !total
-    assetAllButton.textContent = '完整素材库 →'
-    view.assetsList.scrollTop = sideScroll; assetManagerGrid.scrollTop = managerScroll
+    assetManagerGrid.scrollTop = managerScroll
   }
 
   const assetExpand = button('↗', () => openAssetManager(), 'studio-asset-expand')
@@ -360,21 +510,36 @@ export default function (ctx, sdk) {
   view.assetsTools.append(assetSearch.wrap, assetFiltersCompact.group, favoriteOnlyToggle)
   view.assetPanel.append(assetFoot)
   view.root.append(assetManager)
+  sdk.listen(view.assetsList, 'scroll', () => maybeAppendAssets())
+  sdk.listen(assetManagerGrid, 'scroll', () => maybeAppendAssets(true))
   assetManagerSort.onchange = () => { assetSort = assetManagerSort.value; drawAssets() }
   assetManager.onclick = event => { if (event.target === assetManager) assetManager.close() }
+  sdk.listen(assetManager, 'close', () => { clearMedia(assetManagerGrid); managerSignature = ''; managerMatches = []; managerLimit = 0; drawAssets() })
   async function openAssetManager() {
     managerFilter = 'favorites'
-    try { await loadFavorites() } catch (error) { if (!disposed) sdk.toast(error.message) }
+    try { await loadFavorites(true) } catch (error) { if (!disposed) sdk.toast(error.message) }
     if (disposed) return
-    syncAssetControls(); drawAssets(); if (!assetManager.open) assetManager.showModal(); managerSearch.input.focus()
+    syncAssetControls(); if (!assetManager.open) assetManager.showModal(); managerSignature = ''; drawAssets(); managerSearch.input.focus()
+  }
+  const refreshVisibleFavorites = () => {
+    if (disposed || document.hidden || (view.sideAssets.hidden && !assetManager.open)) return
+    void loadFavorites(true).catch(error => { if (!disposed) sdk.toast(error.message) })
+  }
+  sdk.listen(window, 'focus', refreshVisibleFavorites)
+  sdk.listen(document, 'visibilitychange', refreshVisibleFavorites)
+  if (favoriteChannel) {
+    sdk.listen(favoriteChannel, 'message', refreshVisibleFavorites)
+    ctx.effect(() => () => favoriteChannel.close())
   }
   syncAssetControls()
-  void loadFavorites().then(() => { if (!disposed) { syncAssetControls(); drawAssets() } }).catch(() => {})
+  void loadFavorites().catch(() => {})
   view.extend(ctx, 'assets', {
     refresh: drawAssets,
     dispose() {
       disposed = true; favoriteIds = new Set()
-      view.assetsList.replaceChildren(); view.assetsTools.replaceChildren(); view.assetCount.textContent = '0'
+      clearMedia(view.assetsList); clearMedia(assetManagerGrid)
+      mediaObserver?.disconnect(); assetSideObserver?.disconnect(); assetManagerObserver?.disconnect()
+      view.assetsTools.replaceChildren(); view.assetCount.textContent = '0'
       assetExpand.remove(); assetImport.remove(); assetFoot.remove(); assetManager.remove()
       fileInput.remove(); videoInput.remove(); assetInput.remove()
     },

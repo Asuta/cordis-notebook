@@ -22,6 +22,8 @@
 .studio-assets .studio-asset-card:hover,.studio-assets .studio-asset-card:focus-visible,.studio-asset-manager-grid .studio-asset-card:hover,.studio-asset-manager-grid .studio-asset-card:focus-visible{transform:translateY(-1px);border-color:#91aa77!important;box-shadow:0 6px 16px #26351f18;outline:0}
 .studio-asset-card.is-dragging{opacity:.4}
 .studio-asset-card-shell{position:relative;display:flex;min-width:0}
+.studio-assets .studio-asset-card-shell{content-visibility:auto;contain-intrinsic-size:auto 140px}
+.studio-asset-manager-grid .studio-asset-card-shell{content-visibility:auto;contain-intrinsic-size:auto 220px}
 .studio-asset-card-shell>.studio-asset-card{flex:1}
 .studio-app .studio-asset-favorite{position:absolute;top:6px;right:6px;z-index:2;display:grid;place-items:center;width:26px;height:26px;padding:0!important;border:1px solid #ffffff2e!important;border-radius:999px!important;background:#142018cc!important;color:#fff;font-size:15px;line-height:1;cursor:pointer;backdrop-filter:blur(4px);box-shadow:0 2px 8px #0b130b33}
 .studio-app .studio-asset-favorite:hover{background:#22331fe6!important;color:#ffd66b}

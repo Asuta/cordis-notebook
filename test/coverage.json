@@ -1,6 +1,7 @@
 {
   "version": 1,
   "tests": [
+    {"file":"test/studio-4dai.test.js","application":"studio","plugins":["image-provider-4dai"]},
     {"file":"test/studio-development-assets.test.js","application":"studio","plugins":["canvas","canvas-ui","canvas-basic-cards","image-generation","canvas-agent-tools"]},
     {"file":"test/studio-parallel.test.js","application":"studio","plugins":["canvas","canvas-basic-cards","image-generation"]},
     {"file":"test/studio-reuse.test.js","application":"studio","plugins":["canvas","canvas-basic-cards","image-generation","image-provider-wavespeed"]},

@@ -26,7 +26,7 @@ export default async function (ctx, settings, runtime) {
   })
   Object.assign(new Service(ctx, 'imageGeneration'), jobs)
   documents.observe(ctx, board => jobs.boardChanged(board))
-  documents.snapshots.register(ctx, { id: 'image-generation', read: () => {
+  documents.snapshots.register(ctx, { id: 'image-generation', revision: () => jobs.listProviders(), read: () => {
     const providers = jobs.listProviders()
     return { jobs: jobs.read(), providers, config: providers.find(p => p.id === 'pixel') || providers[0] || { hasKey: false, model: '', baseUrl: '' } }
   } })

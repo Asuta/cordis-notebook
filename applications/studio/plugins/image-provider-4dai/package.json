@@ -1,0 +1,24 @@
+{
+  "name": "@cordis-studio/image-provider-4dai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "undici": "8.11.2" },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "image-provider-4dai",
+    "name": "4dai OpenAI 图片",
+    "description": "通过 4dai 调用 GPT Image 文生图与参考图编辑",
+    "defaultEnabled": true,
+    "order": 15,
+    "requires": { "server": ["http", "imageGeneration"], "client": ["canvasUI", "canvasSession"] },
+    "provides": { "server": [], "client": [] },
+    "build": [
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }
+    ],
+    "server": { "entry": "server.js", "export": "default" },
+    "client": "client.js",
+    "public": ["client.js"]
+  }
+}

@@ -16,13 +16,14 @@ async function setup(t) {
   const directory = await mkdtemp(join(tmpdir(), 'studio-client-state-'))
   const app = await createHost({ port: 0, dataDir: directory, locationRoot: directory, initialApplication: 'studio' })
   const window = new Window({ settings: { disableCSSFileLoading: true } })
-  const previous = { window: globalThis.window, document: globalThis.document }, ctx = owner(), requests = new Set(), toasts = []
+  const previous = { window: globalThis.window, document: globalThis.document }, ctx = owner(), requests = new Set(), toasts = [], requestPaths = []
   globalThis.window = window; globalThis.document = window.document; ctx.on = () => {}
   t.after(async () => {
     try { await ctx.dispose(); await Promise.allSettled([...requests]); await window.happyDOM.close(); await app.close() }
     finally { Object.assign(globalThis, previous); await rm(directory, { recursive: true, force: true }) }
   })
   const request = async (path, method = 'GET', body) => {
+    requestPaths.push(path)
     const response = await fetch(`http://127.0.0.1:${app.server.address().port}${path}`, {
       method, headers: { 'Content-Type': 'application/json', 'X-Application-Session': app.applications.session },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -59,8 +60,51 @@ async function setup(t) {
     prepare() { assert.fail('本测试不得发起生成') },
   })
   await client(ctx, sdk); await canvasUI(ctx, sdk); generation(ctx, sdk)
-  return { directory, app, ctx, documents, request, window, toasts, session: ctx.canvasSession, view: ctx.canvasUI }
+  return { directory, app, ctx, documents, request, requestPaths, window, toasts, session: ctx.canvasSession, view: ctx.canvasUI }
 }
+
+test('轻量轮询在无变化时跳过全量状态，文档、任务及提供者变化时失效', async t => {
+  const { request, requestPaths, session, documents, app } = await setup(t)
+  await session.refresh({ fresh: true })
+  requestPaths.length = 0
+  await session.refresh(); await session.refresh()
+  assert.deepEqual(requestPaths, ['/api/studio/summary', '/api/studio/summary'])
+  const before = await request('/api/studio/summary')
+  assert.equal(before.revision, session.state.stateRevision)
+  assert.ok(JSON.stringify(before).length < 100)
+  await documents.edit(session.boardId, session.board().revision, [{ type: 'add', node: { id: 'remote-text', type: 'text', text: '远端新增' } }])
+  requestPaths.length = 0
+  await session.refresh()
+  assert.deepEqual(requestPaths, ['/api/studio/summary', '/api/studio'])
+  assert.equal(session.board().nodes.find(node => node.id === 'remote-text').text, '远端新增')
+  const afterEdit = await request('/api/studio/summary')
+  await assert.rejects(documents.edit(session.boardId, -1, []))
+  assert.deepEqual(await request('/api/studio/summary'), afterEdit, '失败写入不改变版本')
+  await documents.records('image-generation').change(tx => tx.records.push({ id: 'summary-job', status: 'interrupted' }))
+  await session.refresh()
+  assert.equal(session.state.jobs.find(job => job.id === 'summary-job').status, 'interrupted')
+  const afterJob = await request('/api/studio/summary')
+  app.ctx.imageGeneration.register(app.ctx, { id: 'summary-provider', label: '版本测试', public: () => ({ hasKey: false }), prepare() { assert.fail('不应生成') } })
+  assert.notEqual((await request('/api/studio/summary')).revision, afterJob.revision)
+  await session.refresh()
+  assert.ok(session.state.providers.some(provider => provider.id === 'summary-provider'))
+})
+
+test('后台标签暂停轮询，回到前台后同步其他页面的内容', async t => {
+  const { session, documents, requestPaths, window } = await setup(t)
+  let hidden = true
+  Object.defineProperty(window.document, 'hidden', { configurable: true, get: () => hidden })
+  window.document.dispatchEvent(new window.Event('visibilitychange'))
+  await documents.edit(session.boardId, session.board().revision, [{ type: 'add', node: { id: 'remote-text', type: 'text', text: '其他页面' } }])
+  requestPaths.length = 0
+  await session.refresh()
+  assert.deepEqual(requestPaths, [])
+  assert.equal(session.board().nodes.some(node => node.id === 'remote-text'), false)
+  hidden = false
+  window.document.dispatchEvent(new window.Event('visibilitychange'))
+  for (let i = 0; i < 100 && !session.board().nodes.some(node => node.id === 'remote-text'); i++) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(session.board().nodes.find(node => node.id === 'remote-text')?.text, '其他页面')
+})
 
 test('真实 HTTP 编辑、撤销及复制画板均保留解析输出，生成卡无需等待轮询即可重绘', async t => {
   const { directory, request, session, view, window, documents, toasts } = await setup(t)
@@ -95,6 +139,31 @@ test('真实 HTTP 编辑、撤销及复制画板均保留解析输出，生成�
   const disk = JSON.parse(await readFile(join(directory, 'apps/studio/plugin-data/canvas/studio.json'), 'utf8'))
   assert.ok(disk.boards.every(board => board.nodes.every(node => !Object.hasOwn(node, 'resolvedOutput'))))
   assert.doesNotThrow(() => view.render())
+})
+
+test('多页面视口单独保存在本地，不递增共享画板版本或触发另一页面全量刷新', async t => {
+  const { request, requestPaths, session, window } = await setup(t)
+  const secondWindow = new Window({ settings: { disableCSSFileLoading: true } })
+  const { createSession } = await import('../applications/studio/plugins/canvas/session.js')
+  const ownerContext = owner()
+  ownerContext.on = () => {}
+  const requests = new Set()
+  t.after(async () => { await ownerContext.dispose(); await Promise.allSettled([...requests]); await secondWindow.happyDOM.close() })
+  const secondSdk = { storage: { local: secondWindow.localStorage }, toast() {}, listen(target, name, fn) { target.addEventListener(name, fn); ownerContext.effect(() => target.removeEventListener(name, fn)) }, request(...args) {
+    const task = request(...args); requests.add(task); task.then(() => requests.delete(task), () => requests.delete(task)); return task
+  } }
+  const second = await createSession(ownerContext, secondSdk)
+  const revision = session.board().revision
+  const serverViewport = structuredClone(session.board().viewport)
+  session.viewport = { x: 720, y: -360, zoom: .25 }
+  await session.saveViewport()
+  assert.equal(session.board().revision, revision)
+  assert.deepEqual(session.board().viewport, serverViewport)
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('viewport:' + session.boardId)), session.viewport)
+  requestPaths.length = 0
+  await second.refresh()
+  assert.deepEqual(requestPaths, ['/api/studio/summary'])
+  assert.deepEqual(second.viewport, serverViewport)
 })
 
 test('resolver 暂不可用时画布可编辑、可断线；生成校验保持严格并在来源恢复后恢复', async t => {

@@ -8,7 +8,7 @@ export interface RecordTransaction<T> {
 }
 export interface CanvasDocuments {
   types: Registry<CardType>
-  snapshots: Registry<{ id: string; read(): Record<string, unknown> }>
+  snapshots: Registry<{ id: string; read(): Record<string, unknown>; revision?(): unknown }>
   read(): CanvasState
   edit(boardId: string, revision: number, operations: CanvasOperation[]): Promise<EditResult>
   addBoard(title: string): Promise<CanvasBoard>

@@ -7,6 +7,9 @@ export default async function (ctx, sdk) {
   const s = ctx.canvasSession, el = sdk.el, uuid = () => crypto.randomUUID();
   const { board, api, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
   const renderers = new Map(), menus = new Map(), extensions = new Map(), renderedNodes = new Map();
+  const cardElements = new Map(), cardSizes = new Map(), wireElements = new Map();
+  let pointerFrame = null, pendingPointer = null, canvasWindowFrame = null, windowBounds = null, boardsSignature = '', extensionRevision = 0;
+  let overviewEnabled = true, overviewMode = s.viewport.zoom <= 0.32;
   let stopped = false, drag = null, connecting = null, connectDrag = null, space = false, viewTimer, selectionSignature = "", editingField = null, suppressCardClick = false, renamingBoardId = null;
   let clipboard = null, lastPointer = null, pasteTarget = null;
   const selected = new Set();
@@ -148,6 +151,7 @@ export default async function (ctx, sdk) {
       tab.setAttribute("aria-selected", String(active))
       tab.tabIndex = active ? 0 : -1
     }
+    extensions.get('assets')?.refresh?.()
   }
   showSidePage("canvas")
   sdk.listen(document, 'pointerdown', event => {
@@ -195,7 +199,15 @@ export default async function (ctx, sdk) {
   root.append(side, main);
   sdk.mount("app", root);
   const applicationSettings = createApplicationSettings({ ctx, sdk, el, button, root, side: sideCanvas });
+  function syncOverviewMode() {
+    const previous = overviewMode;
+    if (!overviewEnabled || s.viewport.zoom >= 0.38) overviewMode = false;
+    else if (s.viewport.zoom <= 0.32) overviewMode = true;
+    root.classList.toggle('is-overview', overviewMode);
+    return previous !== overviewMode;
+  }
   function transform() {
+    const overviewChanged = syncOverviewMode();
     world.style.transform = `translate(${s.viewport.x}px,${s.viewport.y}px) scale(${s.viewport.zoom})`;
     const inverseZoom = 1 / s.viewport.zoom;
     world.style.setProperty('--studio-inverse-zoom', String(inverseZoom));
@@ -207,6 +219,7 @@ export default async function (ctx, sdk) {
     stage.style.backgroundSize = `${24 * s.viewport.zoom}px ${24 * s.viewport.zoom}px`;
     stage.style.backgroundPosition = `${s.viewport.x}px ${s.viewport.y}px`;
     placeContextTools();
+    scheduleCanvasWindow(overviewChanged);
   }
   function zoom(value, x = stage.clientWidth / 2, y = stage.clientHeight / 2) {
     value = Math.max(0.15, Math.min(3, value));
@@ -219,8 +232,11 @@ export default async function (ctx, sdk) {
   }
   const selectedNodes = () => board().nodes.filter((n) => selected.has(n.id));
   function cardSize(node) {
-    const item = [...cards.children].find((item2) => item2.dataset.node === node.id);
-    return { width: item?.offsetWidth || 288, height: item?.offsetHeight || (renderers.get(node.type)?.height || 230) };
+    if (cardSizes.has(node.id)) return cardSizes.get(node.id);
+    const item = cardElements.get(node.id);
+    const size = { width: item?.offsetWidth || 288, height: item?.offsetHeight || node.cardHeight || (renderers.get(node.type)?.height || 230) };
+    if (item?.offsetWidth) cardSizes.set(node.id, size);
+    return size;
   }
   const bottomInset = () => (bottomControls.offsetHeight || 48) + 32;
   function fit(nodes = board().nodes) {
@@ -368,33 +384,33 @@ export default async function (ctx, sdk) {
     return { x: node.x + (side === "output" ? cardSize(node).width : 0), y: node.y + 40 };
   }
   function paintWires() {
-    svg.replaceChildren();
-    for (const edge of board().edges) {
-      const a = board().nodes.find((n) => n.id === edge.from), b = board().nodes.find((n) => n.id === edge.to);
-      const path = document.createElementNS(svg.namespaceURI, "path");
-      path.setAttribute("d", wirePath(portPoint(a, "output"), portPoint(b, "input")));
-      path.dataset.edge = edge.id;
-      path.classList.toggle("is-selected", selected.has(edge.from) && selected.has(edge.to));
-      path.onclick = safe(async (event) => {
-        event.stopPropagation();
-        await edit([{ type: "disconnect", id: edge.id }]);
-      });
-      const title = document.createElementNS(svg.namespaceURI, "title");
-      title.textContent = "点击断开连线";
-      path.append(title);
-      svg.append(path);
+    const nodes = new Map(board().nodes.map(node => [node.id, node])), keep = new Set();
+    function wire(key, from, to, edge) {
+      if (!from || !to) return;
+      keep.add(key);
+      let path = wireElements.get(key);
+      if (!path) {
+        path = document.createElementNS(svg.namespaceURI, 'path');
+        const title = document.createElementNS(svg.namespaceURI, 'title');
+        title.textContent = edge ? '点击断开连线' : '生成结果来源';
+        path.append(title);
+        if (edge) {
+          path.dataset.edge = edge.id;
+          path.onclick = safe(async event => { event.stopPropagation(); await edit([{ type: 'disconnect', id: edge.id }]); });
+        } else path.classList.add('studio-result-wire');
+        wireElements.set(key, path);
+        svg.append(path);
+      }
+      const d = wirePath(portPoint(from, 'output'), portPoint(to, 'input'));
+      if (path.getAttribute('d') !== d) path.setAttribute('d', d);
+      path.classList.toggle('is-selected', selected.has(from.id) && selected.has(to.id));
     }
-    for (const result of board().nodes.filter((n) => n.sourceNodeId)) {
-      const source = board().nodes.find((n) => n.id === result.sourceNodeId);
-      if (!source) continue;
-      const path = document.createElementNS(svg.namespaceURI, "path");
-      path.classList.add("studio-result-wire");
-      path.classList.toggle("is-selected", selected.has(source.id) && selected.has(result.id));
-      path.setAttribute("d", wirePath(portPoint(source, "output"), portPoint(result, "input")));
-      const title = document.createElementNS(svg.namespaceURI, "title");
-      title.textContent = "生成结果来源";
-      path.append(title);
-      svg.append(path);
+    for (const edge of board().edges) {
+      wire('edge:' + edge.id, nodes.get(edge.from), nodes.get(edge.to), edge);
+    }
+    for (const result of nodes.values()) if (result.sourceNodeId) wire('result:' + result.id, nodes.get(result.sourceNodeId), result);
+    for (const [key, path] of wireElements) if (!keep.has(key)) {
+      path.remove(); wireElements.delete(key);
     }
   }
   function field(node, prop, area = false, onSaved = null) {
@@ -423,11 +439,13 @@ export default async function (ctx, sdk) {
     };
     return input;
   }
-  function renderCard(node) {
-    const card = el("article", { class: "studio-card studio-" + node.type + (selected.has(node.id) ? " selected" : "") });
+  function renderCard(node, overview = false, overviewHeight = 0) {
+    const card = el("article", { class: "studio-card studio-" + node.type + (selected.has(node.id) ? " selected" : "") + (overview ? " is-overview" : "") });
+    card.studioOverview = overview;
     card.dataset.node = node.id;
     card.style.left = node.x + "px";
     card.style.top = node.y + "px";
+    if (overview) card.style.height = Math.max(120, overviewHeight || 230) + 'px';
     const head = el("div", { class: "studio-card-head" });
     head.dataset.handle = node.id;
     const title = el("span", {}, node.title);
@@ -456,9 +474,13 @@ export default async function (ctx, sdk) {
       port.dataset[renderer.input ? "input" : "output"] = node.id;
       card.append(port);
     }
-    if (renderer) renderer.render(node, card, view);
+    if (renderer && overview) {
+      if (renderer.renderOverview) renderer.renderOverview(node, card, view);
+      else card.append(el('div', { class: 'studio-overview-summary' }, node.title));
+    }
+    else if (renderer) renderer.render(node, card, view);
     else card.append(el("p", { class: "studio-missing-card" }, `“${node.title}”的卡片功能暂不可用，请在插件管理中启用对应功能。内容和连线已保留。`));
-    for (const extension of extensions.values()) extension.card?.(node, card, view);
+    if (!overview) for (const extension of extensions.values()) extension.card?.(node, card, view);
     return card;
   }
   function beginBoardRename(id) {
@@ -496,31 +518,96 @@ export default async function (ctx, sdk) {
     );
     menu.append(summary, actions); row.append(chooseBoard, menu); return row;
   }
+  function cardSignature(node, overview = false) {
+    const renderer = renderers.get(node.type);
+    return JSON.stringify([node, overview ? renderer?.overviewKey?.(node, view) : renderer?.renderKey?.(node, view), extensionRevision, overview]);
+  }
+  function shouldOverview(node) {
+    if (!overviewMode || selected.has(node.id) || s.drafts.has(node.id)) return false;
+    const card = cardElements.get(node.id), player = node.type === 'video' && card?.querySelector('video');
+    return !card?.contains(document.activeElement) && !(player && !player.paused && !player.ended);
+  }
+  function canvasBounds(margin = 0) {
+    const zoom = s.viewport.zoom;
+    return { left: (-s.viewport.x - margin) / zoom, top: (-s.viewport.y - margin) / zoom,
+      right: (-s.viewport.x + stage.clientWidth + margin) / zoom, bottom: (-s.viewport.y + stage.clientHeight + margin) / zoom };
+  }
+  function viewportNodes() {
+    if (!stage.clientWidth || !stage.clientHeight) { windowBounds = null; return board().nodes; }
+    const { left, top, right, bottom } = canvasBounds(520);
+    windowBounds = { left, top, right, bottom, boardId: s.boardId };
+    return board().nodes.filter(node => {
+      const card = cardElements.get(node.id);
+      const player = node.type === 'video' && card?.querySelector('video');
+      if (selected.has(node.id) || card?.contains(document.activeElement) || player && !player.paused && !player.ended) return true;
+      const size = cardSize(node);
+      return node.x <= right && node.x + size.width >= left && node.y <= bottom && node.y + size.height >= top;
+    });
+  }
+  function detachCard(card) {
+    resizeObserver?.unobserve(card);
+    card.studioRenderer?.detachCard?.(renderedNodes.get(card.dataset.node), card, view);
+    card.remove();
+    cardElements.delete(card.dataset.node); renderedNodes.delete(card.dataset.node);
+  }
+  function renderCanvasCards(windowOnly = false) {
+    if (stopped || s.editing || drag?.type === 'nodes') return;
+    const nodes = viewportNodes(), keep = new Set(nodes.map(node => node.id));
+    for (const node of nodes) {
+      const existing = cardElements.get(node.id), renderer = renderers.get(node.type), overview = shouldOverview(node);
+      if (windowOnly && existing?.studioRenderer === renderer && existing.studioOverview === overview) {
+        existing.classList.toggle('selected', selected.has(node.id));
+        if (existing.style.left !== node.x + 'px') existing.style.left = node.x + 'px';
+        if (existing.style.top !== node.y + 'px') existing.style.top = node.y + 'px';
+        continue;
+      }
+      const signature = cardSignature(node, overview);
+      const preserveDOM = windowOnly || renderer?.renderKey || (typeof renderer?.preserveDOM === 'function' ? renderer.preserveDOM(node) : renderer?.preserveDOM);
+      if (preserveDOM && existing?.studioRenderer === renderer && existing?.studioSignature === signature && existing.studioOverview === overview) {
+        existing.classList.toggle('selected', selected.has(node.id));
+        if (existing.style.left !== node.x + 'px') existing.style.left = node.x + 'px';
+        if (existing.style.top !== node.y + 'px') existing.style.top = node.y + 'px';
+        continue;
+      }
+      const overviewHeight = overview ? node.cardHeight || cardSize(node).height : 0;
+      const rendered = structuredClone(node);
+      // Build before detaching so renderers can recover scroll state from the old card.
+      const card = renderCard(rendered, overview, overviewHeight);
+      if (existing) detachCard(existing);
+      renderedNodes.set(node.id, rendered); cardElements.set(node.id, card); cardSizes.delete(node.id);
+      card.studioSignature = signature;
+      cards.append(card); resizeObserver?.observe(card);
+      if (!overview) renderer?.attachCard?.(rendered, card, view);
+    }
+    for (const [id, card] of cardElements) if (!keep.has(id)) detachCard(card);
+    nodes.forEach((node, index) => { const card = cardElements.get(node.id); if (cards.children[index] !== card) cards.insertBefore(card, cards.children[index] || null); });
+    const ids = new Set(board().nodes.map(node => node.id));
+    for (const id of cardSizes.keys()) if (!ids.has(id)) cardSizes.delete(id);
+  }
+  function scheduleCanvasWindow(force = false) {
+    if (stopped || document.hidden || canvasWindowFrame !== null) return;
+    if (!force && windowBounds?.boardId === s.boardId && stage.clientWidth && stage.clientHeight) {
+      const visible = canvasBounds(), inset = 160 / s.viewport.zoom;
+      if (visible.left >= windowBounds.left + inset && visible.right <= windowBounds.right - inset &&
+          visible.top >= windowBounds.top + inset && visible.bottom <= windowBounds.bottom - inset) return;
+    }
+    canvasWindowFrame = window.requestAnimationFrame(() => {
+      canvasWindowFrame = null;
+      renderCanvasCards(true);
+    });
+  }
   function render() {
-    if (stopped || drag || s.editing) return;
+    if (stopped || document.hidden || drag || s.editing) return;
+    syncOverviewMode();
     const restoreFocus = cards.contains(document.activeElement);
     for (const id of selected) if (!board().nodes.some((n) => n.id === id)) selected.delete(id);
     s.renderedTitle = board().title;
     boardTitle.value = s.drafts.get(s.titleDraftId)?.patch.title ?? s.renderedTitle;
-    boardList.replaceChildren(...s.state.boards.map(boardRow));
+    const nextBoards = JSON.stringify([s.boardId, renamingBoardId, s.state.boards.map(({ id, title }) => [id, title])]);
+    if (nextBoards !== boardsSignature) { boardsSignature = nextBoards; boardList.replaceChildren(...s.state.boards.map(boardRow)); }
     for (const extension of extensions.values()) extension.refresh?.();
-    renderedNodes.clear();
-    const existingCards = new Map([...cards.children].map(item => [item.dataset.node, item]));
-    const nextCards = board().nodes.map((node) => {
-      const rendered = structuredClone(node);
-      renderedNodes.set(node.id, rendered);
-      const existing = existingCards.get(node.id);
-      const renderer = renderers.get(node.type), preserveDOM = typeof renderer?.preserveDOM === 'function' ? renderer.preserveDOM(node) : renderer?.preserveDOM;
-      if (preserveDOM && existing && existing.studioRenderer === renderer && existing.studioNode === JSON.stringify(node)) {
-        existing.classList.toggle('selected', selected.has(node.id)); return existing;
-      }
-      return renderCard(rendered);
-    });
-    const keep = new Set(nextCards);
-    for (const item of [...cards.children]) if (!keep.has(item)) { resizeObserver?.unobserve(item); item.remove(); }
-    nextCards.forEach((item, index) => { if (cards.children[index] !== item) cards.insertBefore(item, cards.children[index] || null); });
+    renderCanvasCards();
     empty.hidden = board().nodes.length > 0;
-    for (const item of cards.children) resizeObserver?.observe(item);
     if (restoreFocus) stage.focus({ preventScroll: true });
     undoButton.disabled = !s.undo.get(s.boardId)?.length;
     redoButton.disabled = !s.redo.get(s.boardId)?.length;
@@ -676,6 +763,7 @@ export default async function (ctx, sdk) {
       if (left && (event.shiftKey || event.ctrlKey || event.metaKey)) {
         selected.has(card.dataset.node) ? selected.delete(card.dataset.node) : selected.add(card.dataset.node);
         updateSelectionTools();
+        scheduleCanvasWindow(true);
         return;
       }
       if (!selected.has(card.dataset.node)) {
@@ -698,6 +786,21 @@ export default async function (ctx, sdk) {
     updateSelectionTools();
   });
   function movePointer(event) {
+    if (!drag && !connectDrag) return;
+    if (event.pointerId !== (drag || connectDrag).pointerId) return;
+    pendingPointer = event;
+    if (pointerFrame !== null) return;
+    pointerFrame = window.requestAnimationFrame(() => {
+      pointerFrame = null;
+      const latest = pendingPointer; pendingPointer = null;
+      if (latest) applyPointer(latest);
+    });
+  }
+  function clearPointerFrame() {
+    if (pointerFrame !== null) window.cancelAnimationFrame(pointerFrame);
+    pointerFrame = null; pendingPointer = null;
+  }
+  function applyPointer(event) {
     if (connectDrag) updateConnectDrag(event);
     if (!drag || event.pointerId !== drag.pointerId) return;
     if (Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) > 4) drag.moved = true;
@@ -714,9 +817,8 @@ export default async function (ctx, sdk) {
           const node = board().nodes.find((n) => n.id === before.id);
           node.x = before.x + delta.x;
           node.y = before.y + delta.y;
-          const item = cards.querySelector(`[data-node="${node.id}"]`);
-          item.style.left = node.x + "px";
-          item.style.top = node.y + "px";
+          const item = cardElements.get(node.id);
+          if (item) { item.style.left = node.x + "px"; item.style.top = node.y + "px"; }
         }
         ;
         paintWires();
@@ -740,6 +842,7 @@ export default async function (ctx, sdk) {
   sdk.listen(window, "pointermove", movePointer);
   sdk.listen(stage, "pointermove", (event) => { lastPointer = coordinates(event) });
   function cancelGesture() {
+    clearPointerFrame();
     if (connectDrag) clearConnectDrag();
     if (!drag) return;
     const previous = drag;
@@ -755,6 +858,10 @@ export default async function (ctx, sdk) {
     render();
   }
   const release = safe(async (event) => {
+    if (event.pointerId === (drag || connectDrag)?.pointerId) {
+      clearPointerFrame();
+      applyPointer(event);
+    }
     if (connectDrag && event.pointerId === connectDrag.pointerId) {
       const state = connectDrag;
       if (!state.moved) {
@@ -781,7 +888,6 @@ export default async function (ctx, sdk) {
     }
     if (!connecting) stage.classList.remove('is-connecting');
     if (!drag || event.pointerId !== drag.pointerId) return;
-    movePointer(event);
     const previous = drag;
     drag = null;
     if (stage.hasPointerCapture?.(previous.pointerId)) stage.releasePointerCapture(previous.pointerId);
@@ -799,10 +905,8 @@ export default async function (ctx, sdk) {
         if (operations.length) {
           await edit(operations, { repaint: false });
           for (const before of previous.nodes) {
-            const node = board().nodes.find((item) => item.id === before.id), rendered = renderedNodes.get(before.id);
-            if (rendered) Object.assign(rendered, { x: node.x, y: node.y });
-            const card = cards.querySelector(`[data-node="${before.id}"]`);
-            if (card) card.studioNode = JSON.stringify(rendered || node);
+            const node = board().nodes.find((item) => item.id === before.id);
+            view.syncRenderedNode(before.id, { x: node.x, y: node.y });
           }
         }
       } catch (error) {
@@ -813,6 +917,7 @@ export default async function (ctx, sdk) {
     // Keep the pressed element connected for a normal click. Moving cards already
     // updates their live position, so saving that position must not rebuild media.
     updateSelectionTools();
+    scheduleCanvasWindow(true);
   });
   sdk.listen(window, "pointerup", release);
   sdk.listen(stage, "auxclick", event => { if (event.button === 1) event.preventDefault() });
@@ -899,12 +1004,26 @@ export default async function (ctx, sdk) {
       await removeNodes([...selected]);
     }
   }));
-  const resizeObserver = typeof window.ResizeObserver === "function" ? new window.ResizeObserver(placeContextTools) : null;
+  const resizeObserver = typeof window.ResizeObserver === "function" ? new window.ResizeObserver(entries => {
+    for (const entry of entries) if (entry.target.dataset.node) cardSizes.delete(entry.target.dataset.node);
+    placeContextTools(); scheduleCanvasWindow(true); paintWires();
+  }) : null;
   resizeObserver?.observe(stage);
   resizeObserver?.observe(cards);
   resizeObserver?.observe(contextTools);
   sdk.listen(window, "keyup", (event) => {
     if (event.code === "Space") space = false;
+  });
+  sdk.listen(document, 'visibilitychange', () => {
+    if (document.hidden) {
+      if (canvasWindowFrame !== null) { window.cancelAnimationFrame(canvasWindowFrame); canvasWindowFrame = null; }
+      for (const player of cards.querySelectorAll('video')) player.pause();
+      extensions.get('assets')?.refresh?.();
+      return;
+    }
+    void refresh({ fresh: true }).catch(error => sdk.toast(error.message)).finally(() => {
+      if (!stopped && !document.hidden) render();
+    });
   });
   const view = {
     el,
@@ -949,6 +1068,11 @@ export default async function (ctx, sdk) {
       setPasteTarget(target);
     },
     pointer: () => lastPointer ? { x: lastPointer.x, y: lastPointer.y } : null,
+    isOverview: () => overviewMode,
+    setOverviewEnabled(value) {
+      overviewEnabled = Boolean(value);
+      if (syncOverviewMode()) render();
+    },
     render,
     select(nodeIds) {
       selected.clear();
@@ -960,8 +1084,8 @@ export default async function (ctx, sdk) {
       const rendered = renderedNodes.get(id);
       if (!rendered) return false;
       Object.assign(rendered, patch);
-      const card = [...cards.children].find(item => item.dataset.node === id);
-      if (card) card.studioNode = JSON.stringify(rendered);
+      const card = cardElements.get(id);
+      if (card) { card.studioNode = JSON.stringify(rendered); card.studioSignature = cardSignature(rendered, card.studioOverview); }
       return true;
     },
     register(owner, definition) {
@@ -981,7 +1105,12 @@ export default async function (ctx, sdk) {
     },
     menu(owner, definition) {
       if (menus.has(definition.id)) throw Error("菜单重复");
-      const update = () => dock.replaceChildren(...[...menus.values()].sort((a, b) => (a.order ?? 1000) - (b.order ?? 1000) || a.id.localeCompare(b.id)).map((item) => button(item.label, item.run, item.className || "")), tidyControl, undoButton, redoButton);
+      const update = () => dock.replaceChildren(...[...menus.values()].sort((a, b) => (a.order ?? 1000) - (b.order ?? 1000) || a.id.localeCompare(b.id)).map((item) => {
+        const control = button(typeof item.label === 'function' ? item.label() : item.label, item.run, item.className || '');
+        if (item.pressed !== undefined) control.setAttribute('aria-pressed', String(typeof item.pressed === 'function' ? item.pressed() : item.pressed));
+        if (item.title) control.title = typeof item.title === 'function' ? item.title() : item.title;
+        return control;
+      }), tidyControl, undoButton, redoButton);
       return owner.effect(() => {
         menus.set(definition.id, definition);
         update();
@@ -998,10 +1127,12 @@ export default async function (ctx, sdk) {
       if (extensions.has(id)) throw Error("界面扩展重复");
       return owner.effect(() => {
         extensions.set(id, extension);
+        if (extension.card) { extensionRevision++; render(); }
         extension.refresh?.();
         return () => {
           extensions.delete(id);
           extension.dispose?.();
+          if (extension.card) { extensionRevision++; render(); }
         };
       });
     }
@@ -1016,6 +1147,9 @@ export default async function (ctx, sdk) {
   } });
   ctx.effect(() => () => {
     stopped = true;
+    clearPointerFrame();
+    if (canvasWindowFrame !== null) window.cancelAnimationFrame(canvasWindowFrame);
+    for (const card of cardElements.values()) detachCard(card);
     resizeObserver?.disconnect();
     clearTimeout(viewTimer);
   });

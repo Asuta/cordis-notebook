@@ -6,7 +6,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
 import { installMediaRoutes } from './media-server.js'
 import { copySelection } from './copy.js'
-import { serializeClientBoard, serializeClientState } from './client-state.js'
+import { clientStateRevision, serializeClientBoard, serializeClientState } from './client-state.js'
 
 async function uploadBody(req) {
   const chunks = []; let size = 0
@@ -30,6 +30,7 @@ export default async function (ctx, settings, runtime) {
   await installMediaRoutes(ctx, store)
   const route = (method, pattern, handler) => ctx.http.route(ctx, method, pattern, handler)
   route('GET', /^\/api\/studio$/, () => serializeClientState(store, snapshots))
+  route('GET', /^\/api\/studio\/summary$/, () => ({ revision: clientStateRevision(store, snapshots) }))
   route('POST', /^\/api\/studio\/boards$/, async ({ req }) => serializeClientBoard(await store.addBoard((await ctx.http.body(req)).title), store.types))
   route('POST', /^\/api\/studio\/boards\/([\w-]{1,80})\/copy$/, async ({ match }) => serializeClientBoard(await store.duplicateBoard(match[1]), store.types))
   route('POST', /^\/api\/studio\/edit$/, async ({ req }) => {
@@ -60,5 +61,9 @@ export default async function (ctx, settings, runtime) {
   route('GET', /^\/api\/studio\/images\/([a-f0-9-]{36})\.(png|webp)$/, async ({ res, match }) => {
     const bytes = await store.image(match[1], match[2] === 'webp')
     res.writeHead(200, { 'Content-Type': match[2] === 'png' ? 'image/png' : 'image/webp', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' }); res.end(bytes)
+  })
+  route('GET', /^\/api\/studio\/images\/([a-f0-9-]{36})\.small\.webp$/, async ({ res, match }) => {
+    const bytes = await store.image(match[1], 'small')
+    res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' }); res.end(bytes)
   })
 }

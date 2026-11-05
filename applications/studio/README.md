@@ -61,6 +61,12 @@
 
 Agent 保留原有 10 个工具，通过 `studio_read.actions` 和 `studio_action` 发现并调用模型搜索、模型定义、生成、恢复查询和结束跟踪；图片与视频都可通过已有导入工具加入。具体字段及操作步骤见 `agent.md`。
 
+## 4dai GPT Image
+
+侧栏「⚙ 4dai」可配置 API Key、接口地址和模型，默认接口为 https://api.4dai.cc。模型限定为 gpt-image-2.5-sunburst 与 gpt-image-2.5-flare；Key 仅保存在本机 data/apps/studio/plugin-data/image-provider-4dai/4dai-private.json，读取接口只返回是否已配置，留空保存保留原 Key。也可通过 FOURDAI_API_KEY、FOURDAI_BASE_URL、FOURDAI_IMAGE_MODEL 首次导入。
+
+不带参考图时调用 /v1/images/generations JSON；带图片参考时调用 /v1/images/edits multipart image[]。支持 PNG/JPEG/WebP 图片，最多 10 张；不接受视频参考。响应支持 Base64 或 HTTPS 图片 URL。此渠道未做真实付费生成验收。
+
 ## AI Pixel
 
 首次启动从进程环境或本机 `.codex/config.toml` 的 `[skills.ai-pixel-image2.env]` 导入现有接口、Key 和模型，随后独立保存到 `data/apps/studio/plugin-data/image-provider-pixel/pixel-private.json`；升级时优先一次性导入旧 `canvas/pixel-private.json`，保留旧文件并以新配置为准。默认 `https://ai-pixel.online`、`gpt-image-2`。不运行技能脚本，不在前端或仓库保存 Key；设置界面只显示是否已配置，留空保存保留原 Key。

@@ -341,5 +341,5 @@ export function createPromptOptimizer(ctx, view, s, sdk) {
   ctx.effect(() => () => { stopped = true; manager.remove(); preview.remove() })
   void load().then(() => { if (!stopped) { drawSettings(); drawTemplates(); view.render() } }).catch(() => { if (!stopped) modelSummary.textContent = '读取大模型配置失败，请打开应用设置后重试。' })
 
-  return { bar: optimizerBar, openManager, refresh: load }
+  return { bar: optimizerBar, openManager, refresh: load, renderKey: () => data }
 }
