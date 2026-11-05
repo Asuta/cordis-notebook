@@ -67,6 +67,12 @@ Agent 保留原有 10 个工具，通过 `studio_read.actions` 和 `studio_actio
 
 不带参考图时调用 /v1/images/generations JSON；带图片参考时调用 /v1/images/edits multipart image[]。支持 PNG/JPEG/WebP 图片，最多 10 张；不接受视频参考。响应支持 Base64 或 HTTPS 图片 URL。此渠道未做真实付费生成验收。
 
+## 速登 GPT Image
+
+侧栏「⚙ 速登」可独立配置 API Key、接口地址和默认模型，默认接口为 https://sudeng.cc。生成卡片选择「速登 · GPT Image」后，可在卡片内单独选 gpt-image-2.5-flare 或 gpt-image-2.5-sunburst；未指定模型的旧卡片沿用渠道默认模型。Key 只保存在本机 data/apps/studio/plugin-data/image-provider-sudeng/sudeng-private.json，前端只接收是否已配置；留空保存保留原 Key。也可通过 SUDENG_API_KEY、SUDENG_BASE_URL、SUDENG_IMAGE_MODEL 首次导入。
+
+文生图调用 /v1/images/generations JSON，使用 Bearer 鉴权和 data[0].b64_json 结果，已对速登实测 Flare 成功。图片参考沿用 /v1/images/edits multipart image[]，支持 PNG/JPEG/WebP、最多 10 张，不接受视频；该编辑路径已做模拟请求测试。一次真实编辑请求在读取响应时连接中断，尚不能确认速登编辑成功或该笔请求是否计费，不应自动重试。两个渠道的设置和 Key 相互独立。
+
 ## AI Pixel
 
 首次启动从进程环境或本机 `.codex/config.toml` 的 `[skills.ai-pixel-image2.env]` 导入现有接口、Key 和模型，随后独立保存到 `data/apps/studio/plugin-data/image-provider-pixel/pixel-private.json`；升级时优先一次性导入旧 `canvas/pixel-private.json`，保留旧文件并以新配置为准。默认 `https://ai-pixel.online`、`gpt-image-2`。不运行技能脚本，不在前端或仓库保存 Key；设置界面只显示是否已配置，留空保存保留原 Key。

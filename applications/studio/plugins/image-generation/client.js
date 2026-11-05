@@ -123,7 +123,14 @@ export default function (ctx, sdk) {
         for (const item of providers) selector.append(el('option', { value: item.id }, item.label))
         if (node.provider && !provider) selector.append(el('option', { value: node.provider }, node.provider + '（不可用）'))
         selector.value = node.provider || ''
-        selector.onchange = safe(async () => { await flush(); await edit([{ type: 'update', id: node.id, patch: { provider: selector.value } }]) })
+        selector.onchange = safe(async () => {
+          await flush()
+          const next = selector.value ? providers.find(item => item.id === selector.value) : defaultProvider(providers)
+          const patch = { provider: selector.value }
+          if (next?.models?.length && !next.modelCatalog) patch.model = next.models.some(item => item.id === node.model) ? node.model : next.model
+          else if (provider?.models?.length && !provider.modelCatalog) patch.model = ''
+          await edit([{ type: 'update', id: node.id, patch }])
+        })
         body.append(selector)
       }
       let model
@@ -137,6 +144,19 @@ export default function (ctx, sdk) {
           else area.append(el('small', {}, '正在读取模型参数…'))
         }
         body.append(area)
+      }
+      else if (provider?.models?.length) {
+        const modelLabel = provider.id === 'four-dai' ? '4dai 模型' : provider.id === 'sudeng' ? '速登模型' : '图片模型'
+        const select = el('select', { 'aria-label': modelLabel })
+        for (const item of provider.models) select.append(el('option', { value: item.id }, item.label))
+        const selected = node.model || provider.model
+        const valid = provider.models.some(item => item.id === selected)
+        if (!valid) select.prepend(el('option', { value: '', disabled: true }, '请选择' + modelLabel))
+        select.value = valid ? selected : ''
+        select.onchange = safe(async () => { await flush(); await edit([{ type: 'update', id: node.id, patch: { provider: node.provider || provider.id, model: select.value } }]) })
+        const row = el('div', { class: 'studio-model-field studio-image-model-field' })
+        row.append(el('span', {}, modelLabel), select)
+        body.append(row)
       }
       const promptLabel = el('div', { class: 'studio-prompt-label' }, '提示词' + (model?.fields.find(item => item.path === '/prompt')?.required ? ' *' : ''))
       const promptHistory = button('历史 / 收藏', () => library.prompts(node)); promptHistory.setAttribute('aria-label', '提示词历史与收藏'); promptLabel.append(promptHistory)
@@ -173,7 +193,9 @@ export default function (ctx, sdk) {
       const run = button('✦ 生成' + (model?.outputKind === 'video' ? '视频' : '图片'), () => s.execute('generate', { nodeId: node.id }), 'studio-primary')
       run.classList.add('studio-generate-run')
       const states = { queued: '排队中', running: '正在生成…', succeeded: '已生成 · 结果保留在右侧', failed: '生成失败', interrupted: '生成已中断', paused: '查询已暂停', uncertain: '提交结果待确认', detached: '本地跟踪已结束' }
-      const status = el('div', { class: 'studio-job-status', role: 'status' }, job ? (states[job.status] || job.status) + (job.error ? ' · ' + job.error : '') : provider ? (provider.hasKey === false ? '请先在侧栏配置 ' + provider.label : provider.modelCatalog ? '选择模型并填写参数后生成' : provider.model) : '图片服务不可用，请启用对应插件')
+      const status = el('div', { class: 'studio-job-status', role: 'status' }, job ? (states[job.status] || job.status) + (job.error ? ' · ' + job.error : '') : provider ? (provider.hasKey === false ? '请先在侧栏配置 ' + provider.label : provider.modelCatalog ? '选择模型并填写参数后生成' : provider.models?.length ? node.model || provider.model : provider.model) : '图片服务不可用，请启用对应插件')
+      const invalidStaticModel = provider?.models?.length && !provider.modelCatalog && !provider.models.some(item => item.id === (node.model || provider.model))
+      if (invalidStaticModel) status.append(el('small', { class: 'studio-field-error' }, '请先选择可用的' + provider.label + '模型'))
       if (job?.remote?.taskId) status.append(el('code', { class: 'studio-remote-id' }, '远端 ID：' + job.remote.taskId))
       const working = jobs.filter(item => ['queued', 'running'].includes(item.status))
       if (working.length) status.prepend(el('div', { class: 'studio-active-jobs' }, `${working.length} 个任务进行中 · 可继续提交`))
@@ -184,7 +206,7 @@ export default function (ctx, sdk) {
         if (job.status === 'paused') recovery.append(button('恢复查询', () => s.execute('resume', { jobId: job.id }), 'studio-primary'))
         recovery.append(button('结束本地跟踪', () => { if (window.confirm('远端任务可能仍在运行并计费。结束本地跟踪后，可以重新生成；请先核对 WaveSpeed 任务记录。是否结束跟踪？')) return s.execute('detach', { jobId: job.id }) })); status.append(recovery)
       }
-      updateRun = () => { run.disabled = !provider || !!inputs.querySelector('[data-input-unavailable]') || jobs.some(item => item.status === 'uncertain') || provider.modelCatalog && (!model?.supported || form.hasErrors(node, provider)) }
+      updateRun = () => { run.disabled = !provider || !!inputs.querySelector('[data-input-unavailable]') || jobs.some(item => item.status === 'uncertain') || invalidStaticModel || provider.modelCatalog && (!model?.supported || form.hasErrors(node, provider)) }
       updateRun()
       body.append(inputs, folded); card.append(status, run); layout.resize(node, card)
     },

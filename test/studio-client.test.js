@@ -13,7 +13,7 @@ import { normalizeModels } from '../applications/studio/plugins/image-provider-w
 import { modelRows } from './helpers/studio-wavespeed.js'
 import { snapshotGenerator } from '../applications/studio/plugins/image-generation/snapshot.js'
 
-async function setup(t, { models = {}, systemDark = false, library = null, libraryService = null, llmConfig = null, promptOptimizations = null, broadcastChannel = null } = {}) {
+async function setup(t, { models = {}, providers = [], systemDark = false, library = null, libraryService = null, llmConfig = null, promptOptimizations = null, broadcastChannel = null } = {}) {
   const window = new Window({ settings: { disableCSSFileLoading: true } }), previous = { window: globalThis.window, document: globalThis.document, FileReader: globalThis.FileReader }
   if (broadcastChannel) window.BroadcastChannel = broadcastChannel
   window.matchMedia = query => ({ matches: query === '(prefers-color-scheme: dark)' && systemDark, media: query, addEventListener() {}, removeEventListener() {} })
@@ -117,6 +117,7 @@ async function setup(t, { models = {}, systemDark = false, library = null, libra
   t.after(async () => { for (const cleanup of cleanups.reverse()) await cleanup?.(); await window.happyDOM.close(); Object.assign(globalThis, previous) })
   state.providers = [{ id: Object.keys(models).length ? 'fake' : 'wavespeed', label: '测试服务', defaultProvider: true, hasKey: true, model: 'test-model', ratios: ['auto', '1:1'], resolutions: ['1k'] }]
   if (Object.keys(models).length) state.providers.push({ id: 'wavespeed', label: 'WaveSpeed', defaultProvider: false, hasKey: true, modelCatalog: true, resumable: true })
+  state.providers.push(...providers)
   const modules = { canvas: client, ui, basic, generation, agent }, running = new Map()
   async function start(id) {
     const releases = [], child = Object.create(ctx)
@@ -157,6 +158,68 @@ test('默认生成服务与 Pixel 的图片比例支持自动', async t => {
   assert.deepEqual([...ratio.options].map(option => [option.value, option.textContent]), [['auto', '自动'], ['1:1', '1:1']])
   ratio.value = 'auto'; await ratio.onchange()
   await waitUntil(() => state.boards[0].nodes[0].ratio === 'auto')
+})
+
+test('4dai 生成卡独立选择 Sunburst 和 Flare，切换服务时写入卡片模型', async t => {
+  const models = [
+    { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst' },
+    { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare' },
+  ]
+  const provider = { id: 'four-dai', label: '4dai · GPT Image', model: models[0].id, models, hasKey: true, ratios: ['auto', '1:1'], resolutions: ['1k'] }
+  const { window, state, tools, ctx, generated } = await setup(t, { providers: [provider] })
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'g1', type: 'generator', model: 'other-provider-model', prompt: '第一张', x: 0, y: 0 } },
+    { type: 'add', node: { id: 'g2', type: 'generator', provider: 'four-dai', prompt: '第二张', x: 500, y: 0 } },
+  ] })
+  const card = id => window.document.querySelector('[data-node="' + id + '"]')
+  await waitUntil(() => card('g1')?.querySelector('[aria-label="图片服务"]') && card('g2')?.querySelector('[aria-label="4dai 模型"]'))
+  const service = card('g1').querySelector('[aria-label="图片服务"]')
+  service.value = 'four-dai'; await service.onchange()
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g1').model, models[0].id)
+  const first = card('g1').querySelector('[aria-label="4dai 模型"]')
+  assert.deepEqual([...first.options].map(option => option.value), models.map(model => model.id))
+  first.value = models[1].id; await first.onchange()
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g1').model, models[1].id)
+  assert.match(card('g1').querySelector('.studio-job-status').textContent, /gpt-image-2.5-flare/)
+  assert.equal(card('g2').querySelector('[aria-label="4dai 模型"]').value, models[0].id, '旧卡片沿用设置中的默认模型')
+  await ctx.canvasSession.execute('generate', { nodeId: 'g1' })
+  assert.equal(generated[0].nodes.find(node => node.id === 'g1').model, models[1].id)
+  const second = card('g2').querySelector('[aria-label="4dai 模型"]')
+  second.value = models[0].id; await second.onchange()
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g2').model, models[0].id)
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g1').model, models[1].id)
+  const back = card('g1').querySelector('[aria-label="图片服务"]')
+  back.value = ''; await back.onchange()
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g1').model, '', '离开 4dai 时不保留其模型 ID 给其他服务')
+  assert.equal(card('g1').querySelector('[aria-label="4dai 模型"]'), null)
+})
+
+test('速登与 4dai 独立选模型，卡片切换渠道时保留兼容模型', async t => {
+  const models = [
+    { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare' },
+    { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst' },
+  ]
+  const sudeng = { id: 'sudeng', label: '速登 · GPT Image', model: models[0].id, models, hasKey: true, ratios: ['auto', '1:1'], resolutions: ['1k'] }
+  const fourDai = { id: 'four-dai', label: '4dai · GPT Image', model: models[1].id, models, hasKey: true, ratios: ['auto', '1:1'], resolutions: ['1k'] }
+  const { window, state, tools, ctx, generated } = await setup(t, { providers: [sudeng, fourDai] })
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'g1', type: 'generator', provider: 'sudeng', prompt: '第一张', x: 0, y: 0 } },
+    { type: 'add', node: { id: 'g2', type: 'generator', provider: 'sudeng', prompt: '第二张', x: 500, y: 0 } },
+  ] })
+  const card = id => window.document.querySelector('[data-node="' + id + '"]')
+  await waitUntil(() => card('g1')?.querySelector('[aria-label="速登模型"]') && card('g2')?.querySelector('[aria-label="速登模型"]'))
+  const first = card('g1').querySelector('[aria-label="速登模型"]')
+  assert.deepEqual([...first.options].map(option => option.value), models.map(model => model.id))
+  first.value = models[1].id; await first.onchange()
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g1').model, models[1].id)
+  assert.equal(card('g2').querySelector('[aria-label="速登模型"]').value, models[0].id)
+  await ctx.canvasSession.execute('generate', { nodeId: 'g1' })
+  assert.equal(generated[0].nodes.find(node => node.id === 'g1').model, models[1].id)
+  const selector = card('g1').querySelector('[aria-label="图片服务"]')
+  selector.value = 'four-dai'; await selector.onchange()
+  assert.equal(state.boards[0].nodes.find(node => node.id === 'g1').model, models[1].id)
+  assert.equal(card('g1').querySelector('[aria-label="4dai 模型"]').value, models[1].id)
+  assert.equal(card('g2').querySelector('[aria-label="速登模型"]').value, models[0].id)
 })
 
 test('任务占位卡通过共享动作取消，并在生成插件停用后显示不可用状态', async t => {

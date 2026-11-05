@@ -1,4 +1,4 @@
-import { createConfig } from './config.js'
+import { createConfig, models } from './config.js'
 import { create4dai } from './transport.js'
 
 export default async function (ctx, settings, runtime) {
@@ -15,7 +15,10 @@ export default async function (ctx, settings, runtime) {
       if (!capabilities.ratios.includes(input.ratio) || !capabilities.resolutions.includes(input.resolution)) throw Error('4dai 不支持此图片比例或分辨率')
       const snapshot = config.private()
       if (!snapshot.apiKey) throw Error('请先配置 4dai API Key')
-      return { model: snapshot.model, generate: (images, signal) => transport.generate(input, snapshot, images, signal) }
+      const model = input.model || snapshot.model
+      if (!models.some(item => item.id === model)) throw Error('请选择支持的 4dai GPT Image 模型')
+      const selected = { ...snapshot, model }
+      return { model, generate: (images, signal) => transport.generate(input, selected, images, signal) }
     },
   })
   ctx.http.route(ctx, 'POST', /^\/api\/studio\/four-dai\/config$/, async ({ req }) => config.save(await ctx.http.body(req)))

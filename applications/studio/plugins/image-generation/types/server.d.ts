@@ -9,7 +9,7 @@ export interface ModelSummary { id: string; label: string; type: string; descrip
 export interface ModelDefinition extends ModelSummary { schema?: Record<string, unknown>; fields?: { path: string; name: string; type: string; required: boolean; schema: Record<string, unknown> }[]; mediaFields?: { path: string; name: string; label: string; kind: 'image' | 'video'; array: boolean; required: boolean; min: number; max: number; description: string }[]; defaults?: Record<string, unknown> }
 export interface ImageProvider {
   id: string; label: string; defaultProvider?: boolean
-  public(): { model?: string; hasKey?: boolean; ratios?: string[]; resolutions?: string[]; referenceImages?: boolean; referenceVideos?: boolean; baseUrl?: string; modelCatalog?: boolean; catalogVersion?: string; resumable?: boolean }
+  public(): { model?: string; models?: { id: string; label: string }[]; hasKey?: boolean; ratios?: string[]; resolutions?: string[]; referenceImages?: boolean; referenceVideos?: boolean; baseUrl?: string; modelCatalog?: boolean; catalogVersion?: string; resumable?: boolean }
   /** Freeze private config in this closure; never return credentials as public/task metadata. */
   prepare(input: GenerationInput): PreparedGeneration
   resume?(job: GenerationJob): PreparedGeneration

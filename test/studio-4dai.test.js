@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { writeSnapshot } from '../shared/persistence.js'
 import { createConfig, imageSize, models, normalizeConfig } from '../applications/studio/plugins/image-provider-4dai/config.js'
 import { create4dai } from '../applications/studio/plugins/image-provider-4dai/transport.js'
+import providerPlugin from '../applications/studio/plugins/image-provider-4dai/server.js'
 
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0])
 const config = { baseUrl: 'https://api.4dai.cc', model: models[0].id, apiKey: 'test-secret' }
@@ -28,6 +29,23 @@ test('4dai 配置仅允许两个 GPT Image 模型，Key 私有且可保留', asy
   assert.equal(imageSize('16:9', '2k'), '2048x1152')
 })
 
+test('4dai 优先使用卡片模型，旧卡片沿用设置默认值并拒绝其他模型', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'studio-4dai-provider-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeSnapshot(join(dir, '4dai-private.json'), JSON.stringify(config))
+  let provider
+  const ctx = {
+    effect(cleanup) { t.after(cleanup()) },
+    imageGeneration: { register(owner, value) { provider = value } },
+    http: { route() {} },
+  }
+  await providerPlugin(ctx, {}, { dataDir: dir, writeSnapshot })
+  const input = { prompt: '测试', assetIds: [], ratio: '1:1', resolution: '1k' }
+  assert.equal(provider.prepare(input).model, models[0].id)
+  assert.equal(provider.prepare({ ...input, model: models[1].id }).model, models[1].id)
+  assert.throws(() => provider.prepare({ ...input, model: 'other-model' }), /支持的 4dai GPT Image 模型/)
+})
+
 test('4dai 文生图发 JSON generations 并接受 base64 结果', async t => {
   const calls = []
   const transport = create4dai({ request: async (url, options) => {
@@ -35,11 +53,11 @@ test('4dai 文生图发 JSON generations 并接受 base64 结果', async t => {
     return new Response(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }), { status: 200 })
   } })
   t.after(() => transport.close())
-  const result = await transport.generate({ prompt: '测试提示词', ratio: '16:9', resolution: '2k' }, config, [], new AbortController().signal)
+  const result = await transport.generate({ prompt: '测试提示词', ratio: '16:9', resolution: '2k' }, { ...config, model: models[1].id }, [], new AbortController().signal)
   assert.deepEqual(result, png)
   assert.equal(calls[0].url, 'https://api.4dai.cc/v1/images/generations')
   assert.equal(calls[0].options.headers.Authorization, 'Bearer test-secret')
-  assert.deepEqual(JSON.parse(calls[0].options.body), { model: models[0].id, prompt: '测试提示词', n: 1, quality: 'high', response_format: 'b64_json', size: '2048x1152' })
+  assert.deepEqual(JSON.parse(calls[0].options.body), { model: models[1].id, prompt: '测试提示词', n: 1, quality: 'high', response_format: 'b64_json', size: '2048x1152' })
 })
 
 test('4dai 有参考图时发 multipart edits 并携带图片', async t => {

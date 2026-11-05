@@ -604,6 +604,12 @@ importers:
         specifier: 4.0.0-rc.10
         version: 4.0.0-rc.10
 
+  applications/studio/plugins/image-provider-4dai:
+    dependencies:
+      undici:
+        specifier: 8.11.2
+        version: 8.11.2
+
   applications/studio/plugins/image-provider-pixel:
     dependencies:
       sharp:
@@ -613,7 +619,7 @@ importers:
         specifier: 8.11.2
         version: 8.11.2
 
-  applications/studio/plugins/image-provider-4dai:
+  applications/studio/plugins/image-provider-sudeng:
     dependencies:
       undici:
         specifier: 8.11.2
@@ -627,6 +633,8 @@ importers:
       undici:
         specifier: 8.11.2
         version: 8.11.2
+
+  applications/studio/plugins/sketch-card: {}
 
   packages/host:
     dependencies:
