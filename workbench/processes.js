@@ -226,6 +226,13 @@ export class ApplicationProcess {
     const env = { ...process.env, PORT: String(this.port), DATA_DIR: this.dataDir }
     delete env.PLUGINS_DIR; delete env.APPLICATIONS_DIR; delete env.APP; delete env.DEEPSEEK_API_KEY
     Object.assign(env, this.env)
+    // Node 的 fetch 默认忽略系统代理；应用进程要访问模型服务，跟随 HTTPS_PROXY 更符合本机网络设置。
+    if (env.HTTPS_PROXY || env.HTTP_PROXY) {
+      env.NODE_USE_ENV_PROXY ||= '1'
+      const bypass = new Set(String(env.NO_PROXY || '').split(',').map(item => item.trim()).filter(Boolean))
+      for (const host of ['localhost', '127.0.0.1', '::1']) bypass.add(host)
+      env.NO_PROXY = [...bypass].join(',')
+    }
     this.session = randomUUID()
     env.CORDIS_DEV_SESSION = this.session
     if (this.diagnosticDirectory) env.CORDIS_DIAGNOSTICS_DIR = this.diagnosticDirectory

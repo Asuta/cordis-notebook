@@ -16,3 +16,4 @@ applications/*/plugins/ui/style.css
 !.env.example
 
 applications/*/plugins/*/dist/
+applications/novel/plugins/game/assets/generated/

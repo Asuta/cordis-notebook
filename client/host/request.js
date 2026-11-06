@@ -41,3 +41,48 @@ export function createRequest(session, transport = fetch) {
     return managed && result.operation ? operationResult(result, result.operation) : result
   }
 }
+
+/** SSE over POST: calls onEvent for each parsed event and returns the final `done` payload. */
+export function createStream(session, transport = fetch) {
+  return async function stream(path, method = 'POST', data, onEvent, signal) {
+    const response = await transport(path, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'X-Application-Session': session, Accept: 'text/event-stream' },
+      body: JSON.stringify(data ?? {}),
+      signal,
+    })
+    if (!response.ok) {
+      let result = {}
+      try { result = await response.json() } catch {}
+      throw restoreError({ ...result, message: result.message || result.error || '请求失败', status: response.status })
+    }
+    if (!response.body) throw operationError('STREAM_UNAVAILABLE', '当前浏览器不支持流式响应')
+    const reader = response.body.getReader(), decoder = new TextDecoder()
+    let buffer = '', done = null
+    const handle = block => {
+      const payload = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n')
+      if (!payload) return
+      let event
+      try { event = JSON.parse(payload) } catch { return }
+      if (event?.type === 'error') throw operationError('STREAM_FAILED', event.message || '生成失败')
+      if (event?.type === 'done') done = event
+      onEvent?.(event)
+    }
+    try {
+      while (true) {
+        const { done: finished, value } = await reader.read()
+        if (finished) break
+        buffer += decoder.decode(value, { stream: true })
+        let index
+        while ((index = buffer.indexOf('\n\n')) >= 0) {
+          const block = buffer.slice(0, index)
+          buffer = buffer.slice(index + 2)
+          handle(block)
+        }
+      }
+      if (buffer.trim()) handle(buffer)
+    } finally { reader.releaseLock?.() }
+    if (!done) throw operationError('STREAM_INCOMPLETE', '流式响应提前结束，请重试')
+    return done.session ?? done
+  }
+}

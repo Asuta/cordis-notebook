@@ -1,6 +1,6 @@
 # Cordis 插件应用宿主
 
-本地、单用户的网页版应用框架。每个应用在自己的目录中拥有整套插件；同一服务一次只运行一个应用。页面右上角「切换应用」可在笔记、画图与灵感画布之间切换，各自保存数据、插件启停和设置。
+本地、单用户的网页版应用框架。每个应用在自己的目录中拥有整套插件；同一服务一次只运行一个应用。页面右上角「切换应用」可在笔记、画图、灵感画布、雨幕故事工坊与角色剧场之间切换，各自保存数据、插件启停和设置。
 
 常驻宿主负责 HTTP、应用发现与切换、插件生命周期、配置和恢复界面。业务功能与界面归各应用内的插件所有；通用宿主、SDK 与 npm 基础依赖仍可复用。
 
@@ -17,7 +17,9 @@ pnpm start
 
 - [笔记应用](applications/notebook/README.md)：普通笔记、Markdown、自由页面、BlockNote 页面、数据库、图片、搜索、主题、配置和 Agent 工具。
 - [画图应用](applications/drawing/README.md)：2 个独立插件，基础画笔、撤销、自动保存和 PNG 导出，验证完全不同的应用组合。
-- [灵感画布](applications/studio/README.md)：6 个插件，提供无限画布、可扩展卡片、图片生成、Pixel 接口和 Agent 操作。
+- [灵感画布](applications/studio/README.md)：无限画布、可扩展卡片、图片生成和 Agent 操作。
+- [雨幕故事工坊](applications/novel/README.md)：视觉小说游玩与编辑、条件分支、好感度、素材及可重新导入的作品包。
+- [角色剧场](applications/roleplay/README.md)：编辑单 NPC 人物卡、属性、世界信息与上下文，并进行自由对话。
 
 需要内置 AI 时运行 `pnpm workbench`，打开 http://127.0.0.1:3211/ 。端口被占用时工作台和应用会各自向上寻找空闲端口，控制台打印实际地址；若占用者使用同一数据目录，则提示复用已有实例，避免两个进程同时写数据；不同数据目录的 Cordis 实例（例如不同 worktree）会自动顺延端口。内嵌应用默认以 Vite 开发模式运行，Agent 改完代码自动热更新；发布前验收用 `pnpm workbench:production`。工作台使用独立 Pi 进程和 DeepSeek API，提供右下角聊天、代码编辑、应用工具与「选区添加到 Chat」，支持执行时间线、Markdown、模型与推理强度选择、上下文压缩和多图输入（Flash）。应用进程崩溃后聊天仍可用。密钥在聊天设置中配置，保存在 Git 忽略的 `.workbench/`。详见 [Agent 工作台设计与使用](docs/Agent工作台设计与使用.md)。
 
@@ -30,6 +32,10 @@ applications/
     assets/                应用图标
     plugins/<id>/          清单、实现、类型和 dist/
   drawing/
+    package.json
+    assets/
+    plugins/<id>/
+  roleplay/
     package.json
     assets/
     plugins/<id>/

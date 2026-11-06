@@ -1,0 +1,30 @@
+{
+  "name": "@cordis-novel/game",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "fflate": "^0.8.2" },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "game",
+    "name": "视觉小说与编辑器",
+    "description": "作品、素材、剧情编辑、试玩和 Agent 操作。",
+    "defaultEnabled": true,
+    "server": { "entry": "server.js", "export": "default" },
+    "requires": { "server": ["http"], "client": [] },
+    "provides": { "server": [], "client": [] },
+    "client": "client.js",
+    "public": ["client.js", "style.css"],
+    "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" },
+      { "type": "copy", "input": "assets/observatory.png", "output": "assets/observatory.png" },
+      { "type": "copy", "input": "assets/station.png", "output": "assets/station.png" },
+      { "type": "copy", "input": "assets/lin.png", "output": "assets/lin.png" },
+      { "type": "copy", "input": "assets/yao.png", "output": "assets/yao.png" },
+      { "type": "copy", "input": "assets/rain-theme.wav", "output": "assets/rain-theme.wav" }
+    ]
+  }
+}

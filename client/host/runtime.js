@@ -12,7 +12,7 @@ import { applicationStorage } from './application-storage.js'
 import { applicationView } from './application-view.js'
 import { createAgentBridge } from './agent-bridge.js'
 import { installDevelopmentSave } from './development-save.js'
-import { createRequest } from './request.js'
+import { createRequest, createStream } from './request.js'
 import { errorDetail, restoreError } from '../../shared/errors.js'
 let application = await (await fetch('/api/applications')).json()
 const pageSession = application.session
@@ -27,6 +27,7 @@ const stopping = new StopCoordinator(root, error => toast(error.message))
 const agentBridge = createAgentBridge({ application: application.current, session: pageSession, stopping, enablePlugin: enablePluginFromAgent, window, document })
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false
 const request = createRequest(pageSession)
+const streamRequest = createStream(pageSession)
 function toast(message) { const node = $('#toast'); const dialog = [...document.querySelectorAll('dialog[open]')].at(-1); (dialog || document.body).append(node); node.textContent = message; node.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => node.hidden = true, 6000) }
 function el(tag, props = {}, text) {
   const node = document.createElement(tag)
@@ -41,6 +42,7 @@ function sdkFor(ctx, plugin) {
     application: application.current,
     storage: { local: applicationStorage(localStorage, application.current.id, plugin.id), session: applicationStorage(sessionStorage, application.current.id, plugin.id) },
     request: (path, method, data) => request(path, method, data, controller.signal),
+    stream: (path, method, data, onEvent, signal) => streamRequest(path, method, data, onEvent, signal ? AbortSignal.any([controller.signal, signal]) : controller.signal),
     provide(name, value) { return new class extends Service { constructor() { super(ctx, name); Object.defineProperties(this, Object.getOwnPropertyDescriptors(value)) } }() },
     service: name => ctx[name], effect: callback => ctx.effect(callback),
     listen(target, event, handler) { target.addEventListener(event, handler); ctx.effect(() => () => target.removeEventListener(event, handler)) },
