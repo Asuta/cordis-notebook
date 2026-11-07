@@ -83,10 +83,21 @@ export function createLibraryUI(ctx, view, s, sdk) {
   editor.append(header(editorTitle, () => editor.close()), name, content, error, saveEditor)
   const dragType = 'application/x-cordis-generation-favorite'
   const resultDragType = 'application/x-cordis-generation-result'
-  async function addCard(id, point) {
+  async function findFavorite(id) {
     await load(); const item = [...data.cards, ...data.results].find(item => item.id === id)
     if (!item) throw Error('收藏已被删除')
+    return item
+  }
+  async function addCard(id, point) {
+    const item = await findFavorite(id)
     await view.add('generator', { ...structuredClone(item.node), title: item.sourceTitle || item.title, ...(point || {}) })
+  }
+  async function addFavorite(id, point) {
+    const item = await findFavorite(id)
+    if (!item.assetId) { await view.add('generator', { ...structuredClone(item.node), title: item.sourceTitle || item.title, ...(point || {}) }); return }
+    const asset = s.state.assets[item.assetId]
+    if (!asset || !['image', 'video'].includes(asset.kind)) throw Error('结果素材不可用')
+    await view.add(asset.kind, { assetId: item.assetId, title: item.title, ...(point || {}) })
   }
   async function addResultParameters(source, point) {
     const targetBoard = s.boardId
@@ -281,7 +292,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
     event.preventDefault(); event.stopPropagation()
     const point = view.coordinates(event), position = { x: Math.max(-100000, Math.min(100000, Math.round(point.x))), y: Math.max(-100000, Math.min(100000, Math.round(point.y))) }
     if (result) await addResultParameters(JSON.parse(result), position)
-    else await addCard(id, position)
+    else await addFavorite(id, position)
   }))
   view.root.append(history, editor, panel, suffixDialog, favoriteInfo)
   ctx.effect(() => () => { stopped = true; clearTimeout(favoriteHideTimer); history.remove(); editor.remove(); panel.remove(); suffixDialog.remove(); favoriteInfo.remove(); libraryButton.remove() })

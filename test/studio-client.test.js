@@ -710,6 +710,32 @@ test('灵感卡片选择显示上下文工具，批量排列及带内部连线�
   assert.doesNotMatch(context.textContent, /整理为网格|整理子集/)
 })
 
+test('选中卡片可置于顶层或底层，画布顺序持久化并可撤销', async t => {
+  const { window, state, tools } = await setup(t)
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'a', type: 'text', text: '第一张', x: 0, y: 0 } },
+    { type: 'add', node: { id: 'b', type: 'text', text: '第二张', x: 320, y: 0 } },
+    { type: 'add', node: { id: 'c', type: 'text', text: '第三张', x: 640, y: 0 } },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="b"] .studio-card-head'))
+  const head = window.document.querySelector('[data-node="b"] .studio-card-head'), context = window.document.querySelector('.studio-context-tools')
+  head.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 71, clientX: 330, clientY: 20 }))
+  window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 71, clientX: 330, clientY: 20 }))
+  assert.equal(context.hidden, false)
+  assert.match(context.textContent, /置于顶层.*置于底层/)
+  const click = label => [...context.querySelectorAll('button')].find(button => button.textContent === label).onclick()
+  await click('置于顶层')
+  await waitUntil(() => state.boards[0].nodes.at(-1).id === 'b')
+  assert.deepEqual(state.boards[0].nodes.map(node => node.id), ['a', 'c', 'b'])
+  await waitUntil(() => [...window.document.querySelector('.studio-cards').children].map(card => card.dataset.node).join() === 'a,c,b')
+  await click('置于底层')
+  await waitUntil(() => state.boards[0].nodes[0].id === 'b')
+  assert.deepEqual(state.boards[0].nodes.map(node => node.id), ['b', 'a', 'c'])
+  await [...window.document.querySelectorAll('button')].find(button => button.textContent === '↶').onclick()
+  await waitUntil(() => state.boards[0].nodes.map(node => node.id).join() === 'a,c,b')
+  assert.deepEqual([...window.document.querySelector('.studio-cards').children].map(card => card.dataset.node), ['a', 'c', 'b'])
+})
+
 test('重复重绘复用卡片、素材和连线，连续拖动合并到一帧且保存最终位置', async t => {
   const { window, ctx, tools, state } = await setup(t), document = window.document
   await tools.get('studio_edit')({ revision: 0, operations: [
@@ -1721,7 +1747,7 @@ test('参考槽位可选中并通过 Ctrl+V 填入或替换单张图片', async 
   await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'g').references[0].assetId === 'two')
 })
 
-test('结果收藏展示真实视频而非参考图，悬停显示生成参数', async t => {
+test('结果收藏展示真实视频、悬停显示生成参数，拖到画布添加结果', async t => {
   const library = {
     prompts: [], models: [], cards: [], suffixes: [], history: [],
     results: [{
@@ -1729,9 +1755,11 @@ test('结果收藏展示真实视频而非参考图，悬停显示生成参数',
       node: { type: 'generator', title: '视频来源', prompt: '真实结果的提示词', ratio: '1:1', resolution: '1k', provider: 'wavespeed', model: 'mock/video', modelParameters: { 'wavespeed:mock/video': { duration: 5 } }, references: [{ id: 'ref', assetId: 'reference-image' }], textReferences: [] },
     }],
   }
-  const { window, ctx } = await setup(t, { library })
+  const { window, ctx, state } = await setup(t, { library })
   ctx.canvasSession.rememberAsset({ id: 'result-video', kind: 'video', name: '结果.mp4', extension: 'mp4', width: 480, height: 704, duration: 5.2 })
   ctx.canvasSession.rememberAsset({ id: 'reference-image', kind: 'image', name: '参考图.png', width: 64, height: 48 })
+  state.assets['result-video'] = ctx.canvasSession.state.assets['result-video']
+  state.assets['reference-image'] = ctx.canvasSession.state.assets['reference-image']
   await window.document.querySelector('.studio-library-entry').onclick()
   await waitUntil(() => !window.document.querySelector('.studio-library-panel').hidden && window.document.querySelector('.studio-saved-card'))
   const card = window.document.querySelector('.studio-saved-card'), preview = card.querySelector('.studio-result-favorite-preview')
@@ -1745,6 +1773,23 @@ test('结果收藏展示真实视频而非参考图，悬停显示生成参数',
   assert.match(info.textContent, /真实结果的提示词/)
   assert.match(info.textContent, /duration/)
   assert.match(info.textContent, /480 × 704 · 5.2 秒/)
+  const addParameters = [...card.querySelectorAll('button')].find(button => button.textContent === '添加参数卡')
+  await addParameters.onclick()
+  await waitUntil(() => state.boards[0].nodes.length === 1)
+  assert.equal(state.boards[0].nodes[0].type, 'generator', '添加参数卡仍添加参数卡')
+  assert.equal(state.boards[0].nodes[0].prompt, '真实结果的提示词')
+  const values = new Map(), dataTransfer = { setData(type, value) { values.set(type, value) }, getData(type) { return values.get(type) || '' }, files: [], get types() { return [...values.keys()] } }
+  card.ondragstart({ dataTransfer })
+  assert.equal(state.boards[0].nodes.length, 1, '开始拖动时不能创建卡片')
+  const event = new window.Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperties(event, { dataTransfer: { value: dataTransfer }, clientX: { value: 500 }, clientY: { value: 250 } })
+  window.document.querySelector('.studio-stage').dispatchEvent(event)
+  await waitUntil(() => state.boards[0].nodes.length === 2)
+  const added = state.boards[0].nodes[1]
+  assert.equal(added.type, 'video', '拖动结果收藏添加视频卡片而非参数卡')
+  assert.equal(added.assetId, 'result-video')
+  assert.equal(added.title, '生成结果 9')
+  assert.equal(state.boards[0].nodes.filter(node => node.type === 'generator').length, 1, '拖动结果收藏不能额外添加参数卡')
 })
 
 test('参考素材选择器按模型槽位过滤类型，并支持点击背景关闭', async t => {

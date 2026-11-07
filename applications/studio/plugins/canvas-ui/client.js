@@ -310,6 +310,15 @@ export default async function (ctx, sdk) {
     fit();
     notice.textContent = `${canvasLayouts.find(layout => layout.id === algorithm).label} · 已整理 ${board().nodes.length} 张卡片`;
   }
+  async function stackSelection(position) {
+    await flush();
+    const ids = new Set(selected), nodes = board().nodes;
+    if (!ids.size || !nodes.some(node => ids.has(node.id))) return;
+    const picked = nodes.filter(node => ids.has(node.id)), rest = nodes.filter(node => !ids.has(node.id));
+    const order = position === "front" ? [...rest, ...picked] : [...picked, ...rest];
+    if (order.every((node, index) => node.id === nodes[index].id)) return;
+    await edit([{ type: "stack", order: order.map(node => node.id) }]);
+  }
   async function duplicateSelection() {
     await flush();
     const nodeIds = [...selected], targetBoard = s.boardId;
@@ -366,6 +375,7 @@ export default async function (ctx, sdk) {
           contextTools.append(actionButton);
         }
         if (nodes.length > 1) contextTools.append(button("整理为网格", arrangeSelection));
+        contextTools.append(button("置于顶层", () => stackSelection("front")), button("置于底层", () => stackSelection("back")));
         contextTools.append(button("创建副本", duplicateSelection), button("删除所选", removeSelection, "studio-danger"));
       }
       paintWires();

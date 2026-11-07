@@ -42,6 +42,7 @@ function historyState(board, op) {
     case 'connect': return { edges: board.edges, from: node(op.from)?.type ?? null, to: node(op.to)?.type ?? null }
     case 'disconnect': return board.edges.find(e => e.id === op.id) || null
     case 'reorder': return board.edges.filter(e => e.to === op.id)
+    case 'stack': return board.nodes.map(node => node.id)
     case 'rename': return board.title
     case 'viewport': return board.viewport
   }
@@ -130,6 +131,12 @@ export function applyOperation(board, operation, assets, types) {
       if (!Array.isArray(op.edges) || op.edges.length !== incoming.length || new Set(op.edges).size !== incoming.length || op.edges.some(id => !incoming.some(e => e.id === id))) invalid('输入顺序无效')
       inverse = { type: 'reorder', id: op.id, edges: incoming.map(e => e.id) }
       next.edges = [...next.edges.filter(e => e.to !== op.id), ...op.edges.map(id => incoming.find(e => e.id === id))]; break
+    }
+    case 'stack': {
+      if (!Array.isArray(op.order) || op.order.length !== next.nodes.length || new Set(op.order).size !== next.nodes.length || op.order.some(id => !next.nodes.some(node => node.id === id))) invalid('卡片层级顺序无效')
+      const byId = new Map(next.nodes.map(node => [node.id, node]))
+      inverse = { type: 'stack', order: next.nodes.map(node => node.id) }
+      next.nodes = op.order.map(id => byId.get(id)); break
     }
     case 'rename': inverse = { type: 'rename', title: next.title }; next.title = op.title; break
     case 'viewport': inverse = { type: 'viewport', viewport: next.viewport }; next.viewport = structuredClone(op.viewport); break

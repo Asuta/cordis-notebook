@@ -6,7 +6,7 @@
 
 卡片类型从 studio_read.types 发现：text（text 内容）、image/video（已存在 assetId）、generator。坐标 x/y 为无限画布坐标；生成卡片内容较多，应留足空间。id 使用 UUID。text/image/video 可连接到 generator，成功后增加独立 image/video 结果卡片，也可继续作为其他生成卡片的参考。连线数组顺序决定文字组合顺序，可用 reorder 调整；媒体还有下述统一顺序。
 
-studio_edit 的 operations 支持 add、update、remove、connect、disconnect、reorder、rename；变更自动保存、进入当前页面撤销历史。一次批量操作原子提交，保留用户未要求删除的卡片和连线。先新建图片节点，再通过 connect 接到生成卡片。
+studio_edit 的 operations 支持 add、update、remove、connect、disconnect、reorder、stack、rename；stack 的 order 必须是当前画板全部卡片 ID 的完整顺序，数组末尾显示在最上层。变更自动保存、进入当前页面撤销历史。一次批量操作原子提交，保留用户未要求删除的卡片和连线。先新建图片节点，再通过 connect 接到生成卡片。
 
 studio_import_image 保留旧工具名，支持用户指定的本机 PNG/JPEG/WebP 图片（20 MB）和 MP4/WebM 视频（200 MB），返回素材 id、kind 及尺寸等。导入后重新读取，使用对应 image/video 类型加入画布，或作为卡片内参考。旧素材没有 kind 时按图片处理。studio_inspect_image 仅返回图片预览，不能用它检查视频内容，也不能只根据文件名或提示词声称看过图。不要读取任何提供者的私有配置文件或输出 Key。
 

@@ -48,6 +48,17 @@ test('卡片操作可撤销；连线只接入生成卡片，顺序决定提示�
   assert.equal(applyOperation(removed.board, removed.inverse, {}).board.nodes.length, 3)
 })
 
+test('卡片层级可整组置顶置底，撤销恢复原顺序', () => {
+  let board = newBoard('层级')
+  for (const node of [{ id: 'a', type: 'text' }, { id: 'b', type: 'text' }, { id: 'c', type: 'text' }]) board = applyOperation(board, { type: 'add', node }, {}).board
+  const stacked = applyOperation(board, { type: 'stack', order: ['a', 'c', 'b'] }, {})
+  assert.deepEqual(stacked.board.nodes.map(node => node.id), ['a', 'c', 'b'])
+  assert.deepEqual(applyOperation(stacked.board, stacked.inverse, {}).board.nodes.map(node => node.id), ['a', 'b', 'c'])
+  assert.throws(() => applyOperation(board, { type: 'stack', order: ['a', 'b'] }, {}), /层级/)
+  assert.throws(() => applyOperation(board, { type: 'stack', order: ['a', 'b', 'b'] }, {}), /层级/)
+  assert.throws(() => applyOperation(board, { type: 'stack', order: ['a', 'b', 'other'] }, {}), /层级/)
+})
+
 test('存储采用版本检查和原子操作，图片独立持久化并生成预览', async t => {
   const { directory, store } = await setup(t), board = store.read().boards[0]
   await assert.rejects(store.edit(board.id, 9, [{ type: 'rename', title: '错误覆盖' }]), error => error.status === 409)
