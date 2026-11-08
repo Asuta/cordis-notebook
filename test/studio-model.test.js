@@ -59,6 +59,34 @@ test('卡片层级可整组置顶置底，撤销恢复原顺序', () => {
   assert.throws(() => applyOperation(board, { type: 'stack', order: ['a', 'b', 'other'] }, {}), /层级/)
 })
 
+test('视频循环点要求先有 A 点且顺序、时长有效', () => {
+  const assets = { clip: { kind: 'video', duration: 8 } }
+  let board = newBoard('循环')
+  board = applyOperation(board, { type: 'add', node: { id: 'v', type: 'video', assetId: 'clip' } }, assets).board
+  assert.throws(() => applyOperation(board, { type: 'update', id: 'v', patch: { loopB: 4 } }, assets), /先设置 A 点/)
+  assert.throws(() => applyOperation(board, { type: 'update', id: 'v', patch: { loopA: 8 } }, assets), /早于视频结束/)
+  board = applyOperation(board, { type: 'update', id: 'v', patch: { loopA: 3 } }, assets).board
+  assert.throws(() => applyOperation(board, { type: 'update', id: 'v', patch: { loopB: 2 } }, assets), /晚于 A 点/)
+  assert.throws(() => applyOperation(board, { type: 'update', id: 'v', patch: { loopB: 9 } }, assets), /超出视频时长/)
+  const changed = applyOperation(board, { type: 'update', id: 'v', patch: { loopB: 6 } }, assets)
+  assert.deepEqual([changed.board.nodes[0].loopA, changed.board.nodes[0].loopB], [3, 6])
+  assert.equal(applyOperation(changed.board, changed.inverse, assets).board.nodes[0].loopB, undefined)
+})
+
+test('图片和视频透明度限制在 0 到 1 并可撤销', () => {
+  const assets = { pic: { kind: 'image', width: 10, height: 10 }, clip: { kind: 'video', duration: 8 } }
+  let board = newBoard('透明度')
+  board = applyOperation(board, { type: 'add', node: { id: 'pic', type: 'image', assetId: 'pic' } }, assets).board
+  board = applyOperation(board, { type: 'add', node: { id: 'clip', type: 'video', assetId: 'clip' } }, assets).board
+  assert.throws(() => applyOperation(board, { type: 'update', id: 'pic', patch: { opacity: -0.1 } }, assets), /图片透明度无效/)
+  assert.throws(() => applyOperation(board, { type: 'update', id: 'pic', patch: { opacity: 1.1 } }, assets), /图片透明度无效/)
+  assert.throws(() => applyOperation(board, { type: 'update', id: 'clip', patch: { opacity: '0.5' } }, assets), /视频透明度无效/)
+  const changed = applyOperation(board, { type: 'update', id: 'pic', patch: { opacity: 0.35 } }, assets)
+  assert.equal(changed.board.nodes.find(node => node.id === 'pic').opacity, 0.35)
+  assert.equal(applyOperation(changed.board, changed.inverse, assets).board.nodes.find(node => node.id === 'pic').opacity, undefined)
+  assert.equal(applyOperation(board, { type: 'update', id: 'clip', patch: { opacity: 0 } }, assets).board.nodes.find(node => node.id === 'clip').opacity, 0)
+})
+
 test('存储采用版本检查和原子操作，图片独立持久化并生成预览', async t => {
   const { directory, store } = await setup(t), board = store.read().boards[0]
   await assert.rejects(store.edit(board.id, 9, [{ type: 'rename', title: '错误覆盖' }]), error => error.status === 409)

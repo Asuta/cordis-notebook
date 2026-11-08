@@ -736,6 +736,214 @@ test('选中卡片可置于顶层或底层，画布顺序持久化并可撤销',
   assert.deepEqual([...window.document.querySelector('.studio-cards').children].map(card => card.dataset.node), ['a', 'c', 'b'])
 })
 
+test('图片和视频素材可等比缩放或调整显示框裁剪', async t => {
+  const { window, state, tools, ctx } = await setup(t)
+  state.assets.pic = ctx.canvasSession.rememberAsset({ id: 'pic', kind: 'image', name: '竖图.png', width: 300, height: 600 })
+  state.assets.clip = ctx.canvasSession.rememberAsset({ id: 'clip', kind: 'video', name: '视频.mp4', extension: 'mp4', width: 640, height: 360, duration: 3 })
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'pic', type: 'image', assetId: 'pic', x: 100, y: 50 } },
+    { type: 'add', node: { id: 'clip', type: 'video', assetId: 'clip', x: 600, y: 50 } },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="pic"] .studio-media-frame'))
+  const select = id => {
+    const head = window.document.querySelector(`[data-node="${id}"] .studio-card-head`)
+    head.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 81, clientX: 110, clientY: 60 }))
+    window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 81, clientX: 110, clientY: 60 }))
+  }
+  const context = window.document.querySelector('.studio-context-tools')
+  select('pic')
+  assert.match(context.textContent, /缩放素材.*调整显示框/)
+  await [...context.querySelectorAll('button')].find(button => button.textContent === '缩放素材').onclick()
+  const overlay = window.document.querySelector('[data-node="pic"] .studio-resize-overlay')
+  assert.ok(overlay, '进入缩放模式后显示调整框')
+  assert.equal(overlay.querySelectorAll('.studio-resize-handle').length, 8)
+  const drag = async (target, dir, from, to) => {
+    target.querySelector(`[data-dir="${dir}"]`).dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 91, clientX: from, clientY: 200 }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    window.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, button: 0, pointerId: 91, clientX: to, clientY: 200 }))
+    window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 91, clientX: to, clientY: 200 }))
+  }
+  await drag(overlay, 'e', 300, 360)
+  await waitUntil(() => Number.isFinite(state.boards[0].nodes.find(node => node.id === 'pic').frameWidth))
+  let image = state.boards[0].nodes.find(node => node.id === 'pic')
+  assert.equal(image.mediaWidth, image.frameWidth, '等比缩放时素材宽度跟随显示框宽度')
+  assert.equal(Math.round(image.frameHeight), Math.round(image.frameWidth * 2), '等比缩放保持素材宽高比')
+  assert.equal(image.x, 100, '拖右侧缩放时不移动左边位置')
+  const card = window.document.querySelector('[data-node="pic"]'), frame = card.querySelector('.studio-media-frame'), content = frame.querySelector('.studio-media-content')
+  assert.equal(card.style.width, Math.round(image.frameWidth + 4) + 'px')
+  assert.equal(frame.style.height, Math.round(image.frameHeight) + 'px')
+  assert.equal(content.style.width, Math.round(image.mediaWidth) + 'px')
+  const scaledWidth = image.frameWidth, mediaWidth = image.mediaWidth
+  await [...context.querySelectorAll('button')].find(button => button.textContent === '调整显示框').onclick()
+  const frameOverlay = window.document.querySelector('[data-node="pic"] .studio-resize-overlay')
+  await drag(frameOverlay, 'e', 300, 240)
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'pic').frameWidth < scaledWidth)
+  const cropped = state.boards[0].nodes.find(node => node.id === 'pic')
+  assert.ok(cropped.frameWidth < scaledWidth, '调整显示框时宽度独立变化')
+  assert.equal(cropped.mediaWidth, mediaWidth, '调整显示框不缩放内部素材')
+  assert.equal(cropped.frameHeight, image.frameHeight, '只拖右侧不改变显示框高度')
+  const undo = () => [...window.document.querySelectorAll('button')].find(button => button.textContent === '↶').onclick()
+  await undo()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'pic').frameWidth === Math.round(scaledWidth))
+  await undo()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'pic').frameWidth === undefined)
+  assert.equal(window.document.querySelector('[data-node="pic"]').style.width, '', '撤销缩放后恢复默认卡片宽度')
+  select('clip')
+  assert.match(context.textContent, /缩放素材.*调整显示框/, '视频也提供两种调整入口')
+})
+
+async function startProtectedResize(t) {
+  const env = await setup(t), { window, state, ctx, tools } = env
+  state.assets.pic = ctx.canvasSession.rememberAsset({ id: 'pic', kind: 'image', width: 300, height: 600 })
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'pic', type: 'image', assetId: 'pic', x: 0, y: 0 } }] })
+  ctx.canvasUI.select(['pic'])
+  await [...window.document.querySelectorAll('.studio-context-tools button')].find(button => button.textContent === '缩放素材').onclick()
+  const pointer = (type, x = 300) => new window.PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerId: 91, clientX: x, clientY: 200 })
+  window.document.querySelector('.studio-resize-handle[data-dir="e"]').dispatchEvent(pointer('pointerdown'))
+  assert.equal(ctx.canvasSession.editable(), false, '等待草稿保存期间也应锁定交互')
+  await new Promise(resolve => setTimeout(resolve, 10))
+  window.dispatchEvent(pointer('pointermove', 400))
+  env.toasts.length = 0
+  return { ...env, pointer }
+}
+
+test('媒体缩放拖拽阻止 Agent 修改，保存完成后恢复编辑', async t => {
+  const { window, state, ctx, tools, pointer, toasts } = await startProtectedResize(t)
+  await assert.rejects(tools.get('studio_edit')({ revision: state.boards[0].revision, operations: [{ type: 'update', id: 'pic', patch: { frameWidth: 500, frameHeight: 500, mediaWidth: 500 } }] }), /用户正在编辑/)
+  window.dispatchEvent(pointer('pointerup', 400))
+  await waitUntil(() => ctx.canvasSession.editable())
+  assert.ok(state.boards[0].nodes[0].frameWidth > 80)
+  assert.deepEqual(toasts, [])
+})
+
+test('媒体缩放拖拽遇到远端版本冲突时保留远端尺寸并恢复显示', async t => {
+  const { window, state, ctx, pointer, toasts } = await startProtectedResize(t)
+  state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: 'pic', patch: { frameWidth: 700, frameHeight: 500, mediaWidth: 600 } }, state.assets).board
+  await ctx.canvasSession.refresh({ fresh: true })
+  assert.equal(ctx.canvasSession.board().nodes[0].frameWidth, undefined, '拖拽期间不替换本地画板')
+  window.dispatchEvent(pointer('pointerup', 400))
+  await waitUntil(() => toasts.length > 0 && ctx.canvasSession.board().nodes[0].frameWidth === 700)
+  assert.equal(state.boards[0].nodes[0].frameWidth, 700)
+  assert.match(toasts[0], /画布已变化/)
+  assert.equal(window.document.querySelector('[data-node="pic"]').style.width, '704px')
+  assert.equal(ctx.canvasSession.editable(), true)
+})
+
+test('媒体缩放提交校验拖拽起点版本而非更新后的本地版本', async t => {
+  const { window, state, ctx, pointer, toasts } = await startProtectedResize(t)
+  await ctx.canvasSession.edit([{ type: 'update', id: 'pic', patch: { frameWidth: 900, frameHeight: 500, mediaWidth: 600 } }])
+  window.dispatchEvent(pointer('pointerup', 400))
+  await waitUntil(() => toasts.some(message => /画布已变化/.test(message)))
+  assert.equal(state.boards[0].nodes[0].frameWidth, 900)
+  await waitUntil(() => ctx.canvasSession.editable())
+  assert.equal(window.document.querySelector('[data-node="pic"]').style.width, '904px')
+})
+
+test('媒体缩放取消和扩展卸载均释放交互保护且不保存预览', async t => {
+  const { window, state, ctx, pointer, stop } = await startProtectedResize(t)
+  window.dispatchEvent(pointer('pointercancel'))
+  assert.equal(ctx.canvasSession.editable(), true)
+  assert.equal(state.boards[0].nodes[0].frameWidth, undefined)
+  assert.equal(window.document.querySelector('[data-node="pic"]').style.width, '')
+  window.document.querySelector('.studio-resize-handle[data-dir="e"]').dispatchEvent(pointer('pointerdown'))
+  assert.equal(ctx.canvasSession.editable(), false)
+  await stop('basic')
+  assert.equal(ctx.canvasSession.editable(), true)
+  assert.equal(state.boards[0].nodes[0].frameWidth, undefined)
+})
+
+test('图片和视频可设置透明度并保存，调整后能看到后方内容', async t => {
+  const { window, state, tools, ctx } = await setup(t)
+  state.assets.pic = ctx.canvasSession.rememberAsset({ id: 'pic', kind: 'image', name: '透明图.png', width: 300, height: 200 })
+  state.assets.clip = ctx.canvasSession.rememberAsset({ id: 'clip', kind: 'video', name: '透明视频.mp4', extension: 'mp4', width: 640, height: 360, duration: 3 })
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'pic', type: 'image', assetId: 'pic', x: 100, y: 50 } },
+    { type: 'add', node: { id: 'clip', type: 'video', assetId: 'clip', x: 600, y: 50 } },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="pic"] .studio-media-frame'))
+  const select = id => {
+    const head = window.document.querySelector(`[data-node="${id}"] .studio-card-head`)
+    head.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 83, clientX: 110, clientY: 60 }))
+    window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 83, clientX: 110, clientY: 60 }))
+  }
+  const context = window.document.querySelector('.studio-context-tools')
+  select('pic')
+  assert.match(context.textContent, /透明度/, '图片提供透明度入口')
+  await [...context.querySelectorAll('button')].find(button => button.textContent === '透明度').onclick()
+  const panel = window.document.querySelector('.studio-media-opacity-panel')
+  assert.equal(panel.hidden, false)
+  const card = window.document.querySelector('[data-node="pic"]'), content = card.querySelector('.studio-media-content'), slider = panel.querySelector('input[type=range]')
+  slider.value = '40'; slider.oninput()
+  assert.equal(content.style.opacity, '0.4', '拖动时立即预览透明度')
+  assert.equal(card.classList.contains('has-media-opacity'), true)
+  assert.equal(card.style.backgroundColor, 'transparent', '卡片底色必须清空，不能挡住后方卡片')
+  assert.equal(content.parentElement.style.backgroundColor, 'transparent', '媒体框底色必须清空')
+  assert.equal(card.querySelector('img').style.backgroundColor, 'transparent', '图片自身底色必须清空')
+  slider.onchange()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'pic').opacity === 0.4)
+  assert.equal(content.style.opacity, '0.4')
+  panel.querySelector('.studio-media-opacity-reset').onclick()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'pic').opacity === undefined)
+  assert.equal(content.style.opacity, '', '恢复 100% 时清除透明度和持久化字段')
+  assert.equal(card.classList.contains('has-media-opacity'), false)
+  assert.equal(card.style.backgroundColor, '', '恢复 100% 时还原卡片底色')
+  assert.equal(content.parentElement.style.backgroundColor, '', '恢复 100% 时还原媒体框底色')
+  select('clip')
+  assert.match(context.textContent, /透明度/, '视频提供透明度入口')
+  await [...context.querySelectorAll('button')].find(button => button.textContent === '透明度').onclick()
+  const videoCard = window.document.querySelector('[data-node="clip"]'), videoContent = videoCard.querySelector('.studio-media-content')
+  const videoSlider = panel.querySelector('input[type=range]')
+  videoSlider.value = '25'; videoSlider.oninput()
+  assert.equal(videoContent.style.opacity, '0.25')
+  assert.equal(videoCard.classList.contains('has-media-opacity'), true, '视频透明度不依赖素材本身是否支持透明通道')
+  assert.equal(videoCard.style.backgroundColor, 'transparent')
+  assert.equal(videoContent.parentElement.style.backgroundColor, 'transparent')
+  assert.equal(videoCard.querySelector('video').style.backgroundColor, 'transparent', '播放器默认黑底也必须清空')
+  videoSlider.onchange()
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'clip').opacity === 0.25)
+  assert.equal(panel.hidden, false, '保存后保持面板可用于继续调整')
+  panel.querySelector('.studio-media-opacity-close').onclick()
+  assert.equal(panel.hidden, true)
+})
+
+test('重置显示一次恢复缩放、显示框和透明度并可撤销', async t => {
+  const { window, state, tools, ctx } = await setup(t)
+  state.assets.pic = ctx.canvasSession.rememberAsset({ id: 'pic', kind: 'image', name: '重置.png', width: 300, height: 200 })
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'pic', type: 'image', assetId: 'pic', x: 100, y: 50, frameWidth: 420, frameHeight: 300, mediaWidth: 380, opacity: 0.4 } },
+  ] })
+  await waitUntil(() => window.document.querySelector('[data-node="pic"] .studio-media-frame'))
+  const select = () => {
+    const head = window.document.querySelector('[data-node="pic"] .studio-card-head')
+    head.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 85, clientX: 110, clientY: 60 }))
+    window.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 85, clientX: 110, clientY: 60 }))
+  }
+  select()
+  const context = window.document.querySelector('.studio-context-tools')
+  const reset = () => [...context.querySelectorAll('button')].find(button => button.textContent === '重置显示')
+  assert.equal(reset().disabled, false, '有自定义显示设置时可重置')
+  await reset().onclick()
+  await waitUntil(() => state.boards[0].nodes[0].frameWidth === undefined && state.boards[0].nodes[0].opacity === undefined)
+  const node = state.boards[0].nodes[0]
+  assert.equal(node.frameWidth, undefined); assert.equal(node.frameHeight, undefined); assert.equal(node.mediaWidth, undefined)
+  let card = window.document.querySelector('[data-node="pic"]')
+  assert.equal(card.style.width, '', '重置后卡片恢复默认宽度')
+  assert.equal(card.querySelector('.studio-media-frame').style.height, '', '重置后显示框恢复默认高度')
+  assert.equal(card.querySelector('.studio-media-content').style.width, '', '重置后素材恢复默认宽度')
+  assert.equal(card.querySelector('.studio-media-content').style.opacity, '', '重置后媒体恢复不透明')
+  assert.equal(card.style.backgroundColor, '', '重置后卡片底色恢复主题默认')
+  assert.equal(card.classList.contains('has-media-opacity'), false)
+  await waitUntil(() => reset()?.disabled === true)
+  assert.equal(reset().disabled, true, '恢复默认后重置按钮不可用')
+  await [...window.document.querySelectorAll('button')].find(button => button.textContent === '↶').onclick()
+  await waitUntil(() => state.boards[0].nodes[0].frameWidth === 420 && state.boards[0].nodes[0].opacity === 0.4)
+  card = window.document.querySelector('[data-node="pic"]')
+  assert.equal(card.style.width, '424px')
+  assert.equal(card.querySelector('.studio-media-frame').style.height, '300px')
+  assert.equal(card.querySelector('.studio-media-content').style.width, '380px')
+  assert.equal(card.querySelector('.studio-media-content').style.opacity, '0.4')
+})
+
 test('重复重绘复用卡片、素材和连线，连续拖动合并到一帧且保存最终位置', async t => {
   const { window, ctx, tools, state } = await setup(t), document = window.document
   await tools.get('studio_edit')({ revision: 0, operations: [
@@ -784,6 +992,26 @@ test('画布裁剪视口外卡片，选中卡片保留且平移后重新挂载',
   ctx.canvasSession.viewport = { x: -10000, y: 0, zoom: 1 }; ctx.canvasUI.render()
   assert.ok(window.document.querySelector('[data-node="far"]'))
   assert.equal(window.document.querySelector('[data-node="near"]'), null)
+})
+
+test('视口裁剪读取未挂载和已更新媒体卡片的自定义尺寸', async t => {
+  const { window, ctx, tools, state } = await setup(t)
+  Object.defineProperties(ctx.canvasUI.stage, { clientWidth: { value: 1200 }, clientHeight: { value: 800 } })
+  ctx.canvasSession.viewport = { x: 0, y: 0, zoom: 1 }
+  for (const kind of ['image', 'video']) state.assets[kind] = ctx.canvasSession.rememberAsset({ id: kind, kind, width: 300, height: 600 })
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'wide', type: 'image', assetId: 'image', x: -1500, y: 0, frameWidth: 2000, frameHeight: 200, mediaWidth: 2000 } },
+    { type: 'add', node: { id: 'tall', type: 'video', assetId: 'video', x: 0, y: -1500, frameWidth: 200, frameHeight: 2000, mediaWidth: 200 } },
+  ] })
+  assert.ok(window.document.querySelector('[data-node="wide"]'), '从左侧延伸入视口的大图片必须挂载')
+  assert.ok(window.document.querySelector('[data-node="tall"]'), '从上方延伸入视口的大视频必须挂载')
+  const wide = window.document.querySelector('[data-node="wide"]')
+  Object.defineProperties(wide, { offsetWidth: { value: 2004 }, offsetHeight: { value: 320 } })
+  ctx.canvasUI.render()
+  await tools.get('studio_edit')({ revision: state.boards[0].revision, operations: [{ type: 'update', id: 'wide', patch: { frameWidth: 200 } }] })
+  assert.equal(window.document.querySelector('[data-node="wide"]'), null, '缩小后不能沿用旧 DOM 尺寸缓存')
+  await tools.get('studio_edit')({ revision: state.boards[0].revision, operations: [{ type: 'update', id: 'wide', patch: { frameWidth: 2000 } }] })
+  assert.ok(window.document.querySelector('[data-node="wide"]'), '再次放大后恢复挂载')
 })
 
 test('低倍率总览简化卡片并保留切换与放大后的完整交互', async t => {
@@ -1003,7 +1231,7 @@ test('生成卡片正文和图片区域可直接拖动，文字输入区保持�
   pointer('pointerdown', window.document.querySelector('.studio-generator-body textarea'), 50, 50)
   pointer('pointermove', stage, 130, 130); pointer('pointerup', stage, 130, 130)
   assert.equal(state.boards[0].nodes.find(node => node.id === 'generator').x, 40)
-  pointer('pointerdown', window.document.querySelector('.studio-image>img'), 450, 50)
+  pointer('pointerdown', window.document.querySelector('.studio-image .studio-media-frame img'), 450, 50)
   pointer('pointermove', stage, 480, 80); pointer('pointerup', stage, 480, 80)
   await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'image').x === 430)
   assert.equal(state.boards[0].nodes.find(node => node.id === 'image').y, 30)
@@ -1386,7 +1614,7 @@ test('图片预览支持缩小放大、拖动平移、滚轮缩放与适应窗�
   assert.ok(scale() < moved.scale, '滚轮向下滚动缩小图片')
   await click('关闭预览')
   assert.equal(viewer.open, false)
-  const thumb = window.document.querySelector('.studio-image>img')
+  const thumb = window.document.querySelector('.studio-image .studio-media-frame img')
   assert.equal(thumb.title, '双击放大预览')
   assert.equal(thumb.onclick, null, '图片自身不再处理单击')
   await thumb.ondblclick({ stopPropagation() {} })
@@ -1585,6 +1813,53 @@ test('生成视频首次播放后写入播放状态，导入视频不显示未�
   assert.equal(card.querySelector('.studio-video-unplayed'), null)
 })
 
+test('视频两点循环可在 A-B 之间循环，仅设置 A 时循环到结尾', async t => {
+  const { window, state, tools, ctx } = await setup(t)
+  state.assets.clip = ctx.canvasSession.rememberAsset({ id: 'clip', kind: 'video', name: '循环.mp4', extension: 'mp4', width: 640, height: 360, duration: 8 })
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'clip', type: 'video', assetId: 'clip' } }] })
+  await waitUntil(() => window.document.querySelector('[data-node="clip"] .studio-video-controls'))
+  const card = window.document.querySelector('[data-node="clip"]'), player = card.querySelector('video')
+  Object.defineProperty(player, 'duration', { configurable: true, value: 8 })
+  Object.defineProperty(player, 'paused', { configurable: true, value: true })
+  player.currentTime = 2
+  const pointsButton = card.querySelector('.studio-video-loop-points'), panel = card.querySelector('.studio-video-loop-panel')
+  assert.equal(panel.hidden, true)
+  assert.equal(card.querySelector('.studio-video-point-b').disabled, true, '设置 A 点前 B 点不可用')
+  pointsButton.onclick()
+  assert.equal(panel.hidden, false)
+  await card.querySelector('.studio-video-point-a').onclick()
+  await waitUntil(() => state.boards[0].nodes[0].loopA === 2)
+  assert.equal(card.querySelector('.studio-video-point-b').disabled, false)
+  assert.equal(card.querySelector('.studio-video-loop-marker.is-a').hidden, false)
+  assert.equal(card.querySelector('.studio-video-loop-marker.is-a').style.left, '25%')
+  assert.match(card.querySelector('.studio-video-loop-status').textContent, /A 0:02.*循环到结尾/)
+  player.currentTime = 5
+  await card.querySelector('.studio-video-point-b').onclick()
+  await waitUntil(() => state.boards[0].nodes[0].loopB === 5)
+  assert.equal(card.querySelector('.studio-video-loop-marker.is-b').style.left, '62.5%')
+  assert.match(card.querySelector('.studio-video-loop-status').textContent, /A 0:02.*B 0:05/)
+  await card.querySelector('.studio-video-loop').onclick()
+  await waitUntil(() => state.boards[0].nodes[0].loop === true)
+  assert.equal(player.loop, false, '设置 A 点后由两点循环接管，不能使用整段原生循环')
+  Object.defineProperty(player, 'paused', { configurable: true, value: false })
+  player.currentTime = 5.1
+  player.ontimeupdate()
+  assert.equal(player.currentTime, 2, '播放到 B 点后回到 A 点')
+  player.currentTime = 1
+  player.ontimeupdate()
+  assert.equal(player.currentTime, 2, '循环开启时播放位置不能停在 A 点之前')
+  await card.querySelector('.studio-video-point-clear').onclick()
+  await waitUntil(() => state.boards[0].nodes[0].loopA === undefined)
+  assert.equal(state.boards[0].nodes[0].loopB, undefined)
+  assert.equal(player.loop, true, '清除两点后恢复整段视频循环')
+  player.currentTime = 2
+  await card.querySelector('.studio-video-point-a').onclick()
+  await waitUntil(() => state.boards[0].nodes[0].loopA === 2)
+  player.currentTime = 8
+  player.ontimeupdate()
+  assert.equal(player.currentTime, 2, '只设置 A 点时默认循环到视频结尾')
+})
+
 test('从输出圆点拖到目标卡片任意位置即可完成连线', async t => {
   const { window, state, tools } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [
@@ -1745,6 +2020,23 @@ test('参考槽位可选中并通过 Ctrl+V 填入或替换单张图片', async 
   row.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
   row.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true, cancelable: true }))
   await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'g').references[0].assetId === 'two')
+})
+
+test('缺少 kind 的旧图片收藏拖入画布时创建图片卡片', async t => {
+  const library = { prompts: [], models: [], cards: [], suffixes: [], history: [], results: [{ id: 'legacy', title: '旧图片', assetId: 'legacy-image', node: { type: 'generator', prompt: '旧提示词' } }] }
+  const { window, state, ctx, toasts } = await setup(t, { library })
+  state.assets['legacy-image'] = ctx.canvasSession.rememberAsset({ id: 'legacy-image', width: 300, height: 200, name: '旧图片.png' })
+  await window.document.querySelector('.studio-library-entry').onclick()
+  await waitUntil(() => window.document.querySelector('.studio-saved-card'))
+  const values = new Map(), dataTransfer = { setData(type, value) { values.set(type, value) }, getData(type) { return values.get(type) || '' }, files: [], get types() { return [...values.keys()] } }
+  window.document.querySelector('.studio-saved-card').ondragstart({ dataTransfer })
+  const event = new window.Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperties(event, { dataTransfer: { value: dataTransfer }, clientX: { value: 500 }, clientY: { value: 250 } })
+  ctx.canvasUI.stage.dispatchEvent(event)
+  await waitUntil(() => state.boards[0].nodes.length === 1)
+  assert.equal(state.boards[0].nodes[0].type, 'image')
+  assert.equal(state.boards[0].nodes[0].assetId, 'legacy-image')
+  assert.deepEqual(toasts, [])
 })
 
 test('结果收藏展示真实视频、悬停显示生成参数，拖到画布添加结果', async t => {

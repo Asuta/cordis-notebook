@@ -5,6 +5,7 @@ import type {} from '@cordis-notebook/host'
 export interface CardView {
   id: string; label: string; icon: string; input?: boolean; output?: boolean; height?: number
   preserveDOM?: boolean | ((node: CanvasNode) => boolean)
+  estimateSize?(node: CanvasNode): { width: number; height: number } | undefined
   renderKey?(node: CanvasNode, view: CanvasUI): unknown
   overviewKey?(node: CanvasNode, view: CanvasUI): unknown
   renderOverview?(node: CanvasNode, card: HTMLElement, view: CanvasUI): void
@@ -32,6 +33,7 @@ export interface CanvasUI {
   field(node: CanvasNode, property: string, area?: boolean): HTMLInputElement | HTMLTextAreaElement
   beginEditing(input: HTMLElement): void
   endEditing(input: HTMLElement): void
+  beginInteraction(): () => void
   register(owner: Context, definition: CardView): () => unknown
   menu(owner: Context, definition: { id: string; label: string | (() => string); title?: string | (() => string); pressed?: boolean | (() => boolean); order?: number; className?: string; run(): unknown }): () => unknown
   settings(owner: Context, definition: { id: string; title: string; description?: string; scope?: string; render?(container: HTMLElement): void | (() => void); refresh?(): unknown }): () => unknown
@@ -45,6 +47,7 @@ export interface CanvasUI {
   add(type: string, fields?: Record<string, unknown>, options?: { fit?: boolean }): Promise<string>
   select(nodeIds: string[]): void
   arrangeNodes(nodeIds: string[], options?: { after?: string; gap?: number }): Promise<void>
+  refreshCardLayout(): void
   syncRenderedNode(id: string, patch: Record<string, unknown>): boolean
   edit(operations: CanvasOperation[], options?: { expectedRevision?: number; history?: boolean; targetBoard?: string }): Promise<EditResult>
   flush(): Promise<void>

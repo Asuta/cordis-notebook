@@ -96,8 +96,8 @@ export function createLibraryUI(ctx, view, s, sdk) {
     const item = await findFavorite(id)
     if (!item.assetId) { await view.add('generator', { ...structuredClone(item.node), title: item.sourceTitle || item.title, ...(point || {}) }); return }
     const asset = s.state.assets[item.assetId]
-    if (!asset || !['image', 'video'].includes(asset.kind)) throw Error('结果素材不可用')
-    await view.add(asset.kind, { assetId: item.assetId, title: item.title, ...(point || {}) })
+    if (!asset) throw Error('结果素材不可用')
+    await view.add(s.mediaKind(asset), { assetId: item.assetId, title: item.title, ...(point || {}) })
   }
   async function addResultParameters(source, point) {
     const targetBoard = s.boardId

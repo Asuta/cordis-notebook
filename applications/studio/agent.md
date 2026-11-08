@@ -4,7 +4,7 @@
 
 先用 app_list_tools 发现工具，再 app_call。studio_read 返回当前画板、revision、卡片、连线、素材、任务和 dirty。修改使用 studio_edit，生成使用 studio_generate；均须传刚读取的 revision。用户正在编辑或版本冲突时重新读取，不修改底层 JSON 绕过保护。
 
-卡片类型从 studio_read.types 发现：text（text 内容）、image/video（已存在 assetId）、generator。坐标 x/y 为无限画布坐标；生成卡片内容较多，应留足空间。id 使用 UUID。text/image/video 可连接到 generator，成功后增加独立 image/video 结果卡片，也可继续作为其他生成卡片的参考。连线数组顺序决定文字组合顺序，可用 reorder 调整；媒体还有下述统一顺序。
+卡片类型从 studio_read.types 发现：text（text 内容）、image/video（已存在 assetId；可选 opacity 为 0–1，默认 1 表示不透明）、generator。坐标 x/y 为无限画布坐标；生成卡片内容较多，应留足空间。id 使用 UUID。text/image/video 可连接到 generator，成功后增加独立 image/video 结果卡片，也可继续作为其他生成卡片的参考。连线数组顺序决定文字组合顺序，可用 reorder 调整；媒体还有下述统一顺序。
 
 studio_edit 的 operations 支持 add、update、remove、connect、disconnect、reorder、stack、rename；stack 的 order 必须是当前画板全部卡片 ID 的完整顺序，数组末尾显示在最上层。变更自动保存、进入当前页面撤销历史。一次批量操作原子提交，保留用户未要求删除的卡片和连线。先新建图片节点，再通过 connect 接到生成卡片。
 

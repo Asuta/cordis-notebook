@@ -13,6 +13,7 @@ export default async function (ctx, sdk) {
   let stopped = false, drag = null, connecting = null, connectDrag = null, space = false, viewTimer, selectionSignature = "", editingField = null, suppressCardClick = false, renamingBoardId = null;
   let clipboard = null, lastPointer = null, pasteTarget = null;
   const selected = new Set();
+  const interactions = new Set();
   const root = el("main", { class: "studio-app" }), side = el("aside", { class: "studio-sidebar" }), main = el("section", { class: "studio-main" });
   const toolbar = el("header", { class: "studio-toolbar" }), stage = el("div", { class: "studio-stage", tabIndex: 0, "aria-label": "无限画布" });
   const world = el("div", { class: "studio-world" }), cards = el("div", { class: "studio-cards" });
@@ -232,9 +233,12 @@ export default async function (ctx, sdk) {
   }
   const selectedNodes = () => board().nodes.filter((n) => selected.has(n.id));
   function cardSize(node) {
-    if (cardSizes.has(node.id)) return cardSizes.get(node.id);
+    const renderer = renderers.get(node.type), estimate = renderer?.estimateSize?.(node);
     const item = cardElements.get(node.id);
-    const size = { width: item?.offsetWidth || 288, height: item?.offsetHeight || node.cardHeight || (renderers.get(node.type)?.height || 230) };
+    // Persisted sizes must win over absent or stale DOM, including cached measurements.
+    if (estimate && (!item || JSON.stringify(estimate) !== JSON.stringify(renderer.estimateSize(renderedNodes.get(node.id))))) return estimate;
+    if (cardSizes.has(node.id)) return cardSizes.get(node.id);
+    const size = { width: item?.offsetWidth || estimate?.width || 288, height: item?.offsetHeight || estimate?.height || node.cardHeight || (renderer?.height || 230) };
     if (item?.offsetWidth) cardSizes.set(node.id, size);
     return size;
   }
@@ -371,6 +375,7 @@ export default async function (ctx, sdk) {
             if (current && current.action.disabled !== true) return current.run();
           });
           actionButton.disabled = action.disabled === true;
+          if (action.id) actionButton.dataset.actionId = action.id;
           if (action.title) actionButton.title = action.title;
           contextTools.append(actionButton);
         }
@@ -561,7 +566,7 @@ export default async function (ctx, sdk) {
     cardElements.delete(card.dataset.node); renderedNodes.delete(card.dataset.node);
   }
   function renderCanvasCards(windowOnly = false) {
-    if (stopped || s.editing || drag?.type === 'nodes') return;
+    if (stopped || s.editing || interactions.size || drag?.type === 'nodes') return;
     const nodes = viewportNodes(), keep = new Set(nodes.map(node => node.id));
     for (const node of nodes) {
       const existing = cardElements.get(node.id), renderer = renderers.get(node.type), overview = shouldOverview(node);
@@ -607,7 +612,7 @@ export default async function (ctx, sdk) {
     });
   }
   function render() {
-    if (stopped || document.hidden || drag || s.editing) return;
+    if (stopped || document.hidden || drag || interactions.size || s.editing) return;
     syncOverviewMode();
     const restoreFocus = cards.contains(document.activeElement);
     for (const id of selected) if (!board().nodes.some((n) => n.id === id)) selected.delete(id);
@@ -1041,6 +1046,11 @@ export default async function (ctx, sdk) {
     safe,
     beginEditing,
     endEditing,
+    beginInteraction() {
+      const token = {};
+      interactions.add(token);
+      return () => interactions.delete(token);
+    },
     field,
     add,
     edit,
@@ -1090,6 +1100,11 @@ export default async function (ctx, sdk) {
       render();
     },
     arrangeNodes,
+    refreshCardLayout() {
+      cardSizes.clear();
+      updateSelectionTools();
+      paintWires();
+    },
     syncRenderedNode(id, patch) {
       const rendered = renderedNodes.get(id);
       if (!rendered) return false;
@@ -1151,7 +1166,7 @@ export default async function (ctx, sdk) {
       });
     }
   };
-  s.attachView(ctx, { render, syncRenderedNode: view.syncRenderedNode, status: (value) => notice.textContent = value, dragging: () => !!drag, choose: () => {
+  s.attachView(ctx, { render, syncRenderedNode: view.syncRenderedNode, status: (value) => notice.textContent = value, dragging: () => !!drag || interactions.size > 0, choose: () => {
     selected.clear();
     stopConnecting();
     clearConnectDrag();
