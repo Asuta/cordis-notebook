@@ -1,0 +1,28 @@
+{
+  "name": "@cordis-narrative/live2d",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.js" },
+  "dependencies": {
+    "pixi.js": "6.5.10",
+    "pixi-live2d-display": "0.4.0"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "live2d",
+    "name": "Live2D 角色",
+    "description": "可选的 Cubism 4 角色动画。请自行提供获授权的模型和 SDK Core URL；未配置或加载失败时保留静态立绘。",
+    "defaultEnabled": false,
+    "order": 20,
+    "requires": { "client": ["narrative", "narrativeUI"], "server": [] },
+    "provides": { "client": [], "server": [] },
+    "client": "client.js",
+    "public": ["client.js", "style.css"],
+    "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

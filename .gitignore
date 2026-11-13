@@ -17,3 +17,5 @@ applications/*/plugins/ui/style.css
 
 applications/*/plugins/*/dist/
 applications/novel/plugins/game/assets/generated/
+.agents/skills/*/local.config.toml
+output/

@@ -1,0 +1,12 @@
+{
+  "name": "@applications/narrative",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordisApp": {
+    "id": "narrative",
+    "name": "叙事引擎",
+    "description": "用舞台、角色、剧情和 AI 插件，组装可以游玩的互动故事。",
+    "icon": "assets/icon.svg"
+  }
+}

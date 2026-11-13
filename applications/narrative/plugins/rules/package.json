@@ -1,0 +1,20 @@
+{
+  "name": "@cordis-narrative/rules",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1, "id": "rules", "name": "属性与事件",
+    "description": "数值属性、条件、动作和事件规则，带实时属性展示。",
+    "requires": { "server": [], "client": ["narrative", "narrativeUI"] },
+    "provides": { "server": [], "client": [] },
+    "order": 15, "defaultEnabled": true, "client": "client.js",
+    "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ],
+    "category": { "id": "narrative", "label": "叙事" }, "icon": "SlidersHorizontal"
+  }
+}

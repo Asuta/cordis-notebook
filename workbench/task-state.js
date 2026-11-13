@@ -37,6 +37,7 @@ export function createTraceReporter({ redact, notify, persist }) {
     if (!record) { record = { id: event.id || randomUUID(), kind: event.kind || 'notice', startedAt: Date.now(), status: 'running' }; turn.events.push(record) }
     for (const key of ['kind', 'name', 'input', 'output', 'text', 'status', 'messageId']) if (event[key] !== undefined) record[key] = redact(event[key]).slice(0, key === 'output' || key === 'input' ? 64000 : 256000)
     for (const key of ['startedAt', 'endedAt']) if (Number.isFinite(event[key]) && event[key] >= 0) record[key] = event[key]
+    if (Array.isArray(event.images)) record.images = event.images.filter(image => /^[a-f0-9-]{36}$/.test(image.id || '')).slice(0, 10)
     if (record.kind === 'model' && event.timing) {
       record.timing ||= {}
       for (const key of ['invokedAt', 'requestStartedAt', 'responseAt', 'firstOutputAt', 'endedAt', 'preparationMs', 'responseWaitMs', 'waitMs', 'streamingMs', 'totalMs']) {

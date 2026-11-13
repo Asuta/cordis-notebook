@@ -1,0 +1,10 @@
+{
+  "name": "@cordis-narrative/saves", "version": "1.0.0", "private": true, "type": "module",
+  "cordis": {
+    "schemaVersion": 1, "id": "saves", "name": "存档与进度", "description": "三个手动存档位、自动进度与完整状态恢复。进度按作品保存在本机浏览器。",
+    "defaultEnabled": true, "order": 80, "icon": "Save", "category": { "id": "play", "label": "游玩能力" },
+    "requires": { "server": [], "client": ["narrative", "narrativeUI"] }, "provides": { "server": [], "client": [] },
+    "client": "client.js", "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "build": [{ "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }, { "type": "copy", "input": "style.css", "output": "style.css" }]
+  }
+}

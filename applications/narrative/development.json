@@ -1,0 +1,22 @@
+{
+  "recipes": {
+    "ui": {
+      "services": { "client": ["narrative", "narrativeUI"], "server": [] },
+      "contracts": ["CONTRACT.md", "plugins/project/types/client.d.ts", "plugins/shell/types/client.d.ts"],
+      "examples": ["plugins/shell/client.js", "plugins/stage/client.js", "plugins/dialogue/client.js"],
+      "patterns": ["插件通过 narrative 与 narrativeUI 服务登记面板、舞台和动作；保留草稿、保存保护与 owner 生命周期。"]
+    },
+    "backend": {
+      "services": { "client": [], "server": ["http"] },
+      "contracts": ["CONTRACT.md"],
+      "examples": ["plugins/project/server.js", "plugins/project/model.js", "plugins/ai-dialogue/server.js"],
+      "patterns": ["作品与角色资源保存在本应用插件私有目录；写入校验 revision，模型连接密钥不随作品导出。"]
+    },
+    "agent": {
+      "services": { "client": ["narrative", "narrativeUI"], "server": [] },
+      "contracts": ["CONTRACT.md"],
+      "examples": ["agent.md", "plugins/project/client.js", "plugins/mesh-studio/client.js"],
+      "patterns": ["编辑角色绑定使用 narrative_mesh 工具并核对 localVersion；修改编辑器功能时遵守插件服务边界。"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+.ne-app .ne-dialogue { position: absolute; left: 24px; right: 24px; bottom: 22px; display: flex; flex-direction: column; gap: 14px; max-height: calc(100% - 60px); overflow-y: auto; padding: 22px 25px 15px; border-radius: 11px; border: 1px solid #e8deff38; background: linear-gradient(125deg, #17202af5, #1f1b30f5); box-shadow: 0 10px 32px #070a1645; backdrop-filter: blur(14px); color: #fcfaff; pointer-events: auto; scrollbar-width: thin; scrollbar-color: #afa0c0 #1f1b30; }
+.ne-app .ne-dialogue-reading { display: flex; flex-direction: column; gap: 9px; }
+.ne-app .ne-dialogue-speaker { color: #e5cffb; font-size: clamp(12px, 1.1vw, 15px); font-weight: 650; letter-spacing: .08em; }
+.ne-app .ne-dialogue .ne-dialogue-text { color: #fbf9ff; font-size: clamp(14px, 1.25vw, 18px); line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; text-shadow: 0 1px 3px #080916b3; }
+.ne-app .ne-dialogue-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 9px; }
+.ne-app .ne-dialogue-choices:empty { display: none; }
+.ne-app .ne-dialogue-button { padding: 10px 14px; color: #fcf8ff; background: #ffffff10; border: 1px solid #e8d3ff55; border-radius: 7px; font-size: 12px; line-height: 1.65; white-space: normal; text-align: left; overflow-wrap: anywhere; transition: background .15s, border-color .15s; }
+.ne-app .ne-dialogue-button:hover:enabled { background: #bba0e334; border-color: #e8d3ffbb; }
+.ne-app .ne-dialogue-button:focus-visible { outline: 2px solid #f0dfff; outline-offset: 2px; }
+.ne-app .ne-dialogue-button:disabled { color: #c6c0cf; opacity: 1; background: #ffffff07; border-color: #d1c7dd24; }
+.ne-app .ne-dialogue-button small { display: block; font-size: 10px; color: #d0bddb; margin-top: 3px; }
+.ne-app .ne-dialogue-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 23px; }
+.ne-app .ne-dialogue-meta { color: #d2cbdc; font-size: 10px; line-height: 1.6; }
+.ne-app .ne-dialogue-continue { padding: 5px 13px; text-align: center; margin-left: auto; flex-shrink: 0; }
+.ne-app .ne-dialogue-chat-skin { left: 26px; right: auto; width: min(72%, 600px); border-radius: 18px 18px 18px 4px; background: #17202af5; }
+.ne-app .ne-dialogue-settings { border: 0; padding: 0; margin: 0; min-width: 0; }
+@media (max-width: 900px) { .ne-app .ne-dialogue { left: 12px; right: 12px; bottom: 12px; padding: 15px 17px 12px; gap: 10px; } .ne-app .ne-dialogue-chat-skin { width: calc(100% - 24px); } .ne-app .ne-dialogue .ne-dialogue-text { font-size: 14px; line-height: 1.8; } }

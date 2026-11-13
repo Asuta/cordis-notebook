@@ -53,7 +53,7 @@ export async function createHost({ port = 3210, dataDir, applicationsDir = defau
     ctx.http.fallback = request => applications.dispatch(request)
     const serve = async (res, path) => {
       const content = await readFile(path).catch(() => { throw fail(404, '资源不存在') })
-      res.writeHead(200, { 'Content-Type': ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf' }[extname(path)] || 'application/octet-stream'), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.end(content)
+      res.writeHead(200, { 'Content-Type': ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf' }[extname(path)] || 'application/octet-stream'), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.end(content)
     }
     route('GET', /^\/applications\/([a-z][a-z0-9-]+)\/icon$/, async ({ res, match }) => {
       const app = applications.applications.find(app => app.id === match[1])

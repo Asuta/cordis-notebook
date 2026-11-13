@@ -1,0 +1,20 @@
+{
+  "name": "@cordis-narrative/flow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1, "id": "flow", "name": "剧情流程",
+    "description": "可视化剧情节点、分支和对白编辑，提供剧情与结局处理器。",
+    "requires": { "server": [], "client": ["narrative", "narrativeUI"] },
+    "provides": { "server": [], "client": [] },
+    "order": 20, "defaultEnabled": true, "client": "client.js",
+    "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ],
+    "category": { "id": "narrative", "label": "叙事" }, "icon": "GitBranch"
+  }
+}

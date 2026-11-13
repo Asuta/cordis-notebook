@@ -1,0 +1,80 @@
+.ne-app .ne-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+  background: #171923;
+  --ne-stage-position: 50%;
+  --ne-stage-scale: 1;
+}
+
+.ne-app .ne-stage-picture {
+  position: absolute;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ne-app .ne-stage-picture[hidden],
+.ne-app .ne-stage-empty[hidden] { display: none; }
+
+.ne-app .ne-stage-background {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.ne-app .ne-stage-atmosphere {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 65% 25%, #e9c5aa0d, transparent 65%), linear-gradient(90deg, #10131b26, transparent 55%);
+}
+
+.ne-app .ne-stage-portrait {
+  bottom: 0;
+  left: var(--ne-stage-position);
+  width: 70%;
+  height: 92%;
+  object-fit: contain;
+  object-position: center bottom;
+  transform: translateX(-50%) scale(var(--ne-stage-scale));
+  transform-origin: center bottom;
+  filter: drop-shadow(0 12px 30px #080b1833);
+}
+
+.ne-app .ne-stage-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #0b101c0d, transparent 35%, #0b101c12 65%, #0b101c9e 100%);
+}
+
+.ne-app .ne-stage-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #dbd5ce;
+  font-size: 13px;
+  letter-spacing: .12em;
+  text-align: center;
+  background: radial-gradient(ellipse at 65% 30%, #57515c80, transparent 75%);
+}
+
+.ne-app .ne-stage-editor { min-width: 0; }
+.ne-app .ne-stage-heading { flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.ne-app .ne-stage-heading .ne-badge { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 65%; }
+.ne-app .ne-stage-preview { position: relative; aspect-ratio: 16 / 10; min-height: 140px; overflow: hidden; border-radius: 14px; border: 1px solid #a88c7133; }
+.ne-app .ne-stage-preview .ne-stage-empty { font-size: 11px; }
+.ne-app .ne-stage-editor p { margin: 0; line-height: 1.7; }
+.ne-app .ne-stage-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ne-app .ne-stage-legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.ne-app .ne-stage-fields:disabled { opacity: .6; }
+.ne-app .ne-stage-slider-caption { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ne-app .ne-stage-range { width: 100%; min-width: 0; margin: 8px 0; accent-color: var(--ne-accent, #b59475); cursor: pointer; }
+.ne-app .ne-stage-value { color: var(--ne-accent, #b59475); font-variant-numeric: tabular-nums; }
+.ne-app .ne-stage-editor .ne-field small { line-height: 1.6; }
+.ne-app .ne-stage-editor-notice { padding: 10px 12px; border: 1px solid #b5947533; border-radius: 10px; }
