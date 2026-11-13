@@ -82,4 +82,8 @@ test('同一个数据目录只允许一个工作台同时运行', async t => {
   await writeFile(join(dir, 'workbench.lock'), JSON.stringify({ pid: 999999, port: 1 }))
   const third = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: dir })
   await third.close()
+  // 系统回收 PID 后，陈旧锁可能指向一个无关的存活进程；记录的端口无人监听时也应能接管。
+  await writeFile(join(dir, 'workbench.lock'), JSON.stringify({ pid: process.pid, port: 1, startedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() }))
+  const fourth = await createWorkbench({ root: resolve('.'), port: 0, appPort: 0, autoStart: false, dataDir: dir })
+  await fourth.close()
 })
