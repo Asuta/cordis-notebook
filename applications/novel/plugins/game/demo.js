@@ -1,4 +1,4 @@
-import { validateProject } from './model.js'
+import { validateProject, upgradeProject, syncLegacy } from './model.js'
 
 const asset = (id, name, kind, mime, size) => ({ id, name, kind, mime, size })
 const line = (speakerId, text, index) => ({ id: 'line-' + index, speakerId, text })
@@ -9,7 +9,7 @@ const scene = (id, title, backgroundId, leftCharacterId, rightCharacterId, texts
 })
 
 export function demoProject(sizes) {
-  return validateProject({
+  const project = upgradeProject({
     schemaVersion: 1, id: 'rain-afterglow', revision: 0, title: '雨停以后，星光来信',
     description: '一场雨、一次将要结束的夜班，还有一封不知该寄给谁的信。约 5–10 分钟，三种结局。', startSceneId: 'arrival',
     assets: [
@@ -18,6 +18,7 @@ export function demoProject(sizes) {
       asset('lin', '林汐立绘', 'image', 'image/png', sizes.lin),
       asset('yao', '姚青立绘', 'image', 'image/png', sizes.yao),
       asset('rain-theme', '雨后的星光（程序生成）', 'audio', 'audio/wav', sizes['rain-theme']),
+      asset('signal-cue', '星光信标（程序生成）', 'audio', 'audio/wav', sizes['signal-cue']),
     ],
     variables: [
       { id: 'lin-trust', name: '林汐好感度', kind: 'affinity', initial: 0 },
@@ -167,4 +168,16 @@ export function demoProject(sizes) {
       ], [], true),
     ],
   })
+  for (const s of project.scenes) {
+    let index = 0
+    const add = (type, fields) => ({ id: 'demo-' + type + '-' + index++, type, ...fields })
+    const opening = s.commands.findIndex(c => c.type === 'say')
+    s.commands.splice(opening, 0, add('wait', { duration: 350 }))
+    const firstSpoken = s.commands.findIndex(c => c.type === 'say' && c.speakerId)
+    const characterId = s.leftCharacterId || s.rightCharacterId
+    if (firstSpoken >= 0 && characterId) s.commands.splice(firstSpoken, 0, add('transform', { characterId, x: s.leftCharacterId ? 35 : 65, y: 0, scale: 1.08, opacity: 1, duration: 900 }))
+    if (['signal', 'roof'].includes(s.id)) s.commands.splice(opening, 0, add('sound', { assetId: 'signal-cue', volume: .5 }))
+    syncLegacy(s)
+  }
+  return validateProject(project)
 }

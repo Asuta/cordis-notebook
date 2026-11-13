@@ -5,6 +5,7 @@
     {"file":"test/roleplay-client.test.js","application":"roleplay","plugins":["chat"]},
     {"file":"test/novel.test.js","application":"novel","plugins":["game"]},
     {"file":"test/novel-client.test.js","application":"novel","plugins":["game"]},
+    {"file":"test/novel-mesh-avatar.test.js","application":"novel","plugins":["game"]},
     {"file":"test/studio-4dai.test.js","application":"studio","plugins":["image-provider-4dai"]},
     {"file":"test/studio-sudeng.test.js","application":"studio","plugins":["image-provider-sudeng"]},
     {"file":"test/studio-development-assets.test.js","application":"studio","plugins":["canvas","canvas-ui","canvas-basic-cards","image-generation","canvas-agent-tools"]},
