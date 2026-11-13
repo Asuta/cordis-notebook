@@ -8,12 +8,59 @@ const idOK = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,79}$/i.
 const isoDate = value => typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
 const uniqueIds = rows => rows.every(row => object(row) && idOK(row.id)) && new Set(rows.map(row => row.id)).size === rows.length
 
-export const LIMITS = Object.freeze({ projectBytes: 512 * 1024, sessionMessages: 300, sessionBytes: 512 * 1024, messageChars: 12000, contextChars: 48000, sessions: 200, imagesPerMessage: 2, imageChars: 800000, sessionImageBytes: 4 * 1024 * 1024 })
+export const LIMITS = Object.freeze({ projectBytes: 2 * 1024 * 1024, sessionMessages: 300, sessionBytes: 512 * 1024, messageChars: 12000, contextChars: 48000, sessions: 200, imagesPerMessage: 2, imageChars: 800000, sessionImageBytes: 4 * 1024 * 1024 })
 export const IMAGE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/webp'])
+export const emptyMemory = () => ({ summary: '', scene: '', relationship: '', facts: [] })
+export const defaultPlayer = () => ({ name: '旅人', description: '一位在雨夜偶然走进唱片店的成年旅人。', relationship: '初次相识，彼此还不熟悉。' })
+export const defaultOpening = () => ({ title: '雨停之前', location: '回声唱片店', time: '傍晚 · 细雨', situation: '' })
+export const defaultPresentation = () => ({ portrait: '', background: '', theme: 'amber' })
+
+export function validatePlayer(player) {
+  hasKeys(player, ['name', 'description', 'relationship'], '玩家身份')
+  if (!string(player.name, 100, { required: true, trim: true }) || !string(player.description, 4000) || !string(player.relationship, 3000)) invalid('玩家身份内容无效')
+  return player
+}
+export function validateOpening(opening) {
+  hasKeys(opening, ['title', 'location', 'time', 'situation'], '开场情境')
+  if (!string(opening.title, 120) || !string(opening.location, 200) || !string(opening.time, 200) || !string(opening.situation, 6000)) invalid('开场情境内容无效')
+  return opening
+}
+export function validateMemory(memory) {
+  hasKeys(memory, ['summary', 'scene', 'relationship', 'facts'], '剧情记忆')
+  if (!string(memory.summary, 6000) || !string(memory.scene, 3000) || !string(memory.relationship, 3000) || !Array.isArray(memory.facts) || memory.facts.length > 40 || !uniqueIds(memory.facts)) invalid('剧情记忆内容无效')
+  for (const fact of memory.facts) {
+    hasKeys(fact, ['id', 'content', 'enabled'], '记忆条目')
+    if (!string(fact.content, 1000, { required: true, trim: true }) || typeof fact.enabled !== 'boolean') invalid('记忆条目内容无效')
+  }
+  return memory
+}
+export function validatePresentation(presentation) {
+  hasKeys(presentation, ['portrait', 'background', 'theme'], '视觉设置')
+  const asset = value => string(value, LIMITS.imageChars) && (!value || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value))
+  if (!asset(presentation.portrait) || !asset(presentation.background) || !['amber', 'forest', 'midnight'].includes(presentation.theme)) invalid('视觉设置内容无效，请使用 PNG、JPEG 或 WebP 图片')
+  return presentation
+}
+
+// 旧作品和会话在读取时补齐新字段，保留已有文案、消息及 revision。
+export function normalizeProject(input) {
+  if (input?.schemaVersion !== 1) return validateProject(input)
+  const project = structuredClone(input)
+  project.schemaVersion = 2
+  project.player = defaultPlayer()
+  project.opening = { ...defaultOpening(), title: project.title, situation: project.character?.scenario || '' }
+  project.presentation = defaultPresentation()
+  return validateProject(project)
+}
+export function normalizeSession(input, project) {
+  return validateSession({ ...structuredClone(input), player: input.player ?? structuredClone(project.player), opening: input.opening ?? structuredClone(project.opening), memory: input.memory ?? emptyMemory() })
+}
 
 export function validateProject(project) {
-  hasKeys(project, ['schemaVersion', 'id', 'revision', 'title', 'description', 'character', 'attributes', 'worldInfo', 'context'], '作品')
-  if (project.schemaVersion !== 1 || !idOK(project.id) || !Number.isSafeInteger(project.revision) || project.revision < 0 || !string(project.title, 120, { required: true, trim: true }) || !string(project.description, 4000)) invalid('作品基本信息无效')
+  hasKeys(project, ['schemaVersion', 'id', 'revision', 'title', 'description', 'character', 'attributes', 'worldInfo', 'context', 'player', 'opening', 'presentation'], '作品')
+  if (project.schemaVersion !== 2 || !idOK(project.id) || !Number.isSafeInteger(project.revision) || project.revision < 0 || !string(project.title, 120, { required: true, trim: true }) || !string(project.description, 4000)) invalid('作品基本信息无效')
+  validatePlayer(project.player)
+  validateOpening(project.opening)
+  validatePresentation(project.presentation)
 
   const character = project.character
   hasKeys(character, ['name', 'description', 'personality', 'background', 'scenario', 'greeting', 'exampleDialogue'], '人物卡')
@@ -35,7 +82,7 @@ export function validateProject(project) {
   hasKeys(context, ['systemPrompt', 'authorNote', 'maxHistoryMessages', 'temperature', 'maxTokens'], '上下文设置')
   if (!string(context.systemPrompt, 16000) || !string(context.authorNote, 6000) || !Number.isSafeInteger(context.maxHistoryMessages) || context.maxHistoryMessages < 0 || context.maxHistoryMessages > 100 || typeof context.temperature !== 'number' || !Number.isFinite(context.temperature) || context.temperature < 0 || context.temperature > 2 || !Number.isSafeInteger(context.maxTokens) || context.maxTokens < 1 || context.maxTokens > 8192) invalid('上下文设置无效')
 
-  if (new TextEncoder().encode(JSON.stringify(project)).byteLength > LIMITS.projectBytes) invalid('作品数据不能超过 512 KB')
+  if (new TextEncoder().encode(JSON.stringify(project)).byteLength > LIMITS.projectBytes) invalid('作品数据不能超过 2 MB')
   return project
 }
 
@@ -70,19 +117,25 @@ export function validateMessages(messages) {
 }
 
 export function validateSession(session) {
-  hasKeys(session, ['id', 'revision', 'title', 'createdAt', 'updatedAt', 'messages'], '会话')
+  hasKeys(session, ['id', 'revision', 'title', 'createdAt', 'updatedAt', 'messages', 'player', 'opening', 'memory'], '会话', ['player', 'opening', 'memory'])
   if (!idOK(session.id) || !Number.isSafeInteger(session.revision) || session.revision < 0 || !string(session.title, 120, { required: true, trim: true }) || !isoDate(session.createdAt) || !isoDate(session.updatedAt)) invalid('会话基本信息无效')
   validateMessages(session.messages)
+  if (session.player !== undefined) validatePlayer(session.player)
+  if (session.opening !== undefined) validateOpening(session.opening)
+  if (session.memory !== undefined) validateMemory(session.memory)
   return session
 }
 
 export function demoProject() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: 'main',
     revision: 0,
     title: '雨夜唱片店',
     description: '在一间快打烊的独立唱片店里，和一位刚认识的成年人慢慢聊天。',
+    player: defaultPlayer(),
+    opening: { ...defaultOpening(), situation: '末班车已经离开，雨还没有停。你推开亮着暖灯的店门，铜铃轻响。柜台后的人抬起头，把第二只茶杯放到桌上。' },
+    presentation: defaultPresentation(),
     character: {
       name: '林澄',
       description: '28 岁的成年女性，经营「回声」独立唱片店，也为纪录片录制环境音。她习惯先听完再回答，遇到喜欢的话题会露出一点孩子气的兴奋。',
@@ -111,11 +164,11 @@ export function demoProject() {
   }
 }
 
-export function composeContext(projectInput, historyInput) {
+export function composeContext(projectInput, historyInput, state = {}) {
   const project = validateProject(projectInput)
   const history = validateMessages(historyInput)
-  const recent = project.context.maxHistoryMessages ? history.slice(-project.context.maxHistoryMessages) : []
-  const searchable = recent.map(message => message.content.toLocaleLowerCase()).join('\n')
+  const recent = project.context.maxHistoryMessages ? history.slice(-project.context.maxHistoryMessages) : history.at(-1)?.role === 'user' ? history.slice(-1) : []
+  const searchable = [...recent.map(message => message.content), state.memory?.scene || '', ...(state.memory?.facts || []).filter(fact => fact.enabled).map(fact => fact.content)].join('\n').toLocaleLowerCase()
   const activeWorldInfo = project.worldInfo.filter(entry => entry.enabled && (entry.alwaysActive || entry.keys.some(key => searchable.includes(key.toLocaleLowerCase()))))
   const character = project.character
   const parts = [project.context.systemPrompt.trim()]
@@ -128,6 +181,14 @@ export function composeContext(projectInput, historyInput) {
     '场景：' + character.scenario,
     character.exampleDialogue ? '示例对话：\n' + character.exampleDialogue : '',
   ].filter(Boolean).join('\n'))
+  const player = validatePlayer(state.player || project.player)
+  const opening = validateOpening(state.opening || project.opening)
+  const memory = validateMemory(state.memory || emptyMemory())
+  parts.push('[玩家身份]\n姓名：' + player.name + '\n身份：' + player.description + '\n初始关系：' + player.relationship)
+  parts.push('[开场情境]\n' + [opening.title, opening.location, opening.time, opening.situation].filter(Boolean).join(' · '))
+  const remembered = [memory.summary && '共同经历：' + memory.summary, memory.scene && '当前情境：' + memory.scene, memory.relationship && '当前关系：' + memory.relationship, ...memory.facts.filter(fact => fact.enabled).map(fact => '重要事实或约定：' + fact.content)].filter(Boolean)
+  if (remembered.length) parts.push('[剧情记忆 · 优先于开场设定]\n' + remembered.join('\n'))
+  parts.push('使用中文自然推进故事。用 *动作或环境描写* 表示旁白，用「对白」表示角色发言。尊重玩家身份与已确认的记忆；不要替玩家决定行动、想法或回答。')
   const attributes = project.attributes.filter(attribute => attribute.includeInContext)
   if (attributes.length) parts.push('[角色属性]\n' + attributes.map(attribute => attribute.name + '：' + attribute.value + (attribute.description ? '（' + attribute.description + '）' : '')).join('\n'))
   if (activeWorldInfo.length) parts.push('[相关世界信息]\n' + activeWorldInfo.map(entry => '【' + entry.title + ' · ' + entry.id + '】\n' + entry.content).join('\n\n'))

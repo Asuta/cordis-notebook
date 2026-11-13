@@ -13,12 +13,13 @@
     "requires": { "server": ["http"], "client": [] },
     "provides": { "server": [], "client": [] },
     "client": "client.js",
-    "public": ["client.js", "style.css"],
-    "styles": ["style.css"],
+    "public": ["client.js", "style.css", "theatre.css"],
+    "styles": ["style.css", "theatre.css"],
     "build": [
       { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
       { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
-      { "type": "copy", "input": "style.css", "output": "style.css" }
+      { "type": "copy", "input": "style.css", "output": "style.css" },
+      { "type": "copy", "input": "theatre.css", "output": "theatre.css" }
     ]
   }
 }

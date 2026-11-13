@@ -1,9 +1,12 @@
 import { button, el, field, selectInput, textArea, textInput, toggle, uid } from './ui.js'
+import { openingFields, playerFields } from './story-editor.js'
+import { artFor } from './experience.js'
+import { prepareImage } from './chat.js'
 
 const intro = (eyebrow, title, detail) => el('div', 'rp-editor-heading', el('span', 'rp-eyebrow', eyebrow), el('h1', '', title), el('p', '', detail))
 const card = (...children) => el('section', 'rp-editor-card', ...children)
 
-export function renderEditor({ project, section, onChange, onPreview, settings, onSaveSettings, onTestSettings }) {
+export function renderEditor({ project, section, onChange, onPreview, settings, onSaveSettings, onTestSettings, onError = () => {} }) {
   const root = el('div', 'rp-editor-page')
   if (section === 'character') {
     root.append(intro('CHARACTER CARD', '人物卡', '定义 NPC 的身份、性格和回应方式。修改会自动保存。'))
@@ -20,6 +23,19 @@ export function renderEditor({ project, section, onChange, onPreview, settings, 
       field('初次见面', textArea(c.greeting, value => { c.greeting = value; onChange() }, '新对话开场时由 NPC 说出的第一句话。', 3)),
       field('示例对话', textArea(c.exampleDialogue, value => { c.exampleDialogue = value; onChange() }, '用几轮示例展示角色的语气；可以留空。', 5)),
     ))
+  } else if (section === 'player') {
+    root.append(intro('YOUR PERSONA', '玩家身份', '设定玩家在故事里是谁。此处是新故事的默认身份，已有故事可在聊天页单独修改。'),
+      card(playerFields(project.player, onChange)))
+  } else if (section === 'opening') {
+    root.append(intro('OPENING SCENE', '开场情境', '设计故事的第一幕：在哪里、发生了什么，以及 NPC 如何开口。新建故事时使用这里的设定。'),
+      card(openingFields(project.opening, onChange),
+        field('NPC 开场白', textArea(project.character.greeting, value => { project.character.greeting = value; onChange() }, '用 *动作和环境* 与「对白」编写第一幕。', 6)),
+        el('p', 'rp-hint', '开场应给玩家留出回应空间。修改不会覆盖已有对话的消息。')))
+  } else if (section === 'visual') {
+    root.append(intro('ART DIRECTION', '画面与氛围', '设置角色立绘、场景背景与配色。图片保存在本地作品中，可离线显示。'),
+      card(field('氛围配色', selectInput(project.presentation.theme, [['amber', '雨夜暖灯'], ['forest', '静谧青绿'], ['midnight', '午夜蓝调']], value => { project.presentation.theme = value; onChange() })),
+        artworkField('portrait', '角色立绘', '建议使用竖向图片，人物位于画面中央。'),
+        artworkField('background', '场景背景', '建议使用横向场景图，文字区域会加深处理以保持可读性。')))
   } else if (section === 'attributes') {
     root.append(intro('CHARACTER ATTRIBUTES', '属性编辑', '添加任何你需要的角色属性。属性值会作为设定提供给 AI，不会被 AI 擅自改写。'))
     root.append(card(
@@ -58,7 +74,7 @@ export function renderEditor({ project, section, onChange, onPreview, settings, 
         field('回复长度上限', numberInput(project.context.maxTokens, value => { project.context.maxTokens = value; onChange() }, 1, 8192), '模型支持时使用。')),
       field('随机度', numberInput(project.context.temperature, value => { project.context.temperature = value; onChange() }, 0, 2, 0.05), '较低的值更稳定，较高的值更有变化。'),
     ))
-  } else {
+  } else if (section === 'model') {
     root.append(intro('MODEL CONNECTION', '模型连接', '支持 OpenAI Responses 与 Chat Completions 两种接口。密钥只保存在本机应用数据中。'))
     root.append(card(
       el('div', 'rp-card-toolbar', el('div', '', el('h2', '', '对话模型'), el('p', '', '不同于工作台 Agent 的模型设置，这里专门用于 NPC 对话。')),
@@ -75,8 +91,38 @@ export function renderEditor({ project, section, onChange, onPreview, settings, 
       el('p', 'rp-security-note', '对话内容会发送到上方配置的模型服务商。请确认该服务商的数据处理政策。'),
       el('p', 'rp-security-note', '对话输入支持附带 1–2 张图片（PNG、JPEG 或 WebP），发送前会自动压缩。图片随消息保存，并作为该轮上下文送给模型。'),
     ))
+  } else {
+    root.append(intro('APP SETTINGS', '设置', '调整发送给模型时的调用参数，对整个应用生效。'))
+    root.append(card(
+      el('div', 'rp-card-toolbar', el('div', '', el('h2', '', '调用参数'), el('p', '', '只影响 NPC 对话请求，不改变人物卡与上下文内容。')),
+        el('span', 'rp-key-status ' + (settings.stream === false ? '' : 'is-ready'), settings.stream === false ? '逐字显示已关闭' : '流式输出已开启')),
+      field('思考强度', selectInput(settings.reasoningEffort || 'default', [
+        ['default', '服务商默认'], ['off', '关闭思考'], ['low', '低'], ['medium', '中'], ['high', '高'],
+      ], value => { settings.reasoningEffort = value }), '取决于模型是否支持；不支持的服务商会忽略这个参数。'),
+      field('请求超时（秒）', numberInput(settings.timeoutSeconds ?? 120, value => { settings.timeoutSeconds = value }, 30, 600), '连接或生成超过该时间会中断，并提示请求超时。'),
+      toggle(settings.stream !== false, value => { settings.stream = value }, '流式输出（逐字显示回复）'),
+      el('p', 'rp-hint', '关闭流式输出后回复一次性返回，生成期间无法中途停止。'),
+      el('div', 'rp-settings-actions', button('保存设置', onSaveSettings, 'rp-button rp-button-primary')),
+      el('p', 'rp-security-note', '设置保存在本机应用数据目录，不会写入人物卡或对话文件。'),
+    ))
   }
   return root
+
+  function artworkField(key, title, hint) {
+    const preview = el('img', 'rp-artwork-thumbnail'); preview.src = artFor(project, key); preview.alt = title + '预览'
+    const input = el('input'); input.type = 'file'; input.accept = 'image/png,image/jpeg,image/webp'; input.hidden = true
+    input.setAttribute('aria-label', '上传' + title)
+    const upload = button('上传' + title, () => input.click(), 'rp-button rp-button-secondary')
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0]; input.value = ''; if (!file) return
+      upload.disabled = true
+      try { const image = await prepareImage(file); project.presentation[key] = image.dataUrl; preview.src = image.dataUrl; onChange() }
+      catch (error) { onError(error.message) }
+      finally { upload.disabled = false }
+    })
+    return el('div', 'rp-artwork-field', preview, el('div', '', el('h3', '', title), el('p', 'rp-hint', hint), el('div', 'rp-settings-actions', upload,
+      button('使用默认插画', () => { project.presentation[key] = ''; preview.src = artFor(project, key); onChange() }, 'rp-button rp-button-secondary')), input))
+  }
 }
 
 function numberInput(value, action, min, max, step = 1) {

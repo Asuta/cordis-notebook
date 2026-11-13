@@ -5,6 +5,7 @@
 .rp-app{height:calc(100dvh - 58px);min-height:0}
 .rp-brand .rp-brand-mark{font:700 19px Georgia,serif;letter-spacing:0;color:#f1dbad;margin-top:0}
 .rp-session-row{display:flex;align-items:center;gap:9px;min-width:0;width:100%}
+.rp-app .rp-button{white-space:nowrap}
 .rp-select{appearance:none;padding-right:32px;background-image:linear-gradient(45deg,transparent 50%,#7f9186 50%),linear-gradient(135deg,#7f9186 50%,transparent 50%);background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;cursor:pointer}
 .rp-composer-tools{display:flex;align-items:center;gap:10px;min-width:0}
 .rp-attach-button{padding:5px 10px;font-size:10px}
@@ -26,4 +27,4 @@
 .rp-stream-cursor{display:inline-block;color:#9caf9f;font-size:11px;animation:rp-blink 1s steps(2,start) infinite}
 @keyframes rp-blink{to{visibility:hidden}}
 .rp-message-streaming .rp-stream-text{padding-right:2px}
-@media(max-width:620px){.rp-message-image{width:88px;height:88px}.rp-composer-tools{gap:7px}.rp-attach-button{padding:4px 7px;font-size:9px}}
+@media(max-width:620px){.rp-message-image{width:88px;height:88px}.rp-composer-tools{gap:7px;flex:1}.rp-composer-hint{display:none}.rp-attach-button{padding:5px 8px;font-size:9px}}

@@ -1,14 +1,15 @@
 import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { composeContext, demoProject, LIMITS, validateImages, validateMessages, validateProject, validateSession } from './model.js'
+import { composeContext, demoProject, emptyMemory, LIMITS, normalizeProject, normalizeSession, validateImages, validateMemory, validateMessages, validateOpening, validatePlayer, validateProject, validateSession } from './model.js'
 
 const fail = (status, message) => { throw Object.assign(Error(message), { status }) }
 const object = value => !!value && typeof value === 'object' && !Array.isArray(value)
 const idOK = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,79}$/i.test(value)
 const isoNow = () => new Date().toISOString()
 const PROTOCOLS = Object.freeze({ responses: '/responses', chat: '/chat/completions' })
-const DEFAULT_SETTINGS = Object.freeze({ schemaVersion: 2, protocol: 'chat', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '' })
+const EFFORTS = Object.freeze(['default', 'off', 'low', 'medium', 'high'])
+const DEFAULT_SETTINGS = Object.freeze({ schemaVersion: 3, protocol: 'chat', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '', reasoningEffort: 'default', timeoutSeconds: 120, stream: true })
 const MAX_PROVIDER_BYTES = 1024 * 1024
 const MAX_ERROR_CHARS = 300
 
@@ -25,19 +26,28 @@ function normalizeBaseUrl(input) {
 }
 
 function validateSettings(value) {
-  exactKeys(value, ['schemaVersion', 'protocol', 'baseUrl', 'model', 'apiKey'])
-  if (value.schemaVersion !== 2 || !Object.hasOwn(PROTOCOLS, value.protocol) || typeof value.model !== 'string' || !value.model.trim() || value.model.length > 160 || /[\r\n]/.test(value.model) || typeof value.apiKey !== 'string' || value.apiKey.length > 4096 || /[\r\n]/.test(value.apiKey)) fail(400, '模型设置无效')
-  return { schemaVersion: 2, protocol: value.protocol, baseUrl: normalizeBaseUrl(value.baseUrl), model: value.model.trim(), apiKey: value.apiKey.trim() }
+  exactKeys(value, ['schemaVersion', 'protocol', 'baseUrl', 'model', 'apiKey', 'reasoningEffort', 'timeoutSeconds', 'stream'])
+  if (value.schemaVersion !== 3 || !Object.hasOwn(PROTOCOLS, value.protocol) || typeof value.model !== 'string' || !value.model.trim() || value.model.length > 160 || /[\r\n]/.test(value.model) || typeof value.apiKey !== 'string' || value.apiKey.length > 4096 || /[\r\n]/.test(value.apiKey)) fail(400, '模型设置无效')
+  if (!EFFORTS.includes(value.reasoningEffort) || !Number.isInteger(value.timeoutSeconds) || value.timeoutSeconds < 30 || value.timeoutSeconds > 600 || typeof value.stream !== 'boolean') fail(400, '调用参数无效')
+  return { schemaVersion: 3, protocol: value.protocol, baseUrl: normalizeBaseUrl(value.baseUrl), model: value.model.trim(), apiKey: value.apiKey.trim(), reasoningEffort: value.reasoningEffort, timeoutSeconds: value.timeoutSeconds, stream: value.stream }
 }
 
-// 旧版本只支持 Chat Completions，读取时补齐协议字段而不改动密钥。
+// 旧版本只保存连接信息，读取时补齐协议与调用参数，不改动密钥。
 export function normalizeSettings(value) {
-  if (object(value) && value.schemaVersion === 1) return validateSettings({ schemaVersion: 2, protocol: 'chat', baseUrl: value.baseUrl, model: value.model, apiKey: value.apiKey })
+  if (object(value) && value.schemaVersion === 1) return validateSettings({ schemaVersion: 3, protocol: 'chat', baseUrl: value.baseUrl, model: value.model, apiKey: value.apiKey, reasoningEffort: 'default', timeoutSeconds: 120, stream: true })
+  if (object(value) && value.schemaVersion === 2) return validateSettings({ schemaVersion: 3, protocol: value.protocol, baseUrl: value.baseUrl, model: value.model, apiKey: value.apiKey, reasoningEffort: 'default', timeoutSeconds: 120, stream: true })
   return validateSettings(value)
 }
 
 function publicSettings(value) {
-  return { protocol: value.protocol, baseUrl: value.baseUrl, model: value.model, hasApiKey: !!value.apiKey }
+  return { protocol: value.protocol, baseUrl: value.baseUrl, model: value.model, hasApiKey: !!value.apiKey, reasoningEffort: value.reasoningEffort, timeoutSeconds: value.timeoutSeconds, stream: value.stream }
+}
+
+// Responses 用 reasoning.effort，Chat Completions 用 reasoning_effort；默认值不发送字段。
+function reasoningFields(modelSettings) {
+  const effort = modelSettings.reasoningEffort
+  if (!effort || effort === 'default') return {}
+  return modelSettings.protocol === 'responses' ? { reasoning: { effort } } : { reasoning_effort: effort }
 }
 
 function message(role, content, images) {
@@ -182,7 +192,9 @@ export default async function (ctx, _config, runtime) {
 
   try {
     const stored = await readFile(projectFile, 'utf8')
-    project = validateProject(JSON.parse(stored))
+    const previous = JSON.parse(stored)
+    project = normalizeProject(previous)
+    if (previous.schemaVersion !== project.schemaVersion) await runtime.writeSnapshot(projectFile, JSON.stringify(project))
   } catch (error) {
     if (error.code !== 'ENOENT') throw Error('角色扮演作品无法读取；原文件已保留，请检查作品数据')
     project = demoProject()
@@ -197,10 +209,12 @@ export default async function (ctx, _config, runtime) {
   }
   for (const name of await readdir(sessionsDir)) {
     if (!/^[a-z0-9-]{1,80}\.json$/i.test(name)) continue
-    let session
-    try { session = validateSession(JSON.parse(await readFile(join(sessionsDir, name), 'utf8'))) }
+    let session, previous
+    try { previous = JSON.parse(await readFile(join(sessionsDir, name), 'utf8')); session = normalizeSession(previous, project) }
     catch { throw Error('会话数据无法读取；原文件已保留，请检查会话文件：' + name) }
     if (name !== session.id + '.json' || sessions.has(session.id)) throw Error('会话文件标识无效：' + name)
+    // 固定迁移时的身份和开场，避免下次启动时被新故事的默认设定覆盖。
+    if (previous.player === undefined || previous.opening === undefined || previous.memory === undefined) await runtime.writeSnapshot(join(sessionsDir, name), JSON.stringify(session))
     sessions.set(session.id, structuredClone(session))
   }
   if (sessions.size > LIMITS.sessions) throw Error('会话数量超过支持上限')
@@ -220,34 +234,53 @@ export default async function (ctx, _config, runtime) {
   route('GET', /^\/api\/roleplay\/sessions$/, () => [...sessions.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(sessionSummary))
   route('POST', /^\/api\/roleplay\/sessions$/, async ({ req }) => enqueue(async () => {
     const input = await ctx.http.body(req)
-    exactKeys(input, [], ['title', 'messages'])
+    exactKeys(input, [], ['title', 'messages', 'sourceSessionId', 'player', 'opening'])
     if (sessions.size >= LIMITS.sessions) fail(400, '最多创建 200 个会话')
     let messages
     if ('messages' in input) messages = structuredClone(validateMessages(input.messages))
     else messages = project.character.greeting.trim() ? [message('assistant', project.character.greeting)] : []
     const now = isoNow()
     const title = input.title === undefined ? ('messages' in input ? '新分支' : '新对话') : input.title
-    const session = validateSession({ id: randomUUID(), revision: 0, title, createdAt: now, updatedAt: now, messages })
+    const source = input.sourceSessionId ? getSession(input.sourceSessionId) : null
+    const session = validateSession({ id: randomUUID(), revision: 0, title, createdAt: now, updatedAt: now, messages,
+      player: structuredClone(input.player ? validatePlayer(input.player) : source?.player || project.player),
+      opening: structuredClone(input.opening ? validateOpening(input.opening) : source?.opening || project.opening),
+      // 从较早消息分支时清空后来的剧情记忆，避免未来事件泄漏到过去。
+      memory: structuredClone(source && JSON.stringify(messages) === JSON.stringify(source.messages) ? source.memory : emptyMemory()) })
     return saveSession(session)
   }))
   route('GET', /^\/api\/roleplay\/sessions\/([a-z0-9-]{1,80})$/i, ({ match }) => structuredClone(getSession(match[1])))
   route('PUT', /^\/api\/roleplay\/sessions\/([a-z0-9-]{1,80})$/i, async ({ match, req }) => enqueue(async () => {
     const current = getSession(match[1])
-    const next = validateSession(unwrap(await ctx.http.body(req), 'session'))
+    const input = validateSession(unwrap(await ctx.http.body(req), 'session'))
+    const next = normalizeSession({ ...current, ...input }, project)
     if (next.id !== current.id || next.createdAt !== current.createdAt) fail(400, '会话标识或创建时间不能更改')
     if (next.revision !== current.revision) fail(409, '会话已在其他页面修改，请重新载入')
     return saveSession({ ...structuredClone(next), revision: current.revision + 1, updatedAt: isoNow() })
   }))
 
+  route('PUT', /^\/api\/roleplay\/sessions\/([a-z0-9-]{1,80})\/state$/i, async ({ match, req }) => enqueue(async () => {
+    const input = await ctx.http.body(req)
+    exactKeys(input, ['revision'], ['player', 'memory'])
+    const current = getSession(match[1])
+    if (input.revision !== current.revision) fail(409, '会话已变化，请重新打开后编辑')
+    if (input.player !== undefined) validatePlayer(input.player)
+    if (input.memory !== undefined) validateMemory(input.memory)
+    return saveSession({ ...current, ...(input.player !== undefined ? { player: structuredClone(input.player) } : {}), ...(input.memory !== undefined ? { memory: structuredClone(input.memory) } : {}), revision: current.revision + 1, updatedAt: isoNow() })
+  }))
+
   route('GET', /^\/api\/roleplay\/settings$/, () => publicSettings(settings))
   route('PUT', /^\/api\/roleplay\/settings$/, async ({ req }) => enqueue(async () => {
     const input = await ctx.http.body(req)
-    exactKeys(input, ['baseUrl', 'model'], ['protocol', 'apiKey', 'clearApiKey'])
+    exactKeys(input, ['baseUrl', 'model'], ['protocol', 'apiKey', 'clearApiKey', 'reasoningEffort', 'timeoutSeconds', 'stream'])
     if (input.clearApiKey !== undefined && typeof input.clearApiKey !== 'boolean') fail(400, 'clearApiKey 必须是布尔值')
     if (input.apiKey !== undefined && (typeof input.apiKey !== 'string' || input.apiKey.length > 4096 || /[\r\n]/.test(input.apiKey))) fail(400, 'API Key 无效')
     if (input.clearApiKey && input.apiKey?.trim()) fail(400, '不能同时设置和清除 API Key')
     const key = input.clearApiKey ? '' : input.apiKey?.trim() || settings.apiKey
-    const next = validateSettings({ schemaVersion: 2, protocol: input.protocol === undefined ? settings.protocol : input.protocol, baseUrl: input.baseUrl, model: input.model, apiKey: key })
+    const next = validateSettings({ schemaVersion: 3, protocol: input.protocol === undefined ? settings.protocol : input.protocol, baseUrl: input.baseUrl, model: input.model, apiKey: key,
+      reasoningEffort: input.reasoningEffort === undefined ? settings.reasoningEffort : input.reasoningEffort,
+      timeoutSeconds: input.timeoutSeconds === undefined ? settings.timeoutSeconds : input.timeoutSeconds,
+      stream: input.stream === undefined ? settings.stream : input.stream })
     await runtime.writeSnapshot(settingsFile, JSON.stringify(next))
     settings = next; settingsRevision++
     return publicSettings(settings)
@@ -258,7 +291,7 @@ export default async function (ctx, _config, runtime) {
     exactKeys(input, [], ['sessionId', 'messages'])
     if (('sessionId' in input) === ('messages' in input)) fail(400, '请提供 sessionId 或 messages 其中一项')
     const history = 'sessionId' in input ? getSession(input.sessionId).messages : validateMessages(input.messages)
-    const composed = composeContext(project, history)
+    const composed = composeContext(project, history, input.sessionId ? getSession(input.sessionId) : {})
     // 预览只展示文字，避免把整张图片的 base64 送到浏览器对话框里。
     const messages = composed.messages.map(({ role, content, images }) => ({ role, content, ...(images?.length ? { imageCount: images.length } : {}) }))
     return { messages, activeWorldInfoIds: composed.activeWorldInfoIds }
@@ -275,8 +308,8 @@ export default async function (ctx, _config, runtime) {
       response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + modelSettings.apiKey },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(120000),
+        body: JSON.stringify({ ...payload, ...reasoningFields(modelSettings) }),
+        signal: AbortSignal.timeout(modelSettings.timeoutSeconds * 1000),
       })
     } catch (error) {
       fail(502, '无法连接模型服务，请检查接口地址、网络或系统代理' + (error?.name === 'TimeoutError' ? '（请求超时）' : ''))
@@ -314,6 +347,45 @@ export default async function (ctx, _config, runtime) {
     return { ok: true, protocol: settings.protocol, model: settings.model, reply }
   })
 
+  const jsonReply = text => {
+    try { return JSON.parse(text.trim().replace(/^(?:\x60){3}(?:json)?\s*/i, '').replace(/\s*(?:\x60){3}$/, '')) }
+    catch { fail(502, '模型没有返回有效的结构化内容，请重试') }
+  }
+
+  // 辅助生成只返回候选结果，不写消息，也不自动覆盖已确认的记忆。
+  route('POST', /^\/api\/roleplay\/sessions\/([a-z0-9-]{1,80})\/(suggestions|memory-draft)$/i, async ({ match, req }) => {
+    exactKeys(await ctx.http.body(req), [])
+    const current = structuredClone(getSession(match[1]))
+    const projectSnapshot = structuredClone(project), modelSnapshot = { ...settings }, configRevision = settingsRevision
+    const composed = composeContext(projectSnapshot, current.messages, current)
+    const isMemory = match[2] === 'memory-draft'
+    const instruction = isMemory
+      ? '整理已发生的对话与现有记忆，仅输出 JSON：{"summary":"共同经历摘要","scene":"当前地点与情境","relationship":"当前关系","facts":["重要事实或约定"]}。只记录明确发生或确认的信息，不臆测。summary 最多1500字，scene/relationship各最多800字，facts最多20条、每条最多300字。保留已确认的重要约定。'
+      : '暂时作为玩家的写作助手，给出3种不同方向的下一步玩家回复或行动（例如好奇、坦诚、探索）。仅输出 JSON：{"suggestions":["回复或动作1","回复或动作2","回复或动作3"]}。每条最多160字，可直接放入输入框。不要替NPC回答，不改变已发生的事实。'
+    const result = jsonReply(await callModel({ messages: [...composed.messages, { role: 'user', content: instruction }] }, modelSnapshot, { ...projectSnapshot.context, maxTokens: Math.max(2048, projectSnapshot.context.maxTokens) }))
+    if (getSession(current.id).revision !== current.revision || project.revision !== projectSnapshot.revision || configRevision !== settingsRevision) fail(409, '设定或对话已变化，请重新生成')
+    if (isMemory) {
+      if (!object(result) || !Array.isArray(result.facts) || result.facts.length > 20 || result.facts.some(fact => typeof fact !== 'string')) fail(502, '模型返回的记忆格式无效，请重试')
+      const memory = { summary: result.summary, scene: result.scene, relationship: result.relationship, facts: result.facts.map(content => ({ id: randomUUID(), content, enabled: true })) }
+      try { validateMemory(memory) } catch { fail(502, '模型返回的记忆内容无效，请重试') }
+      return { revision: current.revision, memory }
+    }
+    if (!Array.isArray(result?.suggestions) || result.suggestions.length !== 3 || result.suggestions.some(text => typeof text !== 'string' || !text.trim() || text.length > 500)) fail(502, '模型返回的建议格式无效，请重试')
+    return { revision: current.revision, suggestions: result.suggestions.map(text => text.trim()) }
+  })
+
+  route('POST', /^\/api\/roleplay\/playtest$/, async ({ req }) => {
+    const input = await ctx.http.body(req)
+    exactKeys(input, ['project', 'messages', 'message'])
+    const draft = validateProject(input.project)
+    if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > LIMITS.messageChars) fail(400, '请输入有效的试聊消息')
+    const history = [...validateMessages(input.messages), message('user', input.message)]
+    const text = await callModel(composeContext(draft, history), { ...settings }, draft.context)
+    const messages = [...history, message('assistant', text)]
+    validateMessages(messages)
+    return { messages }
+  })
+
   const streamModel = async (snapshot, modelSettings, contextSettings, onDelta, signal) => {
     if (!modelSettings.apiKey) fail(400, '请先在模型设置中填写 API Key')
     const endpoint = modelSettings.baseUrl.replace(/\/+$/, '') + PROTOCOLS[modelSettings.protocol]
@@ -325,8 +397,8 @@ export default async function (ctx, _config, runtime) {
       response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + modelSettings.apiKey, Accept: 'text/event-stream' },
-        body: JSON.stringify({ ...base, stream: true }),
-        signal,
+        body: JSON.stringify({ ...base, ...reasoningFields(modelSettings), stream: true }),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(modelSettings.timeoutSeconds * 1000)]) : AbortSignal.timeout(modelSettings.timeoutSeconds * 1000),
       })
     } catch (error) {
       if (signal?.aborted) fail(499, '生成已停止')
@@ -392,7 +464,7 @@ export default async function (ctx, _config, runtime) {
       history = current.messages.slice(0, lastIndex)
     }
     validateMessages(history)
-    return { current, projectAtStart, settingsAtStart, settingsRevisionAtStart, history, composed: composeContext(projectAtStart, history) }
+    return { current, projectAtStart, settingsAtStart, settingsRevisionAtStart, history, composed: composeContext(projectAtStart, history, current) }
   }
 
   const finalizeGeneration = (id, generation, content, signal) => {
