@@ -346,6 +346,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const listeningPort = app.server.address().port
   if (requestedPort > 0 && listeningPort !== requestedPort) console.log(`端口 ${requestedPort} 已被占用，工作台改用 ${listeningPort}`)
-  console.log(`Agent 工作台：http://127.0.0.1:${app.server.address().port}（应用${appMode === 'development' ? 'Vite 开发模式' : '正式构建模式'}）`)
+  console.log(`Agent 工作台（应用${appMode === 'development' ? 'Vite 开发模式' : '正式构建模式'}）：`)
+  console.log(`http://127.0.0.1:${listeningPort}/`)
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0) })
 }
