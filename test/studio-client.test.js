@@ -15,7 +15,7 @@ import { snapshotGenerator } from '../applications/studio/plugins/image-generati
 import { createAssetLibrary } from '../applications/studio/plugins/canvas-basic-cards/library.js'
 import { serializeClientBoard } from '../applications/studio/plugins/canvas/client-state.js'
 
-async function setup(t, { models = {}, providers = [], systemDark = false, library = null, libraryService = null, llmConfig = null, promptOptimizations = null, broadcastChannel = null } = {}) {
+async function setup(t, { models = {}, providers = [], systemDark = false, library = null, libraryService = null, llmConfig = null, promptOptimizations = null, broadcastChannel = null, beforeEdit = null } = {}) {
   const window = new Window({ settings: { disableCSSFileLoading: true } }), previous = { window: globalThis.window, document: globalThis.document, FileReader: globalThis.FileReader }
   if (broadcastChannel) window.BroadcastChannel = broadcastChannel
   window.matchMedia = query => ({ matches: query === '(prefers-color-scheme: dark)' && systemDark, media: query, addEventListener() {}, removeEventListener() {} })
@@ -55,7 +55,8 @@ async function setup(t, { models = {}, providers = [], systemDark = false, libra
       }
       if (path === '/api/studio/result-parameters') {
         const sourceBoard = state.boards.find(board => board.id === body.boardId), result = sourceBoard?.nodes.find(node => node.id === body.nodeId)
-        const job = state.jobs.find(job => job.resultNodeId === result?.id)
+        const assetId = body.assetId || result?.assetId
+        const job = state.jobs.find(job => job.assetId === assetId || job.assetIds?.includes(assetId) || job.resultAssetIds?.includes(assetId))
         if (!job?.cardSnapshot) throw Error('找不到这张结果的生成参数')
         const node = structuredClone(job.cardSnapshot)
         delete node.id; delete node.x; delete node.y
@@ -98,6 +99,7 @@ async function setup(t, { models = {}, providers = [], systemDark = false, libra
       }
       if (path.startsWith('/api/studio/providers/wavespeed/models?')) return { items: Object.values(models), total: Object.keys(models).length, catalogTotal: Object.keys(models).length, types: [], offset: 0, limit: 30 }
       if (path === '/api/studio/edit') {
+        await beforeEdit?.(body, state)
         const boardIndex = state.boards.findIndex(board => board.id === body.boardId)
         if (boardIndex < 0) throw Error('画板不存在')
         if (body.revision !== state.boards[boardIndex].revision) throw Object.assign(Error('画布已变化'), { status: 409 })
@@ -833,7 +835,7 @@ test('媒体缩放遇到版本冲突时保留本地修改，显式载入后显�
   window.dispatchEvent(pointer('pointerup', 400))
   await waitUntil(() => !!ctx.canvasSession.saveError)
   assert.equal(state.boards[0].nodes[0].frameWidth, 700)
-  assert.match(toasts[0], /画布已变化/)
+  assert.match(toasts[0], /尺寸.*冲突/)
   assert.notEqual(ctx.canvasSession.board().nodes[0].frameWidth, 700)
   assert.equal(ctx.canvasSession.pendingEdits, 1)
   assert.equal(window.document.querySelector('.studio-retry-save').hidden, false)
@@ -1524,6 +1526,26 @@ test('提示词停顿自动保存后继续输入，点击生成使用最新内�
   assert.equal(window.localStorage.getItem('drafts'), null)
 })
 
+test('输入框保持焦点时后台更新引发版本冲突，自动保存合并且不打断输入', async t => {
+  let inject = false
+  const { window, state, tools, toasts } = await setup(t, { beforeEdit: (_, state) => {
+    if (!inject) return
+    inject = false
+    state.boards[0] = applyOperation(state.boards[0], { type: 'add', node: { id: 'background', type: 'text', text: '后台生成结果' } }, {}).board
+  } })
+  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'generator', type: 'generator' } }] })
+  inject = true
+  const input = window.document.querySelector('textarea')
+  input.focus(); input.value = '保持焦点的新提示词'; input.oninput()
+  await waitUntil(() => !tools.get('studio_read')().dirty)
+  assert.equal(state.boards[0].nodes[0].prompt, '保持焦点的新提示词')
+  assert.equal(state.boards[0].nodes[1].id, 'background')
+  assert.ok(window.document.querySelector('textarea') === input)
+  assert.ok(window.document.activeElement === input)
+  assert.equal(window.document.querySelector('.studio-status').textContent, '已保存')
+  assert.deepEqual(toasts, [])
+})
+
 test('自动保存后其他页面修改同一提示词，仍阻止覆盖并保留本页草稿', async t => {
   const { window, state, tools, generated, toasts } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'generator', type: 'generator' } }] })
@@ -1677,7 +1699,8 @@ test('未收藏的图片和视频结果显示参数卡入口，点击或拖出�
     { type: 'add', node: { id: 'video-result', type: 'video', assetId: 'video', sourceNodeId: 'g', x: 1000, y: 100 } },
   ] })
   const cardSnapshot = snapshotGenerator(state.boards[0].nodes[0], { board: state.boards[0], types: createTypes(), assets: state.assets })
-  for (const id of ['image-result', 'video-result']) state.jobs.push({ id: 'job-' + id, boardId: state.boards[0].id, nodeId: 'g', resultNodeId: id, status: 'succeeded', cardSnapshot: structuredClone(cardSnapshot) })
+  for (const id of ['image-result', 'video-result']) state.jobs.push({ id: 'job-' + id, boardId: state.boards[0].id, nodeId: 'g', resultNodeId: id, assetId: state.boards[0].nodes.find(node => node.id === id).assetId, status: 'succeeded', cardSnapshot: structuredClone(cardSnapshot) })
+  await ctx.canvasSession.refresh({ fresh: true })
   await tools.get('studio_edit')({ revision: state.boards[0].revision, operations: [{ type: 'update', id: 'g', patch: { prompt: '现在已经修改的提示词' } }] })
   const video = window.document.querySelector('[data-node="video-result"] video')
   ctx.canvasSession.viewport = { x: 123, y: -456, zoom: .5 }
@@ -1700,9 +1723,44 @@ test('未收藏的图片和视频结果显示参数卡入口，点击或拖出�
   assert.equal(restored.prompt, '生成时的提示词')
   assert.deepEqual({ x: restored.x, y: restored.y }, { x: 754, y: 1412 })
   assert.deepEqual(ctx.canvasSession.viewport, { x: 123, y: -456, zoom: .5 })
-  assert.equal(window.document.querySelector('[data-node="video-result"] video'), video, '添加参数卡不能刷新已有视频')
+  assert.ok(window.document.querySelector('[data-node="video-result"] video') === video, '添加参数卡不能刷新已有视频')
   assert.equal(window.document.querySelectorAll('[data-node="video-result"] .studio-result-parameter').length, 1)
   assert.equal(generated.length, 0, '恢复参数卡不能自动生成')
+})
+
+test('重拖生成素材显示参数和共享收藏，普通导入素材没有生成入口', async t => {
+  const library = { prompts: [], models: [], cards: [], results: [], suffixes: [], history: [] }
+  const { window, state, tools, ctx } = await setup(t, { libraryService: ({ method, body }) => {
+    if (method === 'POST') {
+      if (body.action === 'delete') library.results = library.results.filter(item => item.id !== body.id)
+      else {
+        assert.equal(body.assetId, 'generated')
+        assert.equal(body.nodeId, undefined)
+        library.results.push({ id: 'favorite', kind: 'result', title: body.title, assetId: body.assetId, node: { prompt: '冻结提示词' } })
+      }
+    }
+    return structuredClone(library)
+  } })
+  for (const id of ['generated', 'uploaded']) state.assets[id] = { id, kind: 'image', name: id + '.png', width: 64, height: 48 }
+  state.jobs.push({ id: 'job', assetIds: ['generated'], cardSnapshot: { type: 'generator', prompt: '冻结提示词', ratio: '1:1', resolution: '1k' } })
+  await ctx.canvasSession.refresh({ fresh: true })
+  await tools.get('studio_edit')({ revision: 0, operations: [
+    { type: 'add', node: { id: 'one', type: 'image', assetId: 'generated' } },
+    { type: 'add', node: { id: 'two', type: 'image', assetId: 'generated' } },
+    { type: 'add', node: { id: 'plain', type: 'image', assetId: 'uploaded' } },
+  ] })
+  const card = id => window.document.querySelector('[data-node="' + id + '"]')
+  assert.equal(window.document.querySelectorAll('.studio-result-parameter').length, 2)
+  assert.equal(card('plain').querySelector('.studio-favorite-result'), null)
+  await card('one').querySelector('.studio-favorite-result').onclick()
+  assert.equal(card('one').querySelector('.studio-favorite-result').textContent, '★')
+  assert.equal(card('two').querySelector('.studio-favorite-result').textContent, '★')
+  await card('two').querySelector('.studio-favorite-result').onclick()
+  assert.equal(library.results.length, 0)
+  assert.equal(card('one').querySelector('.studio-favorite-result').textContent, '☆')
+  await card('two').querySelector('.studio-result-parameter').onclick({ stopPropagation() {} })
+  assert.equal(state.boards[0].nodes.at(-1).prompt, '冻结提示词')
+  assert.equal(state.boards[0].edges.length, 0)
 })
 
 test('视频标题自动保存并刷新后失焦恢复标题，重复编辑仍保留播放器', async t => {
@@ -2055,6 +2113,9 @@ test('结果收藏展示真实视频、悬停显示生成参数，拖到画布�
   assert.equal(added.assetId, 'result-video')
   assert.equal(added.title, '生成结果 9')
   assert.equal(state.boards[0].nodes.filter(node => node.type === 'generator').length, 1, '拖动结果收藏不能额外添加参数卡')
+  const addedCard = window.document.querySelector('[data-node="' + added.id + '"]')
+  assert.ok(addedCard.querySelector('.studio-result-parameter'), '没有任务时仍可通过收藏快照显示参数入口')
+  assert.equal(addedCard.querySelector('.studio-favorite-result').textContent, '★')
 })
 
 test('参考素材选择器按模型槽位过滤类型，并支持点击背景关闭', async t => {
@@ -2164,6 +2225,7 @@ test('删除冲突时保留本地意图，显式放弃后可继续删除最新�
   ] })
   await waitUntil(() => window.document.querySelectorAll('.studio-card').length === 2)
   state.boards[0] = applyOperation(state.boards[0], { type: 'remove', ids: ['b'] }, state.assets).board
+  state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: 'a', patch: { text: '另一页面的新正文' } }, state.assets).board
   const stage = window.document.querySelector('.studio-stage')
   const select = id => {
     const card = window.document.querySelector(`[data-node="${id}"]`)

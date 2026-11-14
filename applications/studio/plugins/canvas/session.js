@@ -26,13 +26,13 @@ export async function createSession(ctx, sdk) {
   // Session storage survives refresh without sharing one recovery journal across
   // browser tabs, which could otherwise overwrite or erase each other's edits.
   const edits = createEditQueue({ state: () => state, api, storage: sdk.storage.session || sdk.storage.local, undo, redo,
-    busy: () => editing || view.dragging(), report: message => sdk.toast(message),
+    busy: () => editing || view.dragging(), rebaseBusy: () => view.dragging(), report: message => sdk.toast(message),
     changed(save, repaint = false) {
-      if (save) notice.textContent = save.error ? '保存失败 · 修改已保留' : save.pending || drafts.size ? '正在保存…' : '已保存'
+      if (save) notice.textContent = save.recovering ? '正在恢复保存 · 修改已保留' : save.error ? '保存失败 · 修改已保留' : save.pending || drafts.size ? '正在保存…' : '已保存'
       if (repaint && !editing && !view.dragging()) render()
     },
   })
-  if (edits.dirty) notice.textContent = '待保存修改已恢复 · 请重试保存'
+  if (edits.dirty) notice.textContent = edits.recovering ? '正在恢复保存 · 修改已保留' : '保存失败 · 修改已保留'
   function rememberDrafts() {
     if (drafts.size) sdk.storage.local.setItem('drafts', JSON.stringify({ boardId, drafts: [...drafts] }))
     else sdk.storage.local.removeItem('drafts')
@@ -109,7 +109,7 @@ export async function createSession(ctx, sdk) {
     }
     rememberDrafts()
     if (drafts.size) return flushDrafts()
-    notice.textContent = edits.error ? '保存失败 · 修改已保留' : edits.count ? '正在保存…' : '已保存'
+    notice.textContent = edits.recovering ? '正在恢复保存 · 修改已保留' : edits.error ? '保存失败 · 修改已保留' : edits.count ? '正在保存…' : '已保存'
   }
   async function choose(id) {
     await flush(); await saveViewport()
@@ -142,6 +142,8 @@ export async function createSession(ctx, sdk) {
   try { recovered = JSON.parse(sdk.storage.local.getItem('drafts')) } catch {}
   if (recovered?.boardId && state.boards.some(b => b.id === recovered.boardId) && Array.isArray(recovered.drafts)) { boardId = recovered.boardId; viewport = savedViewport(boardId); for (const [id, value] of recovered.drafts) drafts.set(id, value); notice.textContent = '已恢复未保存草稿'; sdk.toast('已恢复草稿，继续编辑会尝试保存；冲突时不会覆盖另一页面。') }
   const timer = setInterval(() => refresh().catch(() => {}), 1500)
+  sdk.listen(window, 'online', () => edits.resume())
+  sdk.listen(document, 'visibilitychange', () => { if (!document.hidden) edits.resume() })
   sdk.listen(window, 'beforeunload', event => { if (drafts.size || edits.dirty) { event.preventDefault(); event.returnValue = '' } })
   ctx.on('plugins/before-stop', async request => {
     preparing = true; view.hold?.(true)

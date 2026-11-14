@@ -51,21 +51,32 @@ export function createLibrary(documents, jobs) {
     }
     definition.validate(node, state.assets); return node
   }
-  function resultJob(board, node) {
-    return [...jobs.read()].sort((left, right) => right.createdAt - left.createdAt).find(job =>
-      (!job.boardId || job.boardId === board.id) && job.nodeId === node.sourceNodeId &&
-      (job.resultNodeId === node.id || job.resultAssetIds?.includes(node.assetId) || job.assetIds?.includes(node.assetId) || job.assetId === node.assetId))
+  function resolveResult(input, checkRevision = false) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) fail('参数卡请求无效')
+    const state = documents.read()
+    let board, result, assetId = input.assetId
+    if (assetId === undefined) {
+      if (typeof input.boardId !== 'string' || typeof input.nodeId !== 'string') fail('参数卡请求无效')
+      board = state.boards.find(board => board.id === input.boardId)
+      result = board?.nodes.find(node => node.id === input.nodeId && ['image', 'video'].includes(node.type))
+      if (checkRevision && (!result || board.revision !== input.revision)) throw Object.assign(Error('生成结果已变化，请重新收藏'), { status: 409 })
+      assetId = result?.assetId
+    }
+    const asset = typeof assetId === 'string' && Object.hasOwn(state.assets, assetId) ? state.assets[assetId] : null
+    if (!asset || (asset.kind && !['image', 'video'].includes(asset.kind))) fail('生成结果不存在或素材不可用')
+    // Output identity survives copying cards, moving across boards and deleting the source card.
+    const job = [...jobs.read()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).find(job =>
+      job.assetId === assetId || job.assetIds?.includes(assetId) || job.resultAssetIds?.includes(assetId))
+    const favorite = records.read().find(item => item.kind === 'result' && item.assetId === assetId)
+    if (!job && !favorite) fail('找不到这张结果的生成参数')
+    const title = result?.title || asset.name || favorite?.title || '生成结果'
+    const sourceTitle = job?.cardSnapshot?.title || favorite?.sourceTitle || title
+    const node = generatorFromJob(job || { cardSnapshot: favorite.node }, { title, sourceTitle }, state)
+    const source = job ? { boardId: job.boardId || board?.id, nodeId: job.resultNodeId, sourceNodeId: job.nodeId, jobId: job.id } : favorite.source
+    return { assetId, outputKind: asset.kind || result?.type || 'image', title, sourceTitle, node, source }
   }
   function resultParameters(input) {
-    if (!input || typeof input.boardId !== 'string' || typeof input.nodeId !== 'string') fail('参数卡请求无效')
-    const state = documents.read(), board = state.boards.find(board => board.id === input.boardId)
-    const result = board?.nodes.find(node => node.id === input.nodeId && ['image', 'video'].includes(node.type) && node.sourceNodeId && state.assets[node.assetId])
-    if (!result) fail('生成结果不存在或素材不可用')
-    const job = resultJob(board, result)
-    const favorite = records.read().find(item => item.kind === 'result' && item.assetId === result.assetId)
-    if (!job && !favorite) fail('找不到这张结果的生成参数')
-    const sourceTitle = board.nodes.find(node => node.id === result.sourceNodeId)?.title || favorite?.sourceTitle || result.title
-    const node = generatorFromJob(job || { cardSnapshot: favorite.node }, { title: result.title, sourceTitle }, state)
+    const { node, sourceTitle } = resolveResult(input)
     return { node, sourceTitle }
   }
   return {
@@ -102,13 +113,8 @@ export function createLibrary(documents, jobs) {
         definition.validate(snapshot, state.assets)
         item = { kind: 'card', title: title(), node: Object.fromEntries(['type', 'title', ...definition.fields].filter(key => Object.hasOwn(snapshot, key)).map(key => [key, snapshot[key]])) }
       } else if (input.kind === 'result') {
-        const state = documents.read(), board = state.boards.find(board => board.id === input.boardId), node = board?.nodes.find(node => node.id === input.nodeId && ['image', 'video'].includes(node.type) && node.sourceNodeId)
-        if (!node || board.revision !== input.revision || !state.assets[node.assetId]) throw Object.assign(Error('生成结果已变化，请重新收藏'), { status: 409 })
-        const job = resultJob(board, node)
-        if (!job) fail('找不到这张结果的生成参数')
-        const source = board.nodes.find(item => item.id === node.sourceNodeId)
-        const resultTitle = input.title || node.title
-        item = { kind: 'result', title: text(resultTitle, 120, '收藏名称'), assetId: node.assetId, outputKind: node.type, sourceTitle: source?.title || resultTitle, node: generatorFromJob(job, { title: resultTitle, sourceTitle: source?.title }, state), source: { boardId: board.id, nodeId: node.id, sourceNodeId: node.sourceNodeId, jobId: job.id } }
+        const result = resolveResult(input, true)
+        item = { kind: 'result', ...result, title: text(input.title || result.title, 120, '收藏名称') }
       } else fail('收藏类型无效')
       await records.change(tx => {
         const index = input.id ? tx.records.findIndex(record => record.id === input.id && record.kind === item.kind) : -1

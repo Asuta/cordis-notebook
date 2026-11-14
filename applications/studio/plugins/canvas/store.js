@@ -86,7 +86,7 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
           if (receipt.signature !== signature) throw Object.assign(Error('编辑请求 ID 已用于其他操作'), { status: 409 })
           return { board: structuredClone(state.boards[index]), inverse: [], replayed: true }
         }
-        if (state.boards[index].revision !== expectedRevision) throw Object.assign(Error('画布已变化，请重新读取；本次操作未写入'), { status: 409 })
+        if (state.boards[index].revision !== expectedRevision) throw Object.assign(Error('画布已变化，请重新读取；本次操作未写入'), { status: 409, code: 'CANVAS_REVISION_CONFLICT' })
         // Only the edited board is mutable. Unrelated boards, assets and jobs
         // remain shared until the complete JSON snapshot has been saved.
         const result = applyOperations(state.boards[index], frozen, state.assets, types, { validateEach: true })

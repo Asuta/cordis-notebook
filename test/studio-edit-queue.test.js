@@ -11,25 +11,155 @@ import { serializeClientBoard } from '../applications/studio/plugins/canvas/clie
 
 const gate = () => { let release; const promise = new Promise(resolve => { release = resolve }); return { promise, release } }
 const turn = () => new Promise(resolve => setImmediate(resolve))
-function fixture({ storage = new Map(), api, board, clientTypes } = {}) {
+function fixture({ storage = new Map(), api, board, clientTypes, retryDelays, busy = () => false } = {}) {
   const types = createTypes(), server = board || newBoard('测试')
   if (!board) server.nodes = [{ id: 'a', type: 'text', x: 0, y: 0, title: '文字', text: '原文' }]
   const state = { boards: [structuredClone(server)], assets: {}, types: clientTypes || types.list().map(({ id,label,fields,accepts,output,defaults }) => ({ id,label,fields,accepts,output,defaults:defaults() })) }
   const calls = [], receipts = new Map(), statuses = [], messages = [], undo = new Map(), redo = new Map()
   let remote = server
-  const save = async (_, input) => {
+  const save = async (path, input) => {
+    if (path === '') return { boards: [serializeClientBoard(remote, types)], assets: {}, jobs: [] }
     calls.push(structuredClone(input))
     if (receipts.has(input.requestId)) return receipts.get(input.requestId)
-    if (input.revision !== remote.revision) throw Object.assign(Error('画布已变化'), { status: 409 })
+    if (input.revision !== remote.revision) throw Object.assign(Error('画布已变化'), { status: 409, code: 'CANVAS_REVISION_CONFLICT' })
     const applied = applyOperations(remote, input.operations, {}, types, { validateEach: true })
     remote = applied.board
     const inverse = applied.inverse
     const result = { board: serializeClientBoard(remote,types), inverse }; receipts.set(input.requestId,result); return result
   }
-  const queue = createEditQueue({ state: () => state, api: api ? (...args) => api(save,...args) : save, storage: {getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}, undo,redo,changed:value=>{if(value)statuses.push(value)},report:message=>messages.push(message),busy:()=>false })
+  const queue = createEditQueue({ state: () => state, api: api ? (...args) => api(save,...args) : save, storage: {getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}, undo,redo,changed:value=>{if(value)statuses.push(value)},report:message=>messages.push(message),busy,retryDelays })
   const edit = (operations,options={}) => queue.edit(operations,{targetBoard:server.id,waitForSave:false,...options})
-  return {queue,state,storage,calls,statuses,messages,undo,redo,edit,remote:()=>remote}
+  return {queue,state,storage,calls,statuses,messages,undo,redo,edit,remote:()=>remote, external: operations => { remote = applyOperations(remote, operations, {}, types).board }}
 }
+async function until(predicate) {
+  for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)) }
+  assert.fail('等待自动恢复超时')
+}
+
+test('网络与暂时服务故障自动重试同一请求，恢复后等待者完成且新操作继续保存', async t => {
+  let offline = true, attempts = 0
+  const f = fixture({ retryDelays: [5, 10, 20], api: async (save, ...args) => {
+    attempts++
+    if (offline) throw Object.assign(Error('temporarily unavailable'), { status: 503 })
+    return save(...args)
+  } })
+  t.after(() => f.queue.stop())
+  const saved = f.edit([{ type: 'update', id: 'a', patch: { x: 10 } }], { waitForSave: true })
+  await until(() => attempts >= 3)
+  assert.equal(f.queue.recovering, true); assert.equal(f.messages.length, 0)
+  await f.edit([{ type: 'update', id: 'a', patch: { y: 20 } }])
+  offline = false
+  await until(() => !f.queue.dirty); await saved
+  assert.deepEqual([f.remote().nodes[0].x, f.remote().nodes[0].y], [10, 20])
+  assert.equal(f.queue.recovering, false); assert.equal(f.storage.size, 0)
+})
+
+test('已写入但响应连续丢失，自动重试和恢复连接不重复添加', async t => {
+  let lost = true
+  const f = fixture({ retryDelays: [10000], api: async (save, ...args) => {
+    const response = await save(...args)
+    if (lost) throw TypeError('connection reset')
+    return response
+  } })
+  t.after(() => f.queue.stop())
+  const saved = f.edit([{ type: 'add', node: { id: 'b', type: 'text' } }], { waitForSave: true })
+  await until(() => f.queue.recovering)
+  lost = false; f.queue.resume()
+  await until(() => !f.queue.dirty); await saved
+  assert.equal(f.remote().nodes.length, 2); assert.equal(f.remote().revision, 1)
+  assert.equal(new Set(f.calls.map(call => call.requestId)).size, 1)
+})
+
+test('版本冲突自动合并不同字段与新增结果，连续队列及撤销重做保持正确', async t => {
+  const held = gate(), f = fixture({ api: async (save, ...args) => { await held.promise; return save(...args) } })
+  t.after(() => f.queue.stop())
+  const id = f.state.boards[0].id
+  f.external([{ type: 'update', id: 'a', patch: { text: '后台更新' } }, { type: 'add', node: { id: 'result', type: 'text', text: '生成结果' } }])
+  await f.edit([{ type: 'update', id: 'a', patch: { x: 10 } }])
+  await f.edit([{ type: 'update', id: 'a', patch: { x: 20 } }])
+  await f.edit(f.undo.get(id).at(-1), { historyDirection: 'undo' })
+  await f.edit(f.redo.get(id).at(-1), { historyDirection: 'redo' })
+  held.release(); await f.queue.flush()
+  assert.equal(f.remote().nodes[0].x, 20); assert.equal(f.remote().nodes[0].text, '后台更新')
+  assert.equal(f.state.boards[0].nodes.length, 2)
+  assert.deepEqual(f.calls.map(call => call.revision), [0, 2, 3, 4, 5])
+  assert.notEqual(f.calls[0].requestId, f.calls[1].requestId)
+  await f.edit(f.undo.get(id).at(-1), { historyDirection: 'undo', waitForSave: true })
+  assert.equal(f.remote().nodes[0].x, 10)
+  await f.edit(f.undo.get(id).at(-1), { historyDirection: 'undo', waitForSave: true })
+  assert.equal(f.remote().nodes[0].x, 0)
+  assert.equal(f.remote().nodes.length, 2); assert.equal(f.remote().nodes[0].text, '后台更新')
+  assert.equal(f.queue.dirty, false)
+})
+
+test('同字段修改或删除冲突保留整条队列和历史，不自动覆盖或循环重试', async t => {
+  for (const remote of [[{ type: 'update', id: 'a', patch: { x: 90 } }], [{ type: 'remove', ids: ['a'] }]]) {
+    const f = fixture({ retryDelays: [5] }); t.after(() => f.queue.stop())
+    f.external(remote)
+    await f.edit([{ type: 'update', id: 'a', patch: { x: 10 } }])
+    await until(() => !!f.queue.error)
+    assert.match(f.queue.error, /冲突/); assert.equal(f.queue.recovering, false)
+    assert.equal(f.state.boards[0].nodes[0].x, 10)
+    assert.equal(f.remote().nodes[0]?.x, remote[0].type === 'remove' ? undefined : 90)
+    assert.equal(f.queue.count, 1); assert.equal(f.undo.get(f.state.boards[0].id).length, 1)
+    f.queue.resume(); await turn(); assert.equal(f.calls.length, 1)
+  }
+})
+
+test('删除与另一张卡片的后台修改互不冲突，恢复删除不覆盖后台内容', async t => {
+  const f = fixture(); t.after(() => f.queue.stop())
+  await f.edit([{ type: 'add', node: { id: 'b', type: 'text', text: 'B' } }], { waitForSave: true })
+  f.external([{ type: 'update', id: 'b', patch: { text: '后台新正文' } }])
+  await f.edit([{ type: 'remove', ids: ['a'] }], { waitForSave: true })
+  assert.equal(f.remote().nodes.length, 1); assert.equal(f.remote().nodes[0].text, '后台新正文')
+  await f.edit(f.undo.get(f.state.boards[0].id).at(-1), { historyDirection: 'undo', waitForSave: true })
+  assert.deepEqual(f.remote().nodes.map(node => node.text), ['原文', '后台新正文'])
+})
+
+test('重合并日志写入失败不发布新基线或历史，手动重试仍可恢复', async t => {
+  class Storage extends Map { set(key, value) { if (this.fail) throw Error('storage full'); return super.set(key, value) } }
+  const storage = new Storage(), held = gate(), f = fixture({ storage, api: async (save, ...args) => { await held.promise; return save(...args) } })
+  t.after(() => f.queue.stop())
+  f.external([{ type: 'update', id: 'a', patch: { text: '远端正文' } }])
+  const saved = assert.rejects(f.edit([{ type: 'update', id: 'a', patch: { x: 10 } }], { waitForSave: true }), /storage full/)
+  const raw = storage.get('canvas-pending-edits-v1')
+  storage.fail = true; held.release(); await saved
+  assert.equal(storage.get('canvas-pending-edits-v1'), raw); assert.equal(f.state.boards[0].nodes[0].text, '原文')
+  storage.fail = false; await f.queue.retry()
+  assert.equal(f.remote().nodes[0].x, 10); assert.equal(f.state.boards[0].nodes[0].text, '远端正文')
+})
+
+test('拖动预览期间延后合并，拖动结束后自动恢复并保留后续操作', async t => {
+  let dragging = true
+  const f = fixture({ busy: () => dragging, retryDelays: [5] }); t.after(() => f.queue.stop())
+  f.external([{ type: 'update', id: 'a', patch: { text: '后台' } }])
+  await f.edit([{ type: 'update', id: 'a', patch: { x: 10 } }])
+  await until(() => !!f.queue.error)
+  assert.equal(f.state.boards[0].nodes[0].text, '原文')
+  await f.edit([{ type: 'update', id: 'a', patch: { y: 20 } }])
+  dragging = false; f.queue.resume()
+  await until(() => !f.queue.dirty)
+  assert.deepEqual([f.remote().nodes[0].x, f.remote().nodes[0].y], [10, 20])
+  assert.equal(f.remote().nodes[0].text, '后台')
+})
+
+test('刷新后的恢复日志自动提交，停用或放弃后取消自动重试', async t => {
+  const original = fixture({ retryDelays: [10000], api: async () => { throw TypeError('offline') } })
+  await original.edit([{ type: 'update', id: 'a', patch: { x: 30 } }]); await turn(); original.queue.stop()
+  const saved = original.queue.snapshot()
+  const restored = fixture({ storage: original.storage, board: saved.bases[0], retryDelays: [5] })
+  t.after(() => restored.queue.stop())
+  await until(() => !restored.queue.dirty)
+  assert.equal(restored.remote().nodes[0].x, 30)
+  for (const action of ['stop', 'discard']) {
+    let calls = 0
+    const f = fixture({ retryDelays: [5], api: async () => { calls++; throw TypeError('offline') } })
+    await f.edit([{ type: 'update', id: 'a', patch: { x: 30 } }]); await turn()
+    await f.queue[action](); const count = calls
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(calls, count)
+  }
+})
 
 test('本地连续编辑、撤销与重做立即生效，旧确认不覆盖后续位置', async () => {
   const held = gate(), f = fixture({api:async(save,...args)=>{await held.promise;return save(...args)}})

@@ -7,7 +7,7 @@ import { chromium } from 'playwright'
 import { createHost } from '../server/server.js'
 import { imageFixture, until } from './helpers/studio-wavespeed.js'
 
-test('画布操作立即响应，网络失败可重试，校验拒绝可继续编辑，恢复失败仍可导出', { skip: process.env.CORDIS_BROWSER_TEST !== '1', timeout: 45000 }, async t => {
+test('画布操作立即响应，网络和独立字段冲突自动恢复，真正冲突保留修改', { skip: process.env.CORDIS_BROWSER_TEST !== '1', timeout: 45000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'cordis-edit-browser-'))
   let host, browser, page
   t.after(async () => {
@@ -36,6 +36,16 @@ test('画布操作立即响应，网络失败可重试，校验拒绝可继续�
   await page.route('**/api/studio/edit', async route => {
     requests.push(route.request().postDataJSON())
     if (mode === 'offline') return route.abort('failed')
+    if (mode === 'conflict' || mode === 'same-field') {
+      const conflicting = mode === 'same-field'; mode = 'online'
+      const latest = (await request()).boards[0]
+      await request('/edit', { boardId: latest.id, revision: latest.revision, operations: conflicting
+        ? [{ type: 'update', id: 'latency-image', patch: { x: 25 } }]
+        : [
+          { type: 'update', id: 'latency-image', patch: { title: '后台更新的结果' } },
+          { type: 'add', node: { id: 'background-result', type: 'image', assetId: asset.id, x: 850, y: 350 } },
+        ] })
+    }
     if (mode === 'reject') {
       mode = 'online'
       const input = route.request().postDataJSON()
@@ -106,8 +116,7 @@ test('画布操作立即响应，网络失败可重试，校验拒绝可继续�
   assert.equal(await localX(), lastX, '刷新应恢复两次未保存移动')
   await page.locator('.studio-retry-save').waitFor({ state: 'visible' })
   mode = 'online'
-  await page.locator('.studio-retry-save').click()
-  await until(async () => await remoteX() === lastX, '重试未保存最终位置')
+  await until(async () => await remoteX() === lastX, '恢复日志没有自动保存最终位置')
   await page.locator('.studio-retry-save').waitFor({ state: 'hidden' })
   assert.equal(await localX(), lastX)
   assert.equal((await request()).boards[0].nodes.length, 2)
@@ -145,6 +154,32 @@ test('画布操作立即响应，网络失败可重试，校验拒绝可继续�
   assert.equal(await page.evaluate(key => sessionStorage.getItem(key), key), null)
   await page.getByRole('button', { name: '＋ 文字', exact: true }).click()
   await until(async () => (await request()).boards[0].nodes.length === 4, '明确放弃失败日志后应恢复正常编辑')
+  mode = 'offline'
+  const reconnectX = await move(20)
+  await until(() => page.locator('.studio-status').textContent().then(text => text.includes('正在恢复保存')))
+  mode = 'online'
+  await until(async () => await remoteX() === reconnectX, '网络恢复后不能要求点击重试或刷新页面')
+  await until(() => page.locator('.studio-status').textContent().then(text => text === '已保存'))
+  mode = 'conflict'
+  const mergedX = await move(20)
+  await until(async () => await remoteX() === mergedX, '版本冲突未自动合并')
+  await page.locator('[data-node="background-result"]').waitFor()
+  assert.equal((await request()).boards[0].nodes.find(node => node.id === 'latency-image').title, '后台更新的结果')
+  await page.keyboard.press('Control+z')
+  await until(async () => await remoteX() === reconnectX, '合并后撤销没有恢复上一次位置')
+  assert.equal((await request()).boards[0].nodes.some(node => node.id === 'background-result'), true)
+  await page.keyboard.press('Control+y')
+  await until(async () => await remoteX() === mergedX)
+  mode = 'same-field'
+  const conflictingX = await move(20)
+  await until(() => page.locator('.studio-status').textContent().then(text => text.includes('保存失败')))
+  assert.equal(await localX(), conflictingX); assert.equal(await remoteX(), 25)
+  assert.match(await page.locator('.studio-status').getAttribute('title'), /冲突/)
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: '载入最新', exact: true }).click()
+  await until(async () => await localX() === 25)
+  const continuedX = await move(20)
+  await until(async () => await remoteX() === continuedX, '载入最新后无需刷新即可继续编辑')
   assert.deepEqual(errors, [])
   t.diagnostic('保存人为延迟 1000ms，拖动与撤销重做响应：' + latencies.join(', ') + 'ms')
 })

@@ -172,6 +172,34 @@ test('未收藏结果直接恢复当次参数，不跟随源卡修改，源卡�
   assert.equal(library.read().results.length, 0)
 })
 
+test('素材跨画板重用按输出 ID 恢复冻结参数和收藏，源卡删除或任务丢失仍可恢复', async t => {
+  const { store, board } = await fixture(t), image = Object.values(store.read().assets)[0]
+  const cardSnapshot = snapshotGenerator(board.nodes.find(node => node.id === 'g'), { board, types: store.types, assets: store.read().assets })
+  const generated = [{ id: 'asset-job', boardId: board.id, nodeId: 'g', resultNodeId: 'original-result', assetId: image.id, cardSnapshot, createdAt: 1 }]
+  const library = createLibrary(store, { read: () => generated })
+  const other = await store.addBoard('重用素材')
+  const reused = await store.edit(other.id, 0, [{ type: 'add', node: { id: 'reused', type: 'image', assetId: image.id } }])
+  const expected = library.resultParameters({ assetId: image.id })
+  assert.equal(expected.node.prompt, '主提示词')
+  assert.equal(expected.node.modelParameters['wavespeed:mock/video'].duration, 5)
+  assert.deepEqual(library.resultParameters({ boardId: other.id, nodeId: 'reused' }), expected)
+  for (const field of ['assetId', 'assetIds', 'resultAssetIds']) {
+    generated[0] = { ...generated[0], assetId: undefined, assetIds: undefined, resultAssetIds: undefined, [field]: field === 'assetId' ? image.id : [image.id] }
+    assert.deepEqual(library.resultParameters({ assetId: image.id }), expected)
+  }
+  await store.edit(board.id, board.revision, [{ type: 'remove', ids: ['g'] }])
+  const saved = await library.save({ kind: 'result', assetId: image.id, title: '重拖的结果' })
+  assert.deepEqual(saved.results[0].node, expected.node)
+  assert.equal((await library.save({ kind: 'result', boardId: other.id, nodeId: 'reused', revision: reused.board.revision })).results.length, 1)
+  assert.equal(store.read().boards.find(b => b.id === other.id).nodes[0].sourceNodeId, undefined)
+  generated.length = 0
+  assert.deepEqual(library.resultParameters({ assetId: image.id }), expected, '任务丢失时可从结果收藏恢复')
+  await library.save({ action: 'delete', id: saved.results[0].id })
+  assert.throws(() => library.resultParameters({ assetId: image.id }), /找不到/)
+  await assert.rejects(library.save({ kind: 'result', assetId: image.id }), /找不到/)
+  assert.throws(() => library.resultParameters({ assetId: 'missing' }), /素材不可用/)
+})
+
 test('全局尾缀编辑同步所有画板的卡片内容，保留独立开关和历史快照', async t => {
   const { store, board } = await fixture(t), generated = [], library = createLibrary(store, { read: () => generated })
   const template = (await library.save({ kind: 'suffix', title: '固定镜头', text: '旧尾缀内容' })).suffixes[0]

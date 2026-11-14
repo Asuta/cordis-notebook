@@ -5,7 +5,7 @@ export function string(value, max, label) {
 }
 export function validateBoard(board, assets, types) {
   string(board.title, 120, '画板名称')
-  if (!Array.isArray(board.nodes) || board.nodes.length > 500 || !Array.isArray(board.edges) || board.edges.length > 1500) invalid('画板最多 500 张卡片、1500 条连线')
+  if (!Array.isArray(board.nodes) || board.nodes.length > 1000 || !Array.isArray(board.edges) || board.edges.length > 1500) invalid('画板最多 1000 张卡片、1500 条连线')
   const ids = new Set()
   for (const node of board.nodes) {
     if (!/^[\w-]{1,80}$/.test(node.id) || ids.has(node.id)) invalid('卡片 ID 无效或重复')
@@ -29,9 +29,10 @@ export function validateBoard(board, assets, types) {
 // Inverse operations carry preconditions checked inside the store transaction.
 // Only compare the data the inverse can overwrite or remove, not revision or
 // unrelated fields (e.g. moving a card must not prevent undoing its text).
-function historyState(board, op) {
+export function historyState(board, op) {
   const node = id => board.nodes.find(n => n.id === id) || null
   switch (op.type) {
+    case 'add': return node(op.node.id)
     case 'update': {
       const current = node(op.id)
       return current && { type: current.type, fields: Object.fromEntries([...Object.keys(op.patch), ...(op.unset || [])].map(key => [key, current[key]])) }

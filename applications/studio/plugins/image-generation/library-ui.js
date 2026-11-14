@@ -1,6 +1,19 @@
 export function createLibraryUI(ctx, view, s, sdk) {
   const { el, button, api, safe } = view
   let data = { prompts: [], models: [], cards: [], results: [], suffixes: [], history: [] }, target, tab = 'favorites', cardFilter = 'all', stopped = false
+  let indexedJobs, indexedResults
+  let generatedAssets = new Set(), resultFavorites = new Map()
+  function resultIndex() {
+    if (indexedJobs !== s.state.jobs) {
+      indexedJobs = s.state.jobs
+      generatedAssets = new Set((indexedJobs || []).flatMap(job => [job.assetId, ...(job.assetIds || []), ...(job.resultAssetIds || [])]).filter(Boolean))
+    }
+    if (indexedResults !== data.results) {
+      indexedResults = data.results
+      resultFavorites = new Map(data.results.map(item => [item.assetId, item]))
+    }
+    return resultFavorites
+  }
   const history = el('dialog', { class: 'studio-library-dialog', 'aria-label': '提示词收藏与历史' })
   const promptList = el('div', { class: 'studio-prompt-list studio-scroll' }), tabs = el('div', { class: 'studio-library-tabs', role: 'tablist' })
   const editor = el('dialog', { class: 'studio-library-dialog studio-library-editor', 'aria-label': '编辑收藏' })
@@ -13,10 +26,10 @@ export function createLibraryUI(ctx, view, s, sdk) {
   let saving
   async function load() {
     const next = await api('/generation-library')
-    if (!stopped) data = { prompts: [], models: [], cards: [], results: [], suffixes: [], history: [], ...next }
+    if (!stopped) { data = { prompts: [], models: [], cards: [], results: [], suffixes: [], history: [], ...next }; refreshResults() }
     return data
   }
-  async function save(input) { data = await api('/generation-library', input); if (!stopped) { drawPrompts(); drawCards(); drawSuffixes() } }
+  async function save(input) { data = await api('/generation-library', input); if (!stopped) { drawPrompts(); drawCards(); drawSuffixes(); refreshResults() } }
   const header = (title, close) => { const head = el('div', { class: 'studio-dialog-head' }); head.append(typeof title === 'string' ? el('h2', {}, title) : title, button('关闭', close)); return head }
   function editPrompt(item) {
     saving = () => save({ kind: 'prompt', ...(item.id ? { id: item.id, updatedAt: item.updatedAt } : {}), title: name.value.trim(), prompt: content.value })
@@ -245,23 +258,25 @@ export function createLibraryUI(ctx, view, s, sdk) {
   }
   async function toggleResult(node) {
     await load()
-    const existing = data.results.find(item => item.assetId === node.assetId)
+    const existing = resultIndex().get(node.assetId)
     if (existing) { await save({ action: 'delete', id: existing.id }); return false }
     await view.flush()
-    const board = s.state.boards.find(board => board.id === s.boardId)
-    await save({ kind: 'result', title: node.title, boardId: board.id, nodeId: node.id, revision: board.revision })
+    await save({ kind: 'result', title: node.title, assetId: node.assetId })
     return true
   }
   function decorateResult(node, card) {
-    if (!node.sourceNodeId || !node.assetId) return
-    const favorite = data.results.find(item => item.assetId === node.assetId)
+    const favorite = resultIndex().get(node.assetId)
+    if (!['image', 'video'].includes(node.type) || !node.assetId || (!generatedAssets.has(node.assetId) && !favorite)) {
+      card.querySelectorAll('.studio-favorite-result,.studio-result-parameter').forEach(element => element.remove())
+      return
+    }
     const star = card.querySelector('.studio-favorite-result') || button('', safe(async () => { await toggleResult(node); view.render() }), 'studio-favorite-result')
     star.textContent = favorite ? '★' : '☆'
     star.setAttribute('aria-label', favorite ? '取消收藏生成结果' : '收藏生成结果和参数')
     star.title = favorite ? '取消收藏结果' : '收藏结果与生成参数'
     card.querySelector('.studio-card-head')?.append(star)
     if (card.querySelector('.studio-result-parameter')) return
-    const source = { boardId: s.boardId, nodeId: node.id }
+    const source = { assetId: node.assetId }
     const drag = el('button', { type: 'button', class: 'studio-result-parameter', draggable: true, title: '点击或拖到画布，还原这次生成的模型、提示词和参考素材' }, '✦ 参数卡')
     drag.setAttribute('aria-label', '拖出生成参数卡')
     drag.ondragstart = event => { event.stopPropagation(); event.dataTransfer.setData(resultDragType, JSON.stringify(source)); event.dataTransfer.effectAllowed = 'copy' }
@@ -271,14 +286,15 @@ export function createLibraryUI(ctx, view, s, sdk) {
     })
     card.querySelector('.studio-image-foot')?.append(drag)
   }
+  function refreshResults() {
+    const nodes = new Map(s.board().nodes.map(node => [node.id, node]))
+    for (const card of view.cards.children) {
+      const node = nodes.get(card.dataset.node)
+      if (node && ['image', 'video'].includes(node.type)) decorateResult(node, card)
+    }
+  }
   view.extend(ctx, 'generation-result-favorites', {
-    refresh() {
-      const nodes = new Map(s.board().nodes.map(node => [node.id, node]))
-      for (const card of view.cards.children) {
-        const node = nodes.get(card.dataset.node)
-        if (node && ['image', 'video'].includes(node.type)) decorateResult(node, card)
-      }
-    },
+    refresh: refreshResults,
     card: decorateResult,
     dispose() { view.cards.querySelectorAll('.studio-favorite-result,.studio-result-parameter').forEach(element => element.remove()) },
   })
@@ -301,7 +317,7 @@ export function createLibraryUI(ctx, view, s, sdk) {
     load,
     renderKey: () => data.suffixes,
     suffixBar,
-    isResultFavorite: assetId => data.results.some(item => item.assetId === assetId),
+    isResultFavorite: assetId => resultIndex().has(assetId),
     toggleResult,
     isModelFavorite: (provider, model) => data.models.some(item => item.provider === provider && item.model === model),
     async toggleModel(provider, model) {

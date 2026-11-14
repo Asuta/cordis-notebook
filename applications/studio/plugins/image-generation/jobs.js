@@ -130,7 +130,7 @@ export async function createJobs(documents) {
         if (!board || board.revision !== input.revision) fail('画布已变化，请重新读取后生成')
         if (tx.records.some(j => j.boardId === input.boardId && j.nodeId === input.nodeId && j.status === 'uncertain')) fail('此卡片有提交结果未确认的任务，请先核对远端记录或结束跟踪')
         if (tx.records.filter(unresolved).length >= 20) fail('已有 20 个待完成任务')
-        if (board.nodes.length >= 500) fail('画板卡片已满，请先腾出结果框的位置')
+        if (board.nodes.length >= 1000) fail('画板已达到 1000 张卡片上限，请先减少卡片数量再生成')
         const provider = node?.provider ? providers.get(node.provider) : sortedProviders()[0]
         if (!provider) fail('图片服务不可用，请启用对应插件')
         selectedProvider = provider

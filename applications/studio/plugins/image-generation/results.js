@@ -23,7 +23,7 @@ export function resultPosition(board, source) {
 export function reserveResult(tx, job) {
   if (job.resultNodeId) return
   const board = tx.board(job.boardId), source = board?.nodes.find(node => node.id === job.nodeId)
-  if (!source || board.nodes.length >= 500) return
+  if (!source || board.nodes.length >= 1000) return
   job.resultNodeId = randomUUID()
   const count = board.nodes.filter(node => node.sourceNodeId === source.id).length
   const outputKind = job.outputKind || 'image'
@@ -43,7 +43,7 @@ export function completeResults(tx, job, outputs, assetIds) {
         tx.edit(board.id, [{ type: 'remove', ids: [frame.id] }, { type: 'add', node: { ...frame, type: output.kind, assetId: assetIds[index] } }, ...(edges.length ? [{ type: 'restore', nodes: [], edges }] : [])])
       }
     } else {
-      if (board.nodes.length >= 500) break
+      if (board.nodes.length >= 1000) break
       const count = board.nodes.filter(node => node.sourceNodeId === source.id).length
       tx.edit(board.id, [{ type: 'add', node: { id: randomUUID(), type: output.kind, assetId: assetIds[index], title: `生成结果 ${count + 1}`, ...resultPosition(board, source), ...(output.kind === 'video' ? { played: false } : {}), sourceNodeId: source.id, jobId: job.id } }])
     }

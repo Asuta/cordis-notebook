@@ -75,9 +75,11 @@ test('队列和画板容量在提交前校验，不创建多余画框或调用�
   await assert.rejects(submit(), /20 个待完成/)
   assert.equal(requests.length, 20); assert.equal(board().nodes.length, 21)
   for (const job of jobs.read()) await jobs.cancel(job.id)
-  await store.change(state => { const current = state.boards[0]; while (current.nodes.length < 500) current.nodes.push({ id: 'text-' + current.nodes.length, type: 'text', title: '文字', x: -500, y: 0, text: '' }) })
-  await assert.rejects(submit(), /画板卡片已满/)
-  assert.equal(requests.length, 20); assert.equal(board().nodes.length, 500)
+  await store.change(state => { const current = state.boards[0]; while (current.nodes.length < 999) current.nodes.push({ id: 'text-' + current.nodes.length, type: 'text', title: '文字', x: -500, y: 0, text: '' }) })
+  await submit()
+  assert.equal(board().nodes.length, 1000)
+  await assert.rejects(submit(), /1000 张卡片上限/)
+  assert.equal(requests.length, 21); assert.equal(board().nodes.length, 1000)
 })
 
 test('多结果输出保留首个占位框的位置和标题，按实际媒体类型填充并连接其他结果', async t => {
