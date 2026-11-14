@@ -8,6 +8,7 @@ import { ApplicationProcess } from './processes.js'
 import { CommandSessions } from './command-sessions.js'
 import { MODELS, normalizeConfig, validateSettings } from './config.js'
 import { AttachmentStore, IMAGE_LIMITS } from './attachments.js'
+import { workspaceImage, recoverToolImages } from './output-images.js'
 import { discoverApplications } from '../server/application-discovery.js'
 import { writeSnapshot } from './persistence.js'
 import { openConversationStore } from './conversation-store.js'
@@ -19,6 +20,8 @@ import { createToolExecutor } from './tool-router.js'
 import { errorDetail } from '../shared/errors.js'
 import { listenOnAvailablePort } from './ports.js'
 import { acquireInstanceLock } from './instance-lock.js'
+import { validateSkills } from './skills-config.js'
+import { skillCatalog } from './skills.js'
 
 const here = dirname(fileURLToPath(import.meta.url)), project = resolve(here, '..')
 const fail = (status, text) => Object.assign(Error(text), { status })
@@ -39,6 +42,11 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
   const imageStore = new AttachmentStore(dataDir)
   const store = await openConversationStore(dataDir, { onError: error => notify({ type: 'error', error: '会话保存失败：' + redact(error.message) }) })
   const conversations = store.conversations
+  for (const thread of conversations) {
+    try {
+      if (await recoverToolImages(thread, dataDir, imageStore)) { thread.revision++; store.mark(thread) }
+    } catch (error) { console.warn('历史图片恢复失败，会话文字保留：' + redact(error.message)) }
+  }
   await recoverConversations(conversations, { dataDir, mark: item => store.mark(item) })
   await store.flush()
   // Keep broken applications selectable for code repair; discovery never loads their plugins.
@@ -220,7 +228,7 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         res.writeHead(200, { 'Content-Type': artifact[2].endsWith('.jpg') ? 'image/jpeg' : 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(data); return
       }
       if (!['GET', 'HEAD'].includes(req.method) && path !== '/api/images' && req.headers['content-type'] !== 'application/json') throw fail(415, '需要 JSON 请求')
-      if (req.method === 'GET' && ['/', '/chat', '/app.js', '/style.css', '/markdown.js', '/timeline.js', '/thread-cache.js'].includes(path)) {
+      if (req.method === 'GET' && ['/', '/chat', '/app.js', '/style.css', '/markdown.js', '/timeline.js', '/thread-cache.js', '/skills-settings.js'].includes(path)) {
         const file = path === '/' || path === '/chat' ? 'index.html' : path.slice(1)
         res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(await readFile(join(here, 'public', file))); return
       }
@@ -230,6 +238,10 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         req.on('close', () => { clearInterval(timer); streams.delete(res) }); return
       }
       let result
+      if (req.method === 'GET' && path === '/api/workspace-image') {
+        const image = await workspaceImage(root, url.searchParams.get('path'))
+        res.writeHead(200, { 'Content-Type': image.mimeType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }); res.end(image.bytes); return
+      }
       if (req.method === 'GET' && path.startsWith('/api/images/')) {
         const id = path.slice('/api/images/'.length), image = await imageStore.get(id)
         res.writeHead(200, { 'Content-Type': image.mimeType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=86400' }); res.end(await imageStore.bytes(id)); return
@@ -244,7 +256,12 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
         if (!item) throw fail(404, '聊天不存在')
         result = threadPage(item, Object.fromEntries(url.searchParams))
       }
-      else if (req.method === 'GET' && path === '/api/config') result = { baseUrl: config.baseUrl, model: config.model, thinking: config.thinking, reasoningEffort: config.reasoningEffort, customSystemPrompt: config.customSystemPrompt, maxConcurrentAgents: config.maxConcurrentAgents, compaction: config.compaction, models: MODELS, imageLimits: IMAGE_LIMITS, hasKey: !!config.apiKey }
+      else if (req.method === 'GET' && path === '/api/config') result = { baseUrl: config.baseUrl, model: config.model, thinking: config.thinking, reasoningEffort: config.reasoningEffort, customSystemPrompt: config.customSystemPrompt, maxConcurrentAgents: config.maxConcurrentAgents, compaction: config.compaction, skills: config.skills, models: MODELS, imageLimits: IMAGE_LIMITS, hasKey: !!config.apiKey }
+      else if (req.method === 'POST' && path === '/api/skills/scan') {
+        let skills
+        try { skills = validateSkills(await body(req)) } catch (error) { throw fail(400, error.message) }
+        result = await skillCatalog(root, skills)
+      }
       else if (req.method === 'POST' && path === '/api/config') {
         const input = await body(req), url = new URL(input.baseUrl || config.baseUrl)
         if (tasks.size && typeof input.apiKey === 'string' && input.apiKey.trim()) throw fail(409, '任务执行中不能更换 API 密钥；其他设置会从下一轮生效')
@@ -258,7 +275,8 @@ export async function createWorkbench({ root = project, port = 3211, appPort = 3
       } else if (req.method === 'POST' && path === '/api/images') result = await imageStore.upload(req)
       else if (req.method === 'POST' && path === '/api/images/remove') {
         const { id } = await body(req)
-        if (conversations.some(thread => thread.messages.some(message => message.images?.some(image => image.id === id)))) throw fail(409, '历史会话正在使用此图片')
+        if (conversations.some(thread => thread.messages.some(message => message.images?.some(image => image.id === id))
+          || (thread.turns || []).some(turn => (turn.events || []).some(event => event.images?.some(image => image.id === id))))) throw fail(409, '历史会话正在使用此图片')
         await imageStore.remove(id); result = { removed: true }
       } else if (req.method === 'POST' && path === '/api/thread-preferences') {
         const input = await body(req), item = conversations.find(item => item.id === input.threadId)
@@ -346,6 +364,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const listeningPort = app.server.address().port
   if (requestedPort > 0 && listeningPort !== requestedPort) console.log(`端口 ${requestedPort} 已被占用，工作台改用 ${listeningPort}`)
-  console.log(`Agent 工作台：http://127.0.0.1:${app.server.address().port}（应用${appMode === 'development' ? 'Vite 开发模式' : '正式构建模式'}）`)
+  console.log(`Agent 工作台（应用${appMode === 'development' ? 'Vite 开发模式' : '正式构建模式'}）：`)
+  console.log(`http://127.0.0.1:${listeningPort}/`)
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0) })
 }

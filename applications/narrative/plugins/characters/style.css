@@ -1,0 +1,56 @@
+.ne-app .ne-characters { min-width: 0; }
+.ne-app .ne-characters-heading { gap: 8px; flex-wrap: wrap; }
+.ne-app .ne-characters-heading .ne-section-title { margin-right: auto; }
+.ne-app .ne-characters-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.ne-app .ne-character-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid #9e8b7433;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ne-app .ne-character-item[aria-pressed='true'] { border-color: var(--ne-accent, #b59475); background: #b5947514; }
+.ne-app .ne-character-item:hover { background: #b594751a; }
+.ne-app .ne-character-item:focus-visible { outline: 2px solid var(--ne-accent, #b59475); outline-offset: 2px; }
+.ne-app .ne-character-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ne-app .ne-character-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; }
+.ne-app .ne-characters-editor { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ne-app .ne-characters-editor:disabled { opacity: .6; }
+.ne-app .ne-characters-legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.ne-app .ne-character-profile { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 14px; border-left: 3px solid var(--ne-character-color, #b59475); }
+.ne-app .ne-character-portrait-wrap { position: relative; display: grid; place-items: center; flex: 0 0 72px; height: 96px; overflow: hidden; border-radius: 10px; background: linear-gradient(150deg, #b5947530, #75677a12); }
+.ne-app .ne-character-initial { font-size: 28px; color: var(--ne-character-color, #b59475); }
+.ne-app .ne-character-portrait { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; }
+.ne-app .ne-character-profile-text { min-width: 0; }
+.ne-app .ne-character-profile-name { display: block; overflow-wrap: anywhere; font-size: 16px; }
+.ne-app .ne-character-profile-text p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 6px 0 0; line-height: 1.65; overflow-wrap: anywhere; }
+.ne-app .ne-characters p { margin: 0; line-height: 1.7; }
+.ne-app .ne-character-color { width: 64px; height: 36px; padding: 3px; border: 1px solid #9e8b7440; border-radius: 8px; background: transparent; cursor: pointer; }
+.ne-app .ne-character-image-heading { display: grid; gap: 6px; margin-top: 4px; }
+.ne-app .ne-character-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ne-app .ne-character-image-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; }
+.ne-app .ne-character-image-preview { display: block; width: 100%; height: 112px; object-fit: contain; object-position: center bottom; border-radius: 8px; background: linear-gradient(160deg, #b594751a, #75677a0d); }
+.ne-app .ne-character-image-card .ne-field { min-width: 0; }
+.ne-app .ne-character-image-card .ne-select { width: 100%; min-width: 0; }
+.ne-app .ne-character-upload { margin-top: auto; font-size: 11px; }
+.ne-app .ne-character-file { display: block; max-width: 100%; width: 100%; min-width: 0; font: inherit; color: inherit; }
+.ne-app .ne-character-file::file-selector-button { padding: 6px 8px; margin-right: 6px; border: 1px solid #9e8b7440; border-radius: 6px; background: #b5947514; color: inherit; font: inherit; cursor: pointer; }
+.ne-app .ne-character-deletion { display: grid; gap: 12px; padding: 12px; border: 1px solid #c1756c55; }
+.ne-app .ne-character-deletion .ne-row { flex-wrap: wrap; gap: 8px; }
+.ne-app .ne-characters-notice { padding: 10px 12px; border: 1px solid #b5947533; border-radius: 10px; }
+.ne-app .ne-characters-status:empty { display: none; }
+.ne-app .ne-characters :is(.ne-empty, .ne-characters-editor, .ne-characters-notice, .ne-character-deletion, .ne-character-portrait, .ne-character-image-preview)[hidden] { display: none; }
+
+@media (max-width: 520px) {
+  .ne-app .ne-character-images { grid-template-columns: minmax(0, 1fr); }
+  .ne-app .ne-character-image-card { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: start; }
+  .ne-app .ne-character-image-preview { grid-row: span 2; height: 96px; }
+  .ne-app .ne-character-image-card .ne-character-upload { grid-column: 2; }
+}

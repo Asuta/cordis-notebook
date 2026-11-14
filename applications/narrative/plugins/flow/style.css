@@ -1,0 +1,31 @@
+.ne-app .ne-flow-editor { gap: 14px; }
+.ne-app .ne-flow-editor-heading { justify-content: space-between; align-items: center; }
+.ne-app .ne-flow-editor-heading h2 { margin: 0; }
+.ne-app .ne-flow-map { overflow: auto; max-height: 176px; border: 1px solid #e8e1ef; border-radius: 14px; background: #f9f7fc; }
+.ne-app .ne-flow-map svg { display: block; width: 100%; min-width: 240px; }
+.ne-app .ne-flow-edge { fill: none; stroke: #b8a5cc; stroke-width: 1.4; }
+.ne-app .ne-flow-point { cursor: pointer; outline: none; }
+.ne-app .ne-flow-point circle { fill: #f0eaf8; stroke: #b8a5cc; stroke-width: 1.5; }
+.ne-app .ne-flow-point.is-selected circle, .ne-app .ne-flow-point:focus circle { fill: #7460b6; stroke: #dfd0ff; stroke-width: 2; }
+.ne-app .ne-flow-point text { fill: #79618f; text-anchor: middle; font: 11px system-ui, sans-serif; pointer-events: none; }
+.ne-app .ne-flow-point.is-selected text, .ne-app .ne-flow-point:focus text { fill: #fff; }
+.ne-app .ne-flow-list { display: flex; flex-direction: column; gap: 5px; max-height: 272px; overflow: auto; padding: 2px; }
+.ne-app .ne-flow-list-node { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 11px 10px; background: #fcfbfe; color: inherit; border: 1px solid transparent; border-radius: 10px; cursor: pointer; font: inherit; }
+.ne-app .ne-flow-list-node:hover { background: #f5f0fa; }
+.ne-app .ne-flow-list-node.is-selected { background: #a78bdb18; border-color: #ad95d94d; }
+.ne-app .ne-flow-list-node:focus-visible { outline: 2px solid #b297db; outline-offset: 1px; }
+.ne-app .ne-flow-number { color: #8a91a6; font: 11px ui-monospace, monospace; }
+.ne-app .ne-flow-node-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.ne-app .ne-flow-type { color: var(--ne-node-color, #8873ab); background: #ffffffa6; font-size: 10px; white-space: nowrap; }
+.ne-app .ne-flow-start { font-size: 10px; color: #648e7a; }
+.ne-app .ne-flow-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.ne-app .ne-flow-add { flex-wrap: wrap; gap: 6px; }
+.ne-app .ne-flow-add .ne-button { flex: 1; font-size: 12px; white-space: nowrap; }
+.ne-app .ne-flow-line, .ne-app .ne-flow-choice { padding: 12px; border: 1px solid #e8e1ef; border-radius: 11px; background: #ffffff80; }
+.ne-app .ne-flow-condition { padding-top: 8px; border-top: 1px solid #e8e1ef; }
+.ne-app .ne-flow-condition input[type=checkbox] { width: 16px; height: 16px; accent-color: #ac92da; }
+.ne-app .ne-flow-action { padding: 10px; border-radius: 9px; background: #f3eff9; }
+.ne-app .ne-flow-small { align-self: flex-end; font-size: 11px; padding: 5px 8px; }
+.ne-app .ne-flow-detail .ne-textarea { resize: vertical; min-height: 78px; line-height: 1.7; }
+.ne-app .ne-flow-detail .ne-muted { font-size: 12px; line-height: 1.7; margin: 0; }
+.ne-app .ne-flow-editor button:disabled { cursor: default; opacity: .5; }

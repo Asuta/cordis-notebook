@@ -1,0 +1,13 @@
+{
+  "format": "mesh-avatar",
+  "version": 1,
+  "name": "汐音 · 月下听潮",
+  "author": "CordisTest / AI generated character",
+  "source": "source.png",
+  "thumbnail": "thumbnail.png",
+  "expressions": {
+    "surprise": {
+      "mouthOpen": 0.45
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@cordis-narrative/stage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "stage",
+    "name": "舞台与布景",
+    "description": "展示场景背景和角色立绘，编辑各场景的表情、位置与大小。",
+    "requires": { "server": [], "client": ["narrative", "narrativeUI"] },
+    "provides": { "server": [], "client": [] },
+    "order": 30,
+    "defaultEnabled": true,
+    "category": { "id": "features", "label": "功能" },
+    "icon": "Image",
+    "client": "client.js",
+    "public": ["client.js", "style.css"],
+    "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

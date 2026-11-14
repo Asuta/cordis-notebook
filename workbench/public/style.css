@@ -949,6 +949,11 @@ body.layout-dragging .chat-header { cursor: grabbing; }
   gap: 8px;
   margin: 8px 0;
 }
+.chat-image { display: inline-block; max-width: 100%; margin: 8px 0; }
+.chat-image img { display: block; max-width: 100%; max-height: 480px; height: auto; object-fit: contain; border: 1px solid var(--border); border-radius: 10px; }
+.output-images { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.output-images[hidden] { display: none; }
+.image-unavailable { color: var(--muted); font-size: 13px; }
 .message-images img {
   display: block;
   max-width: 160px;
@@ -1077,6 +1082,19 @@ dialog footer {
   gap: 8px;
   margin-top: 22px;
 }
+.skills-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.skills-heading h3 { margin: 0; }
+.skills-heading button { flex-shrink: 0; font-size: 12px; }
+#skills-list { display: grid; gap: 10px; }
+.skill-card { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+dialog .skill-title { margin: 0; overflow-wrap: anywhere; }
+.skill-card p { line-height: 1.6; margin: 8px 0; overflow-wrap: anywhere; }
+.skill-path { display: block; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.skill-apps { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.skill-apps[hidden] { display: none; }
+dialog .skill-apps label { margin: 0; }
+.skill-apps p { flex-basis: 100%; margin: 0; }
+dialog .skill-diagnostic { color: #9b582b; overflow-wrap: anywhere; }
 #toast {
   position: fixed;
   z-index: 100;

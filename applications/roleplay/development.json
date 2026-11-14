@@ -1,0 +1,22 @@
+{
+  "recipes": {
+    "ui": {
+      "services": { "client": [], "server": [] },
+      "contracts": [],
+      "examples": ["plugins/chat/client.js", "plugins/chat/chat.js", "plugins/chat/editor.js"],
+      "patterns": ["角色卡、对话与设置由 chat 插件挂载；流式请求使用宿主的 sdk.stream，停止时取消在途生成。"]
+    },
+    "backend": {
+      "services": { "client": [], "server": ["http"] },
+      "contracts": [],
+      "examples": ["plugins/chat/server.js", "plugins/chat/model.js"],
+      "patterns": ["会话数据写入应用私有目录；流式响应仅在收到模型完成标记且客户端未取消时保存。"]
+    },
+    "agent": {
+      "services": { "client": [], "server": [] },
+      "contracts": [],
+      "examples": ["plugins/chat/client.js", "agent.md"],
+      "patterns": ["角色内容使用 roleplay_read、roleplay_edit；编辑器功能通过工作台代码工具修改 chat 插件。"]
+    }
+  }
+}

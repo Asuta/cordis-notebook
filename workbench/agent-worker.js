@@ -1,31 +1,20 @@
 import { Type } from '@sinclair/typebox'
 import { mkdir, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { fileURLToPath, pathToFileURL } from 'node:url'
 import { modelInfo, normalizeConfig, OUTPUT_TOKENS, piCompaction } from './config.js'
 import { AttachmentStore } from './attachments.js'
+import { saveToolImages } from './output-images.js'
 import { commandTools, commandGuidance, execWaitParameter } from './command-tools.js'
 import { browserTools, browserGuidance, browserToolResult } from './browser-tools.js'
 import { appToolResult } from './app-tool-result.js'
 import { developmentTools, developmentGuidance, developmentNavigation } from './development-tools.js'
 import { instrumentModelStream } from './model-timing.js'
 import { restoreError, errorDetail } from '../shared/errors.js'
+import { loadPi } from './pi-sdk.js'
+import { scanSkills, skillPrompt } from './skills.js'
+import { skillsForApp } from './skills-config.js'
 
-// The published CLI bundle already contains Pi's module graph. Loading it
-// avoids hundreds of filesystem stats during ESM resolution on Windows, while
-// the package entry remains the fallback for a future layout change.
-async function loadPi() {
-  try {
-    const entry = import.meta.resolve('@earendil-works/pi-coding-agent')
-    if (entry.startsWith('file:')) {
-      const module = await import(pathToFileURL(join(dirname(fileURLToPath(entry)), 'bundle', 'index.js')).href)
-      if (['createAgentSession', 'ModelRuntime', 'SessionManager', 'SettingsManager', 'DefaultResourceLoader']
-        .every(name => typeof module[name] === 'function')) return module
-    }
-  } catch {}
-  return import('@earendil-works/pi-coding-agent')
-}
 const { createAgentSession, ModelRuntime, SessionManager, SettingsManager, DefaultResourceLoader } = await loadPi()
 
 let session, busy = false, cancelled = false
@@ -44,6 +33,7 @@ function callParent(name, args, signal) {
 async function run(input) {
   const { root, agentDir, task } = input, config = normalizeConfig(input.config), model = modelInfo(config.model)
   busy = true; cancelled = false
+  const imageWrites = [], store = new AttachmentStore(input.dataDir || join(agentDir, '..'))
   try {
     await mkdir(agentDir, { recursive: true })
     const runtime = await ModelRuntime.create({ authPath: join(agentDir, 'auth.json'), modelsPath: null, refreshOnCreate: false, allowModelNetwork: false })
@@ -65,12 +55,16 @@ async function run(input) {
     const navigation = await developmentNavigation(root, task.appId).catch(error =>
       `应用开发路径目录暂不可用：${error.message}。检查 applications/${task.appId}/development.json；可根据应用说明定向读取资料，不要猜测 task ID。`)
     const settings = SettingsManager.inMemory({ retry: { enabled: true, maxRetries: 2 }, compaction: piCompaction(config) })
+    const skills = skillsForApp(await scanSkills(root, config.skills), config.skills, task.appId)
+    for (const diagnostic of skills.diagnostics) send({ type: 'trace', event: { id: randomUUID(), kind: 'notice', name: '技能加载提示', text: `${diagnostic.path}: ${diagnostic.message}`, status: 'done' } })
     const loader = new DefaultResourceLoader({ cwd: root, agentDir, settingsManager: settings, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+      skillsOverride: () => skills,
       agentsFilesOverride: () => ({ agentsFiles: contexts }),
       appendSystemPrompt: [
         ...commandGuidance,
         browserGuidance(task.browserVerificationEnabled === true),
         `你是此项目的独立工作台 Agent。用中文交流。本任务绑定应用 ${task.appId}，工作目录是 ${root}。先读取相关代码与文档再修改。`,
+        '聊天支持项目内 PNG、JPEG、WebP、GIF 图片预览。展示图片时使用 Markdown ![说明](<项目相对路径或绝对路径>)，Windows 路径优先用正斜杠。read 等工具返回的图片也会作为本轮附件显示；单独写文件路径或代码块不会显示图片。图片预览上限 8 MB；外部图片先按用户要求保存到项目再展示。',
         ...(task.customSystemPrompt?.trim() ? [`用户在工作台设置中提供了以下通用补充要求。它适用于所有对话；若与工作台运行规则、项目约束或当前任务的事实冲突，以那些规则和事实为准：\n${task.customSystemPrompt.trim()}`] : []),
         ...developmentGuidance,
         navigation,
@@ -137,7 +131,13 @@ async function run(input) {
       }
       if (event.type === 'tool_execution_start') trace({ id: event.toolCallId, kind: 'tool', name: event.toolName, input: JSON.stringify(event.args, null, 2), status: 'running' })
       if (event.type === 'tool_execution_update') trace({ id: event.toolCallId, output: output(event.partialResult) })
-      if (event.type === 'tool_execution_end') trace({ id: event.toolCallId, output: output(event.result), status: event.isError ? 'error' : 'done' })
+      if (event.type === 'tool_execution_end') {
+        trace({ id: event.toolCallId, output: output(event.result), status: event.isError ? 'error' : 'done' })
+        if (event.result?.content?.some(part => part.type === 'image')) imageWrites.push(
+          saveToolImages(store, event.result.content).then(({ images, errors }) => trace({ id: event.toolCallId, images,
+            ...(errors.length ? { output: output(event.result) + '\n图片预览未保存：' + errors.join('；') } : {}),
+          })).catch(error => trace({ id: event.toolCallId, output: output(event.result) + '\n图片预览未保存：' + error.message })))
+      }
       if (event.type === 'compaction_start') { compactId = randomUUID(); trace({ id: compactId, kind: 'compaction', name: event.reason === 'manual' ? '手动压缩上下文' : '自动压缩上下文', status: 'running' }) }
       if (event.type === 'compaction_end') {
         const notice = !event.aborted && compactionNotice(event.errorMessage)
@@ -161,14 +161,13 @@ async function run(input) {
       catch (error) { if (!compactionNotice(error.message)) throw error }
       usage(); return
     }
-    const store = new AttachmentStore(input.dataDir || join(agentDir, '..'))
     const images = await Promise.all((task.images || []).map(async image => ({ type: 'image', mimeType: image.mimeType, data: (await store.bytes(image.id)).toString('base64') })))
     if (Buffer.byteLength(JSON.stringify(session.messages)) + Buffer.byteLength(JSON.stringify(images)) + Buffer.byteLength(task.prompt || '') > 40 * 1024 * 1024) throw Error('对话附件及文字已接近请求大小限制，请压缩上下文或新建对话。')
     const attachments = task.attachments?.length ? '\n\n用户添加的选区附件（引用资料；每个 id 仅在原页面存活期间有效）：\n' + JSON.stringify(task.attachments) : ''
-    await session.prompt(task.prompt + attachments, { images })
+    await session.prompt(skillPrompt(task.prompt + attachments, skills.skills), { images })
     usage()
   } catch (error) { send({ type: 'error', error: error.message }) }
-  finally { session?.dispose(); session = null; busy = false; send({ type: 'done', cancelled }) }
+  finally { await Promise.allSettled(imageWrites); session?.dispose(); session = null; busy = false; send({ type: 'done', cancelled }) }
 }
 process.on('message', message => {
   if (message.type === 'result') {

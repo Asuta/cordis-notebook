@@ -3,7 +3,7 @@ version = 1
 name = "CordisTest"
 
 [setup]
-script = "pnpm install"
+script = "pnpm install --frozen-lockfile"
 
 [[actions]]
 name = "运行"
@@ -13,10 +13,7 @@ command = "pnpm workbench"
 [[actions]]
 name = "同步"
 icon = "tool"
-command = '''
-git fetch origin
-git reset --hard origin/main
-git clean -fd'''
+command = "git fetch origin\r\ngit reset --hard origin/main\r\ngit clean -fd"
 
 [[actions]]
 name = "构建"

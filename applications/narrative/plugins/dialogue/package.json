@@ -1,0 +1,20 @@
+{
+  "name": "@cordis-narrative/dialogue",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "cordis": {
+    "schemaVersion": 1, "id": "dialogue", "name": "对白阅读",
+    "description": "清晰易读的对白、条件选项与继续按钮，支持小说和聊天气泡外观。",
+    "requires": { "server": [], "client": ["narrative", "narrativeUI"] },
+    "provides": { "server": [], "client": [] },
+    "order": 30, "defaultEnabled": true, "client": "client.js",
+    "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ],
+    "category": { "id": "narrative", "label": "叙事" }, "icon": "MessageSquare"
+  }
+}

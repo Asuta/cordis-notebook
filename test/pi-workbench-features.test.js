@@ -19,6 +19,7 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
   await mkdir(join(root, 'applications/notebook/plugins'))
   await writeFile(join(root, 'applications/notebook/package.json'), JSON.stringify({ cordisApp: { id: 'notebook', name: '测试笔记' } }))
   let answer = '## 完成\n\n' + '保留测试内容。'.repeat(2000), promptTokens = 10000, toolOnly = false, providerError = false
+  let toolName = 'workspace_development_info', toolArguments = { focus: 'ui' }
   const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk
     const parsed = JSON.parse(body); requests.push(parsed)
@@ -26,8 +27,8 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
     const usage = { prompt_tokens: promptTokens, completion_tokens: 100, total_tokens: promptTokens + 100 }
     if (parsed.stream === false) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: 'mock', choices: [{ index: 0, message: { role: 'assistant', content: answer, reasoning_content: '思考示例' }, finish_reason: 'stop' }], usage })); return }
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-    const tools = toolOnly && parsed.messages.at(-1).role !== 'tool'
-    const deltas = tools ? [{ tool_calls: [{ index: 0, id: 'model-tool', type: 'function', function: { name: 'workspace_development_info', arguments: '{"focus":"ui"}' } }] }]
+    const tools = toolOnly && !parsed.messages.some(message => message.role === 'tool')
+    const deltas = tools ? [{ tool_calls: [{ index: 0, id: 'model-tool', type: 'function', function: { name: toolName, arguments: JSON.stringify(toolArguments) } }] }]
       : [{ role: 'assistant', reasoning_content: '思考示例' }, { content: answer }]
     for (const delta of deltas) res.write('data: ' + JSON.stringify({ id: 'mock', choices: [{ index: 0, delta, finish_reason: null }] }) + '\n\n')
     res.write('data: ' + JSON.stringify({ id: 'mock', choices: [{ index: 0, delta: {}, finish_reason: tools ? 'tool_calls' : 'stop' }], usage }) + '\n\n'); res.end('data: [DONE]\n\n')
@@ -49,8 +50,8 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
     await new Promise(resolve => {
       resolveRun = resolve
       worker.send({ type: 'run', root, dataDir, agentDir: join(dataDir, 'pi'),
-        config: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: options.model || 'deepseek-flash', thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, compaction: options.compaction || { enabled: false, threshold: 128000, keepRecentTokens: 1000 } },
-        task: { appId: 'notebook', browserVerificationEnabled: true, prompt: options.prompt ?? '继续分析' + '测试文字'.repeat(1500), sessionFile, images: options.images || [], mode: options.mode || 'chat' } })
+        config: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: options.model || 'deepseek-flash', thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, skills: options.skills, compaction: options.compaction || { enabled: false, threshold: 128000, keepRecentTokens: 1000 } },
+        task: { appId: options.appId || 'notebook', browserVerificationEnabled: true, prompt: options.prompt ?? '继续分析' + '测试文字'.repeat(1500), sessionFile, images: options.images || [], mode: options.mode || 'chat' } })
     })
     assert.ok(requests.slice(requestStart).every(request => request.model === 'deepseek-flash'))
     const result = events.slice(start)
@@ -67,6 +68,33 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
     sessionFile = result.find(e => e.type === 'session')?.file || sessionFile
     return { events: result, requests: requests.slice(requestStart) }
   }
+  await t.test('技能目录、应用范围、手动加载和下一轮文件更新进入真实 Pi 请求', async () => {
+    const directory = join(root, 'custom-skills')
+    const files = {}
+    for (const name of ['shared', 'limited', 'disabled', 'manual']) {
+      await mkdir(join(directory, name), { recursive: true })
+      files[name] = join(directory, name, 'SKILL.md')
+      await writeFile(files[name], ['---', 'name: ' + name, 'description: CATALOG_' + name, name === 'manual' ? 'disable-model-invocation: true' : '', '---', 'BODY_ONLY_' + name].join(String.fromCharCode(10)))
+    }
+    const skills = { directory, rules: [{ path: files.limited, enabled: true, apps: ['notebook'] }, { path: files.disabled, enabled: false, apps: null }] }
+    const first = await run('off', { skills, prompt: '检查目录' })
+    const system = first.requests[0].messages.filter(m => m.role === 'system').map(messageText).join(' ')
+    assert.match(system, /CATALOG_shared/); assert.match(system, /CATALOG_limited/)
+    assert.doesNotMatch(system, /CATALOG_disabled|CATALOG_manual|BODY_ONLY_/)
+    sessionFile = undefined
+    const other = await run('off', { skills, appId: 'drawing', prompt: '检查范围' })
+    assert.doesNotMatch(other.requests[0].messages.filter(m => m.role === 'system').map(messageText).join(' '), /CATALOG_limited/)
+    sessionFile = undefined
+    const explicit = await run('off', { skills, prompt: '/skill:manual 执行测试' })
+    assert.match(messageText(explicit.requests[0].messages.findLast(m => m.role === 'user')), /BODY_ONLY_manual/)
+    await writeFile(files.manual, (await readFile(files.manual, 'utf8')).replace('BODY_ONLY_manual', 'UPDATED_BODY_manual'))
+    const updated = await run('off', { skills, prompt: '/skill:manual 再次执行' })
+    assert.match(messageText(updated.requests[0].messages.findLast(m => m.role === 'user')), /UPDATED_BODY_manual/)
+    const unavailable = await run('off', { skills, prompt: '/skill:disabled 执行', expectError: true })
+    assert.equal(unavailable.requests.length, 0)
+    assert.match(unavailable.events.find(e => e.type === 'error').error, /没有可用的技能/)
+    sessionFile = undefined
+  })
   const low = await run('low', { images, model: 'deepseek-v4-pro' })
   assert.equal(low.requests[0].reasoning_effort, 'low')
   assert.equal(low.requests[0].thinking.type, 'enabled')
@@ -79,6 +107,17 @@ test('真实 Pi 请求：多图、Low/High/Max、思考事件、手动与自动�
   const tool = await run('low'); assert.equal(tool.requests.length, 2)
   assert.ok(tool.events.some(e => e.type === 'tool' && e.name === 'workspace_development_info'))
   toolOnly = false
+  await t.test('Pi read 返回图片在 done 前落盘并发送图片元数据', async () => {
+    const imageFile = join(root, 'generated.png')
+    await writeFile(imageFile, png)
+    toolOnly = true; toolName = 'read'; toolArguments = { path: imageFile }; sessionFile = undefined
+    const result = await run('off', { prompt: '显示图片' })
+    const imageEvent = result.events.find(event => event.type === 'trace' && event.event.images?.length)
+    assert.ok(imageEvent, '真实 Pi 图片结果应带可持久化附件元数据')
+    assert.deepEqual(await store.bytes(imageEvent.event.images[0].id), png)
+    assert.ok(result.events.indexOf(imageEvent) < result.events.findIndex(event => event.type === 'done'))
+    toolOnly = false; toolName = 'workspace_development_info'; toolArguments = { focus: 'ui' }
+  })
   const high = await run('high'); assert.equal(high.requests[0].reasoning_effort, 'high')
   const max = await run('max'); assert.equal(max.requests[0].reasoning_effort, 'max')
   answer = '压缩摘要：继续验证图片与配置。'; promptTokens = 500

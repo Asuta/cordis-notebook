@@ -1,0 +1,10 @@
+{
+  "name": "@cordis-narrative/sound", "version": "1.0.0", "private": true, "type": "module",
+  "cordis": {
+    "schemaVersion": 1, "id": "sound", "name": "声音与氛围", "description": "上传背景音乐，预听、控制音量，并在事件规则中播放或停止音频。",
+    "defaultEnabled": true, "order": 70, "icon": "Music", "category": { "id": "presentation", "label": "表现能力" },
+    "requires": { "server": [], "client": ["narrative", "narrativeUI"] }, "provides": { "server": [], "client": [] },
+    "client": "client.js", "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "build": [{ "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }, { "type": "copy", "input": "style.css", "output": "style.css" }]
+  }
+}

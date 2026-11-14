@@ -19,6 +19,10 @@ export function markdownInto(element, text) {
   if (element._text === text) return
   element._text = text
   element.innerHTML = renderMarkdown(text)
+  for (const image of element.querySelectorAll('.chat-image img')) image.onerror = () => {
+    const link = image.parentElement
+    link.classList.add('image-unavailable'); link.textContent = (image.alt || '图片') + '（预览加载失败，点击重试）'
+  }
   for (const pre of element.querySelectorAll('pre')) {
     const copy = node('button', 'copy-code', '复制'); copy.type = 'button'; copy.setAttribute('aria-label', '复制代码')
     copy.onclick = async () => { try { await navigator.clipboard.writeText(pre.querySelector('code').textContent); copy.textContent = '已复制' } catch { copy.textContent = '复制失败' } }
@@ -43,8 +47,9 @@ export function createTurn() {
   const disclosure = node('div', 'turn-disclosure'), inner = node('div', 'turn-process'), answer = node('div', 'turn-answer markdown'), notice = node('p', 'turn-notice')
   header.type = 'button'; header.setAttribute('aria-expanded', 'false')
   inner.id = 'process-' + crypto.randomUUID(); header.setAttribute('aria-controls', inner.id); inner.inert = true; inner.setAttribute('aria-hidden', 'true')
-  const browserReport = node('details', 'browser-report')
-  inner.append(list); disclosure.append(inner); header.append(label, meta); element.append(header, disclosure, notice, answer, browserReport)
+  const browserReport = node('details', 'browser-report'), outputImages = node('div', 'output-images')
+  outputImages.setAttribute('aria-label', '工具返回的图片')
+  inner.append(list); disclosure.append(inner); header.append(label, meta); element.append(header, disclosure, notice, answer, outputImages, browserReport)
   header.onclick = () => {
     const open = header.getAttribute('aria-expanded') !== 'true'
     header.setAttribute('aria-expanded', String(open)); element.classList.toggle('process-open', open)
@@ -52,7 +57,7 @@ export function createTurn() {
     if (open) element._refresh?.()
     element.dispatchEvent(new CustomEvent('process-toggle', { bubbles: true }))
   }
-  element._parts = { header, label, meta, list, answer, notice, browserReport, events: new Map() }
+  element._parts = { header, label, meta, list, answer, notice, browserReport, outputImages, events: new Map() }
   return element
 }
 
@@ -77,6 +82,19 @@ export function updateTurn(element, turn, options = {}) {
   const { messages = [], commands = [], onTerminate } = options
   element._refresh = () => updateTurn(element, turn, options)
   updateBrowserReport(element._parts.browserReport, turn.browserVerification)
+  const images = [...new Map((turn.events || []).flatMap(event => event.images || []).filter(image => /^[a-f0-9-]{36}$/.test(image.id || '')).map(image => [image.id, image])).values()]
+  const gallery = element._parts.outputImages, imageKey = images.map(image => image.id).join(',')
+  setHidden(gallery, !images.length)
+  if (gallery._key !== imageKey) {
+    gallery._key = imageKey
+    gallery.replaceChildren(...images.map(image => {
+      const link = node('a', 'chat-image'), img = node('img')
+      link.href = img.src = '/api/images/' + image.id; link.target = '_blank'; link.rel = 'noopener noreferrer'
+      img.alt = `工具返回图片 ${image.width} × ${image.height}`; img.loading = 'lazy'; img.decoding = 'async'
+      img.onerror = () => { link.classList.add('image-unavailable'); link.textContent = '图片预览加载失败，点击重试' }
+      link.append(img); return link
+    }))
+  }
   const { label, meta, list, events, answer, notice } = element._parts
   setData(element, 'status', turn.status)
   const tools = turn.events.filter(event => event.kind === 'tool').length

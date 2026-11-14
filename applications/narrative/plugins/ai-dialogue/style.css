@@ -1,0 +1,21 @@
+.ne-app .ne-ai-editor { min-width: 0; }
+.ne-app .ne-ai-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.ne-app .ne-ai-fields:disabled { opacity: .7; }
+.ne-app .ne-ai-demo-row { padding: 12px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 10px; }
+.ne-app .ne-ai-demo-row > button { align-self: flex-end; }
+.ne-app .ne-ai-composer { width: min(100%, 760px); margin: 0 auto; padding: 16px; border-radius: 16px; background: var(--ne-panel, #fffaf3); color: var(--ne-text, #403648); box-shadow: 0 4px 24px #1b142415; pointer-events: auto; }
+.ne-app .ne-ai-composer[hidden] { display: none; }
+.ne-app .ne-ai-composer .ne-row { flex-wrap: wrap; gap: 8px; align-items: center; }
+.ne-app .ne-ai-composer .ne-row > .ne-muted { margin-left: auto; }
+.ne-app .ne-ai-composer .ne-textarea { resize: vertical; width: 100%; min-height: 64px; box-sizing: border-box; }
+.ne-app .ne-ai-transcript { max-height: min(28vh, 260px); overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; }
+.ne-app .ne-ai-message { max-width: 90%; padding: 9px 12px; border-radius: 12px; background: #8c77cb12; overflow-wrap: anywhere; }
+.ne-app .ne-ai-message[data-role="user"] { align-self: flex-end; background: #63a5b81a; }
+.ne-app .ne-ai-message[data-role="narrator"] { background: transparent; opacity: .8; }
+.ne-app .ne-ai-message p { margin: 4px 0 0; white-space: pre-wrap; }
+.ne-app .ne-ai-message strong { font-size: .82em; }
+.ne-app .ne-ai-composer > p { margin: 0; font-size: .85em; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .ne-app .ne-ai-composer { padding: 12px; border-radius: 12px; }
+  .ne-app .ne-ai-transcript { max-height: 22vh; }
+}

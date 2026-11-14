@@ -1,0 +1,13 @@
+{
+  "name": "@cordis-narrative/shell", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "@cordis-notebook/host": "workspace:*", "@cordis-narrative/project": "workspace:*" },
+  "exports": { "./client": { "types": "./types/client.d.ts" } },
+  "cordis": {
+    "schemaVersion": 1, "id": "shell", "name": "创作工作室", "description": "由插件贡献面板与舞台的可视化编辑器，包含作品库与模板。",
+    "defaultEnabled": true, "order": 5, "icon": "Layout", "category": { "id": "engine", "label": "叙事引擎" },
+    "requires": { "server": [], "client": ["narrative"] }, "provides": { "server": [], "client": ["narrativeUI"] },
+    "client": "client.js", "public": ["client.js", "style.css"], "styles": ["style.css"],
+    "capabilities": [{ "service": "narrativeUI", "side": "client", "description": "编辑器面板、舞台叠层与工具栏扩展。", "contracts": ["types/client.d.ts"], "examples": ["client.js"] }],
+    "build": [{ "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" }, { "type": "copy", "input": "style.css", "output": "style.css" }]
+  }
+}

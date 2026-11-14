@@ -1,0 +1,7 @@
+{
+  "recipes": {
+    "ui": { "services": { "client": [], "server": [] }, "contracts": [], "examples": ["plugins/game/client.js", "plugins/game/editor.js", "plugins/game/player.js"], "patterns": ["唯一业务插件挂载作品库、编辑器和试玩。修改剧情视图时保留未保存草稿与 revision 校验。"] },
+    "backend": { "services": { "server": ["http"], "client": [] }, "contracts": [], "examples": ["plugins/game/server.js", "plugins/game/model.js"], "patterns": ["剧情与素材分开保存；应用 HTTP 保留 JSON 协议和请求大小限制。"] },
+    "agent": { "services": { "client": [], "server": [] }, "contracts": [], "examples": ["plugins/game/client.js", "agent.md"], "patterns": ["剧情使用 novel_read、novel_edit；编辑器功能使用工作台代码工具修改 game 插件。"] }
+  }
+}

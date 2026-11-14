@@ -1,5 +1,7 @@
 // Official /models metadata, verified 2026-09-27. Keep the actual window separate
 // from the user's earlier compaction threshold and our per-response output budget.
+import { validateSkills } from './skills-config.js'
+
 export const MODELS = [
   { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash', images: true, contextWindow: 1048576 },
 ]
@@ -15,7 +17,7 @@ export function normalizeConfig(input = {}) {
   // Persisted settings may name a removed model; all new tasks use Flash.
   return { baseUrl: 'https://api.deepseek.com/v1', thinking: true, reasoningEffort: 'high', customSystemPrompt: '',
     maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS, ...input, model: MODELS[0].id,
-    compaction: { ...DEFAULT_COMPACTION, ...input.compaction } }
+    compaction: { ...DEFAULT_COMPACTION, ...input.compaction }, skills: validateSkills(input.skills) }
 }
 export function validateSettings(input, previous) {
   if (input.model !== undefined) modelInfo(input.model)

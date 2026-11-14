@@ -1,0 +1,4 @@
+interface:
+  display_name: "FUN Token Image2"
+  short_description: "Generate and edit Image2 pictures through token.fun.tv endpoints."
+  default_prompt: "Use $funtoken-image2 to generate an image."

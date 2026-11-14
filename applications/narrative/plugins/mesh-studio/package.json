@@ -1,0 +1,389 @@
+{
+  "name": "@cordis-narrative/mesh-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:studio": "node build.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "fflate": "^0.8.2"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "mesh-studio",
+    "name": "角色工作室",
+    "description": "完整 Mesh Avatar Studio：动态立绘绑定、分层重建、姿态预览、游戏播放与 Agent 编辑。",
+    "defaultEnabled": true,
+    "order": 25,
+    "requires": {
+      "server": [
+        "http"
+      ],
+      "client": [
+        "narrative",
+        "narrativeUI"
+      ]
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      },
+      {
+        "type": "bundle",
+        "input": "compiled/studio.js",
+        "output": "compiled/studio.js",
+        "platform": "browser",
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "compiled/studio.css",
+        "output": "compiled/studio.css"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/avatar.json",
+        "output": "vendor/samples/miko-qipao/avatar.json"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/base.png",
+        "output": "vendor/samples/miko-qipao/built/base.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye0_ball.png",
+        "output": "vendor/samples/miko-qipao/built/eye0_ball.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye0_crease.png",
+        "output": "vendor/samples/miko-qipao/built/eye0_crease.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye0_lash.png",
+        "output": "vendor/samples/miko-qipao/built/eye0_lash.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye0_low.png",
+        "output": "vendor/samples/miko-qipao/built/eye0_low.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye1_ball.png",
+        "output": "vendor/samples/miko-qipao/built/eye1_ball.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye1_crease.png",
+        "output": "vendor/samples/miko-qipao/built/eye1_crease.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye1_lash.png",
+        "output": "vendor/samples/miko-qipao/built/eye1_lash.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/eye1_low.png",
+        "output": "vendor/samples/miko-qipao/built/eye1_low.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/hairmask.png",
+        "output": "vendor/samples/miko-qipao/built/hairmask.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/hand.png",
+        "output": "vendor/samples/miko-qipao/built/hand.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/layers.json",
+        "output": "vendor/samples/miko-qipao/built/layers.json"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_closed_0.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_closed_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_closed_1.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_closed_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_half_0.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_half_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_half_1.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_half_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_sad_0.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_sad_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_sad_1.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_sad_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_smile_0.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_smile_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_smile_1.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_smile_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_surprise_0.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_surprise_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/eyes_surprise_1.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/eyes_surprise_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/mouth_a.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/mouth_a.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/mouth_angry.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/mouth_angry.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/mouth_a_half.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/mouth_a_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/mouth_i.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/mouth_i.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/mouth_o.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/mouth_o.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/mouth_sad.png",
+        "output": "vendor/samples/miko-qipao/built/sprites/mouth_sad.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/sprites/sprites.json",
+        "output": "vendor/samples/miko-qipao/built/sprites/sprites.json"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/tassel_l.png",
+        "output": "vendor/samples/miko-qipao/built/tassel_l.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/built/tassel_r.png",
+        "output": "vendor/samples/miko-qipao/built/tassel_r.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/MIKO_ASSET_TERMS.md",
+        "output": "vendor/samples/miko-qipao/MIKO_ASSET_TERMS.md"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/rig.json",
+        "output": "vendor/samples/miko-qipao/rig.json"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/source.png",
+        "output": "vendor/samples/miko-qipao/source.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variant-masks/edit_regions_preview.png",
+        "output": "vendor/samples/miko-qipao/variant-masks/edit_regions_preview.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variant-masks/eyes_edit_mask.png",
+        "output": "vendor/samples/miko-qipao/variant-masks/eyes_edit_mask.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variant-masks/mouth_edit_mask.png",
+        "output": "vendor/samples/miko-qipao/variant-masks/mouth_edit_mask.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/eyes_closed.png",
+        "output": "vendor/samples/miko-qipao/variants/eyes_closed.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/eyes_half.png",
+        "output": "vendor/samples/miko-qipao/variants/eyes_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/eyes_sad.png",
+        "output": "vendor/samples/miko-qipao/variants/eyes_sad.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/eyes_smile.png",
+        "output": "vendor/samples/miko-qipao/variants/eyes_smile.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/eyes_surprise.png",
+        "output": "vendor/samples/miko-qipao/variants/eyes_surprise.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/mouth_a.png",
+        "output": "vendor/samples/miko-qipao/variants/mouth_a.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/mouth_angry.png",
+        "output": "vendor/samples/miko-qipao/variants/mouth_angry.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/mouth_a_half.png",
+        "output": "vendor/samples/miko-qipao/variants/mouth_a_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/mouth_i.png",
+        "output": "vendor/samples/miko-qipao/variants/mouth_i.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/mouth_o.png",
+        "output": "vendor/samples/miko-qipao/variants/mouth_o.png"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/samples/miko-qipao/variants/mouth_sad.png",
+        "output": "vendor/samples/miko-qipao/variants/mouth_sad.png"
+      },
+      {
+        "type": "copy",
+        "input": "docs/agent-guide.md",
+        "output": "docs/agent-guide.md"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/agent_common.py",
+        "output": "vendor/tools/agent_common.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/build-layers.py",
+        "output": "vendor/tools/build-layers.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/build-sprites.py",
+        "output": "vendor/tools/build-sprites.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/grid.py",
+        "output": "vendor/tools/grid.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/new-project.py",
+        "output": "vendor/tools/new-project.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/overlay.py",
+        "output": "vendor/tools/overlay.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/test_agent_tools.py",
+        "output": "vendor/tools/test_agent_tools.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/test_build_layers.py",
+        "output": "vendor/tools/test_build_layers.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/variant-requests.py",
+        "output": "vendor/tools/variant-requests.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/tools/vision-check.py",
+        "output": "vendor/tools/vision-check.py"
+      },
+      {
+        "type": "copy",
+        "input": "vendor/LICENSE",
+        "output": "vendor/LICENSE"
+      },
+      {
+        "type": "copy",
+        "input": "PROVENANCE.md",
+        "output": "PROVENANCE.md"
+      }
+    ]
+  }
+}

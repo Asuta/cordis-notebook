@@ -1,5 +1,6 @@
 import { mergeThread } from './thread-cache.js'
 import { createMessage, createTurn, updateTurn, developmentStatus } from './timeline.js'
+import { createSkillsSettings } from './skills-settings.js'
 const $ = id => document.getElementById(id)
 const frame = $('application'), standalone = location.pathname === '/chat', clientId = crypto.randomUUID()
 const scopeToggle = $('scope-toggle'), scopeMenu = $('scope-menu')
@@ -8,6 +9,7 @@ let attachments = [], images = [], appOrigin, toastTimer, polling = false, uploa
 let promptRevision = 0, pendingImages = new Set()
 const rows = new Map()
 const browserDrafts = new Map()
+const skillsSettings = createSkillsSettings({ document, request: input => api('skills/scan', input) })
 let preferenceQueue = Promise.resolve()
 let preferenceWrites = 0
 const browserChoiceKey = () => threadId || 'new:' + appId
@@ -565,11 +567,13 @@ $('settings-open').onclick = safe(async () => {
   $('custom-system-prompt').value = config.customSystemPrompt || ''; $('max-concurrent-agents').value = config.maxConcurrentAgents || 3
   $('auto-compact').checked = config.compaction.enabled; $('compact-threshold').value = config.compaction.threshold; $('keep-recent').value = config.compaction.keepRecentTokens
   $('api-key').value = ''; $('api-key').placeholder = config.hasKey ? '已配置，留空保留现有密钥' : '输入 DeepSeek API 密钥'; $('settings').showModal()
+  await skillsSettings.open(config.skills, state?.applications || [])
 })
+$('settings').addEventListener('close', () => skillsSettings.close())
 $('settings-close').onclick = () => { $('api-key').value = ''; $('settings').close() }
 $('settings-form').onsubmit = safe(async event => {
   event.preventDefault(); const effort = $('effort').value
-  await api('config', { baseUrl: $('base-url').value, model: $('model').value, thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, apiKey: $('api-key').value, customSystemPrompt: $('custom-system-prompt').value, maxConcurrentAgents: Number($('max-concurrent-agents').value), compaction: { enabled: $('auto-compact').checked, threshold: Number($('compact-threshold').value), keepRecentTokens: Number($('keep-recent').value) } })
+  await api('config', { baseUrl: $('base-url').value, model: $('model').value, thinking: effort !== 'off', reasoningEffort: effort === 'off' ? 'high' : effort, apiKey: $('api-key').value, customSystemPrompt: $('custom-system-prompt').value, maxConcurrentAgents: Number($('max-concurrent-agents').value), skills: skillsSettings.value(), compaction: { enabled: $('auto-compact').checked, threshold: Number($('compact-threshold').value), keepRecentTokens: Number($('keep-recent').value) } })
   config = await api('config'); setModelOptions(); $('api-key').value = ''; $('settings').close(); render(); toast('Agent 设置已保存')
 })
 const events = new EventSource('/api/events')

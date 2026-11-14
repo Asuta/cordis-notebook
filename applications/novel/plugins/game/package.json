@@ -1,0 +1,687 @@
+{
+  "name": "@cordis-novel/game",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "sharp": "^0.35.5"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "game",
+    "name": "视觉小说与编辑器",
+    "description": "作品、素材、剧情编辑、试玩和 Agent 操作。",
+    "defaultEnabled": true,
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "requires": {
+      "server": [
+        "http"
+      ],
+      "client": []
+    },
+    "provides": {
+      "server": [],
+      "client": []
+    },
+    "client": "client.js",
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      },
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      },
+      {
+        "type": "copy",
+        "input": "assets/observatory.png",
+        "output": "assets/observatory.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/station.png",
+        "output": "assets/station.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/lin.png",
+        "output": "assets/lin.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/yao.png",
+        "output": "assets/yao.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/rain-theme.wav",
+        "output": "assets/rain-theme.wav"
+      },
+      {
+        "type": "copy",
+        "input": "assets/signal-cue.wav",
+        "output": "assets/signal-cue.wav"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/manifest.json",
+        "output": "assets/avatar/manifest.json"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/model.json",
+        "output": "assets/avatar/model.json"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/9343bc4d-159c-4c47-b667-9b426f3cc1b7.png",
+        "output": "assets/avatar/9343bc4d-159c-4c47-b667-9b426f3cc1b7.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/da7e6cc6-0485-44df-81ca-c3c2327ca440.png",
+        "output": "assets/avatar/da7e6cc6-0485-44df-81ca-c3c2327ca440.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/eb88f95e-f8d8-464d-a3fa-2209511cdd65.png",
+        "output": "assets/avatar/eb88f95e-f8d8-464d-a3fa-2209511cdd65.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/b4b9036d-505b-4674-9fda-4f193ae39d40.png",
+        "output": "assets/avatar/b4b9036d-505b-4674-9fda-4f193ae39d40.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/03615515-000b-43e4-b692-0082d798e84b.png",
+        "output": "assets/avatar/03615515-000b-43e4-b692-0082d798e84b.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/cbd3e069-98f5-428b-8ce3-8113bac62b39.png",
+        "output": "assets/avatar/cbd3e069-98f5-428b-8ce3-8113bac62b39.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/4902f06a-b303-47a1-b9bb-105e80a526f7.png",
+        "output": "assets/avatar/4902f06a-b303-47a1-b9bb-105e80a526f7.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/8035db0b-b19e-4202-ad4c-ed07ea74f6df.png",
+        "output": "assets/avatar/8035db0b-b19e-4202-ad4c-ed07ea74f6df.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/ace5e91d-2ebe-4f80-af83-e35743665c3d.png",
+        "output": "assets/avatar/ace5e91d-2ebe-4f80-af83-e35743665c3d.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/82f02356-c6ca-4942-b595-5db7547b43bc.png",
+        "output": "assets/avatar/82f02356-c6ca-4942-b595-5db7547b43bc.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/338ffe69-2393-4111-919a-e2edabc356d2.png",
+        "output": "assets/avatar/338ffe69-2393-4111-919a-e2edabc356d2.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/c4b25862-7aed-43bc-8ade-68a9d807203d.png",
+        "output": "assets/avatar/c4b25862-7aed-43bc-8ade-68a9d807203d.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/73c42abc-cec2-4c7e-b62c-e6b51b9778f3.png",
+        "output": "assets/avatar/73c42abc-cec2-4c7e-b62c-e6b51b9778f3.png"
+      },
+      {
+        "type": "copy",
+        "input": "live2d/vendor/standrig/LICENSE",
+        "output": "live2d/vendor/standrig/LICENSE"
+      },
+      {
+        "type": "copy",
+        "input": "live2d/vendor/standrig/NOTICE",
+        "output": "live2d/vendor/standrig/NOTICE"
+      },
+      {
+        "type": "copy",
+        "input": "live2d/vendor/standrig/PROVENANCE.md",
+        "output": "live2d/vendor/standrig/PROVENANCE.md"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/f6af5536-0213-439e-aded-a5b08164b111.png",
+        "output": "assets/avatar/f6af5536-0213-439e-aded-a5b08164b111.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/0a6518b6-0315-436e-90ea-cb18a60fb4f2.png",
+        "output": "assets/avatar/0a6518b6-0315-436e-90ea-cb18a60fb4f2.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/a9c19f24-edd3-4767-add1-c1274515cdd4.png",
+        "output": "assets/avatar/a9c19f24-edd3-4767-add1-c1274515cdd4.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/773c0c92-933a-43a6-b17b-565be601c8fc.png",
+        "output": "assets/avatar/773c0c92-933a-43a6-b17b-565be601c8fc.png"
+      },
+      {
+        "type": "bundle",
+        "input": "mesh-avatar/compiled/studio.js",
+        "output": "mesh-avatar/compiled/studio.js",
+        "platform": "browser",
+        "minify": true
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/compiled/studio.css",
+        "output": "mesh-avatar/compiled/studio.css"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/avatar.json",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/avatar.json"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/base.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/base.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_ball.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_ball.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_crease.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_crease.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_lash.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_lash.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_low.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye0_low.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_ball.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_ball.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_crease.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_crease.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_lash.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_lash.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_low.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/eye1_low.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/hairmask.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/hairmask.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/hand.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/hand.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/layers.json",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/layers.json"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_closed_0.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_closed_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_closed_1.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_closed_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_half_0.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_half_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_half_1.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_half_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_sad_0.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_sad_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_sad_1.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_sad_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_smile_0.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_smile_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_smile_1.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_smile_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_surprise_0.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_surprise_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_surprise_1.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/eyes_surprise_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_a.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_a.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_angry.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_angry.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_a_half.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_a_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_i.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_i.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_o.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_o.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_sad.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/mouth_sad.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/sprites.json",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/sprites/sprites.json"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/tassel_l.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/tassel_l.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/built/tassel_r.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/built/tassel_r.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/MIKO_ASSET_TERMS.md",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/MIKO_ASSET_TERMS.md"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/rig.json",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/rig.json"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/source.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/source.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variant-masks/edit_regions_preview.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variant-masks/edit_regions_preview.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variant-masks/eyes_edit_mask.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variant-masks/eyes_edit_mask.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variant-masks/mouth_edit_mask.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variant-masks/mouth_edit_mask.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_closed.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_closed.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_half.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_sad.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_sad.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_smile.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_smile.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_surprise.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/eyes_surprise.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_a.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_a.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_angry.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_angry.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_a_half.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_a_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_i.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_i.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_o.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_o.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_sad.png",
+        "output": "mesh-avatar/vendor/samples/miko-qipao/variants/mouth_sad.png"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/agent_common.py",
+        "output": "mesh-avatar/vendor/tools/agent_common.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/build-layers.py",
+        "output": "mesh-avatar/vendor/tools/build-layers.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/build-sprites.py",
+        "output": "mesh-avatar/vendor/tools/build-sprites.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/grid.py",
+        "output": "mesh-avatar/vendor/tools/grid.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/new-project.py",
+        "output": "mesh-avatar/vendor/tools/new-project.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/overlay.py",
+        "output": "mesh-avatar/vendor/tools/overlay.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/test_agent_tools.py",
+        "output": "mesh-avatar/vendor/tools/test_agent_tools.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/test_build_layers.py",
+        "output": "mesh-avatar/vendor/tools/test_build_layers.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/variant-requests.py",
+        "output": "mesh-avatar/vendor/tools/variant-requests.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/tools/vision-check.py",
+        "output": "mesh-avatar/vendor/tools/vision-check.py"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/vendor/LICENSE",
+        "output": "mesh-avatar/vendor/LICENSE"
+      },
+      {
+        "type": "copy",
+        "input": "mesh-avatar/PROVENANCE.md",
+        "output": "mesh-avatar/PROVENANCE.md"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/README.md",
+        "output": "assets/avatar/shion/README.md"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/avatar.json",
+        "output": "assets/avatar/shion/avatar.json"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/base.png",
+        "output": "assets/avatar/shion/built/base.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye0_ball.png",
+        "output": "assets/avatar/shion/built/eye0_ball.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye0_crease.png",
+        "output": "assets/avatar/shion/built/eye0_crease.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye0_lash.png",
+        "output": "assets/avatar/shion/built/eye0_lash.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye0_low.png",
+        "output": "assets/avatar/shion/built/eye0_low.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye1_ball.png",
+        "output": "assets/avatar/shion/built/eye1_ball.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye1_crease.png",
+        "output": "assets/avatar/shion/built/eye1_crease.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye1_lash.png",
+        "output": "assets/avatar/shion/built/eye1_lash.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/eye1_low.png",
+        "output": "assets/avatar/shion/built/eye1_low.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/hairmask.png",
+        "output": "assets/avatar/shion/built/hairmask.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/layers.json",
+        "output": "assets/avatar/shion/built/layers.json"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/eyes_closed_0.png",
+        "output": "assets/avatar/shion/built/sprites/eyes_closed_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/eyes_closed_1.png",
+        "output": "assets/avatar/shion/built/sprites/eyes_closed_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/eyes_half_0.png",
+        "output": "assets/avatar/shion/built/sprites/eyes_half_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/eyes_half_1.png",
+        "output": "assets/avatar/shion/built/sprites/eyes_half_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/eyes_smile_0.png",
+        "output": "assets/avatar/shion/built/sprites/eyes_smile_0.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/eyes_smile_1.png",
+        "output": "assets/avatar/shion/built/sprites/eyes_smile_1.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/mouth_a.png",
+        "output": "assets/avatar/shion/built/sprites/mouth_a.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/mouth_a_half.png",
+        "output": "assets/avatar/shion/built/sprites/mouth_a_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/mouth_i.png",
+        "output": "assets/avatar/shion/built/sprites/mouth_i.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/mouth_o.png",
+        "output": "assets/avatar/shion/built/sprites/mouth_o.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/built/sprites/sprites.json",
+        "output": "assets/avatar/shion/built/sprites/sprites.json"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/rig.json",
+        "output": "assets/avatar/shion/rig.json"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/source.png",
+        "output": "assets/avatar/shion/source.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/thumbnail.png",
+        "output": "assets/avatar/shion/thumbnail.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/variants/eyes_closed.png",
+        "output": "assets/avatar/shion/variants/eyes_closed.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/variants/eyes_half.png",
+        "output": "assets/avatar/shion/variants/eyes_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/variants/eyes_smile.png",
+        "output": "assets/avatar/shion/variants/eyes_smile.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/variants/mouth_a.png",
+        "output": "assets/avatar/shion/variants/mouth_a.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/variants/mouth_a_half.png",
+        "output": "assets/avatar/shion/variants/mouth_a_half.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/variants/mouth_i.png",
+        "output": "assets/avatar/shion/variants/mouth_i.png"
+      },
+      {
+        "type": "copy",
+        "input": "assets/avatar/shion/variants/mouth_o.png",
+        "output": "assets/avatar/shion/variants/mouth_o.png"
+      }
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@cordis-narrative/ai-dialogue",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.js" },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "ai-dialogue",
+    "name": "AI 对话",
+    "description": "可选的角色聊天、明确标注的示例对话与私有模型连接设置。",
+    "order": 60,
+    "defaultEnabled": true,
+    "server": { "entry": "server.js", "export": "default" },
+    "client": "client.js",
+    "requires": { "server": ["http"], "client": ["narrative", "narrativeUI"] },
+    "provides": { "server": [], "client": [] },
+    "public": ["client.js", "style.css"],
+    "styles": ["style.css"],
+    "icon": "MessagesSquare",
+    "build": [
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" }
+    ]
+  }
+}

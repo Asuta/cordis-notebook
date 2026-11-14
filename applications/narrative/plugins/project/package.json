@@ -1,0 +1,23 @@
+{
+  "name": "@cordis-narrative/project", "version": "1.0.0", "private": true, "type": "module",
+  "dependencies": { "@cordis-notebook/host": "workspace:*" },
+  "exports": { "./client": { "types": "./types/client.d.ts" } },
+  "cordis": {
+    "schemaVersion": 1, "id": "project", "name": "作品与运行内核", "description": "独立作品存储、模板、草稿保护、节点与事件能力注册。",
+    "defaultEnabled": true, "order": 0, "icon": "BookOpen",
+    "category": { "id": "engine", "label": "叙事引擎" },
+    "requires": { "server": ["http"], "client": [] }, "provides": { "server": [], "client": ["narrative"] },
+    "server": { "entry": "server.js", "export": "default" }, "client": "client.js",
+    "public": ["client.js", "assets/observatory.png", "assets/station.png", "assets/lin.png", "assets/yao.png", "assets/rain-theme.wav"],
+    "capabilities": [{ "service": "narrative", "side": "client", "description": "作品编辑、运行状态与插件贡献注册。", "contracts": ["types/client.d.ts"], "examples": ["client.js"], "tests": ["test/model.test.js"] }],
+    "build": [
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "copy", "input": "assets/observatory.png", "output": "assets/observatory.png" },
+      { "type": "copy", "input": "assets/station.png", "output": "assets/station.png" },
+      { "type": "copy", "input": "assets/lin.png", "output": "assets/lin.png" },
+      { "type": "copy", "input": "assets/yao.png", "output": "assets/yao.png" },
+      { "type": "copy", "input": "assets/rain-theme.wav", "output": "assets/rain-theme.wav" }
+    ]
+  }
+}

@@ -1,0 +1,147 @@
+[
+  {
+    "id": "9343bc4d-159c-4c47-b667-9b426f3cc1b7",
+    "name": "银蓝 · 原始立绘.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 2507169
+  },
+  {
+    "id": "da7e6cc6-0485-44df-81ca-c3c2327ca440",
+    "name": "AI 部件分区图.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 858316
+  },
+  {
+    "id": "eb88f95e-f8d8-464d-a3fa-2209511cdd65",
+    "name": "AI 脸部补画.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 2422717
+  },
+  {
+    "id": "f6af5536-0213-439e-aded-a5b08164b111",
+    "name": "AI 眼嘴补画.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 2421367
+  },
+  {
+    "id": "b4b9036d-505b-4674-9fda-4f193ae39d40",
+    "name": "后发.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 242120,
+    "width": 582,
+    "height": 632
+  },
+  {
+    "id": "03615515-000b-43e4-b692-0082d798e84b",
+    "name": "身体与服装.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 1452076,
+    "width": 964,
+    "height": 974
+  },
+  {
+    "id": "cbd3e069-98f5-428b-8ce3-8113bac62b39",
+    "name": "脸与脖颈.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 64819,
+    "width": 359,
+    "height": 485
+  },
+  {
+    "id": "4902f06a-b303-47a1-b9bb-105e80a526f7",
+    "name": "前发.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 255083,
+    "width": 437,
+    "height": 605
+  },
+  {
+    "id": "8035db0b-b19e-4202-ad4c-ed07ea74f6df",
+    "name": "左眼（画面左）.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 8239,
+    "width": 81,
+    "height": 48
+  },
+  {
+    "id": "ace5e91d-2ebe-4f80-af83-e35743665c3d",
+    "name": "右眼（画面右）.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 9127,
+    "width": 92,
+    "height": 52
+  },
+  {
+    "id": "82f02356-c6ca-4942-b595-5db7547b43bc",
+    "name": "左眉.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 757,
+    "width": 44,
+    "height": 8
+  },
+  {
+    "id": "338ffe69-2393-4111-919a-e2edabc356d2",
+    "name": "右眉.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 933,
+    "width": 65,
+    "height": 12
+  },
+  {
+    "id": "c4b25862-7aed-43bc-8ade-68a9d807203d",
+    "name": "嘴巴.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 2489,
+    "width": 67,
+    "height": 24
+  },
+  {
+    "id": "73c42abc-cec2-4c7e-b62c-e6b51b9778f3",
+    "name": "独立饰品.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 112287,
+    "width": 935,
+    "height": 1229
+  },
+  {
+    "id": "0a6518b6-0315-436e-90ea-cb18a60fb4f2",
+    "name": "左眼闭眼.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 24902,
+    "width": 118,
+    "height": 82
+  },
+  {
+    "id": "a9c19f24-edd3-4767-add1-c1274515cdd4",
+    "name": "右眼闭眼.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 26508,
+    "width": 134,
+    "height": 89
+  },
+  {
+    "id": "773c0c92-933a-43a6-b17b-565be601c8fc",
+    "name": "自然张嘴.png",
+    "kind": "image",
+    "mime": "image/png",
+    "size": 9247,
+    "width": 98,
+    "height": 57
+  }
+]

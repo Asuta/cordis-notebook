@@ -1,0 +1,16 @@
+export { createMeshAvatar, LIVE_EXPRESSIONS } from './engine';
+export type { MeshAvatar, MeshAvatarOptions, LiveExpression } from './engine';
+export type { LipSyncSettings } from './engine/lip-sync';
+export type { ExpressionSettings, ExpressionMouthSettings } from './engine/expression-settings';
+export type { Rig, Eye, Strand, Accessory, Hand, Arm, Arms, Leg, Legs, Cloth, ClothTuning, Ellipse, Point, Band } from './rig/types';
+export { validateRig, parseRig } from './rig/validate';
+export { PARAMS } from './engine/rig.js';
+export type { LightingSettings } from './lighting/settings';
+export { DEFAULT_LIGHTING, parseLighting, colorHex } from './lighting/settings';
+export type { AvatarManifest } from './format/manifest';
+export { parseManifest } from './format/manifest';
+export { validateAvatarFiles } from './format/validate';
+export { packAvatar, unpackAvatar } from './format/zip';
+export { openAvatar, loadMeshAvatar } from './format/open';
+export type { AvatarPackage, AvatarSource, OpenAvatarOptions } from './format/open';
+export { ARM_DEFAULTS } from './engine/arms.js';

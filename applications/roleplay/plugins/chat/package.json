@@ -1,0 +1,25 @@
+{
+  "name": "@cordis-roleplay/chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "chat",
+    "name": "角色卡与自由对话",
+    "description": "人物卡、属性、世界观、上下文和 AI 对话。",
+    "defaultEnabled": true,
+    "server": { "entry": "server.js", "export": "default" },
+    "requires": { "server": ["http"], "client": [] },
+    "provides": { "server": [], "client": [] },
+    "client": "client.js",
+    "public": ["client.js", "style.css", "theatre.css"],
+    "styles": ["style.css", "theatre.css"],
+    "build": [
+      { "type": "bundle", "input": "server.js", "output": "server.js", "platform": "node" },
+      { "type": "bundle", "input": "client.js", "output": "client.js", "platform": "browser" },
+      { "type": "copy", "input": "style.css", "output": "style.css" },
+      { "type": "copy", "input": "theatre.css", "output": "theatre.css" }
+    ]
+  }
+}

@@ -4,6 +4,38 @@ import { Window } from 'happy-dom'
 import { renderMarkdown } from '../workbench/markdown.js'
 import { createTurn, updateTurn, finalAnswer, developmentStatus } from '../workbench/public/timeline.js'
 
+test('Markdown 本地图片可预览并打开原图，Windows 路径、空格和中文均保留', () => {
+  const window = new Window()
+  try {
+    for (const path of ['output/中文 图片.png', 'C:/Project/output/image.png', 'C:\\Project\\output\\image.png', '/project/output/image.png', 'file:///C:/Project/output/image.png']) {
+      window.document.body.innerHTML = renderMarkdown('![预览](<' + path + '>)')
+      const image = window.document.querySelector('img')
+      assert.ok(image, path)
+      assert.equal(new URL(image.getAttribute('src'), 'http://localhost').searchParams.get('path'), path)
+      assert.equal(image.parentElement.getAttribute('href'), image.getAttribute('src'))
+    }
+    window.document.body.innerHTML = renderMarkdown('![<script>](output/image.png)')
+    assert.equal(window.document.querySelector('script'), null)
+    assert.equal(window.document.querySelector('img').getAttribute('alt'), '<script>')
+  } finally { window.happyDOM.abort() }
+})
+
+test('工具图片在过程收起时可见，刷新后重建且流式更新保留图片节点', () => {
+  const window = new Window(), previous = globalThis.document
+  globalThis.document = window.document
+  try {
+    const turn = { status: 'done', startedAt: 1, events: [{ id: 'read', kind: 'tool', images: [{ id: '00000000-0000-0000-0000-000000000001', width: 4, height: 3 }] }] }
+    for (const element of [createTurn(), createTurn()]) {
+      updateTurn(element, JSON.parse(JSON.stringify(turn)))
+      const image = element.querySelector('.output-images img')
+      assert.ok(image); assert.equal(element.querySelector('.output-images').hidden, false)
+      assert.equal(element.querySelector('.turn-header').getAttribute('aria-expanded'), 'false')
+      updateTurn(element, turn)
+      assert.equal(element.querySelector('.output-images img'), image)
+    }
+  } finally { globalThis.document = previous; window.happyDOM.abort() }
+})
+
 test('模型请求显示首段等待与持续输出，保留没有计时的旧记录', async () => {
   const window = new Window(), previous = globalThis.document
   globalThis.document = window.document
