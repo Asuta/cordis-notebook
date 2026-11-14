@@ -20,7 +20,14 @@ export interface CanvasSession {
   board(): CanvasBoard
   read(): { board: CanvasBoard; boards: { id: string; title: string }[]; assets: CanvasState['assets']; jobs: CanvasState['jobs']; types: NonNullable<CanvasState['types']>; providers: NonNullable<CanvasState['providers']>; actions: Pick<CanvasAction, 'id' | 'label' | 'schema'>[]; dirty: boolean }
   editable(): boolean
-  edit(operations: CanvasOperation[], options?: { expectedRevision?: number; history?: boolean; targetBoard?: string }): Promise<EditResult>
+  /** Applies locally immediately; defaults to awaiting durable confirmation. */
+  edit(operations: CanvasOperation[], options?: { expectedRevision?: number; history?: boolean; targetBoard?: string; repaint?: boolean; waitForSave?: boolean }): Promise<EditResult>
+  prepareEdit(): Promise<void>
+  historyStep(back: boolean): Promise<EditResult | undefined>
+  readonly saveError: string | null
+  readonly pendingEdits: number
+  retrySave(): Promise<void>
+  exportPending(): Record<string, unknown>
   execute(id: string, args?: Record<string, unknown>, source?: 'user' | 'agent'): Promise<unknown>
   flush(): Promise<void>
   refresh(options?: { fresh?: boolean }): Promise<void>

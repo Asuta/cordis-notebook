@@ -71,19 +71,20 @@ async function sessionFixture(t) {
   f.cleanups.push(() => { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow })
   f.cleanups.push(() => context.dispose())
   context.on = () => {}
-  const storage = new Map()
+  const storage = new Map(), toasts = []
+  t.after(() => assert.deepEqual(toasts, [], '不得留下未预期的提示'))
   const sdk = {
     storage: { local: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) } },
-    listen() {}, toast: message => assert.fail(message),
+    listen() {}, toast: message => toasts.push(message),
     async request(path, method, body) {
-      if (path === '/api/studio') return f.store.read()
+      if (path === '/api/studio') return { ...f.store.read(), types: f.types.list().map(({id,label,fields,accepts,output,defaults}) => ({id,label,fields,accepts,output,defaults:defaults()})) }
       if (path === '/api/studio/edit') return f.store.edit(body.boardId, body.revision, body.operations)
       if (path === '/api/studio/boards') return f.store.addBoard(body.title)
       throw Error('未实现的测试接口：' + path)
     },
   }
   const session = await createSession(context, sdk)
-  return { ...f, session, sdk }
+  return { ...f, session, sdk, toasts }
 }
 
 async function uiFixture(t) {
@@ -434,7 +435,11 @@ test('共享写回保护在真实 session 中拒绝新草稿、已保存更改�
     assert.notEqual(f.store.read().boards.find(board => board.id === originalId).title, '不应写入', change)
     if (change === 'draft') assert.equal(f.session.drafts.get(f.session.titleDraftId).patch.title, '用户继续输入')
     if (change === 'saved') assert.equal(f.store.read().boards[0].title, '用户继续输入')
-    if (change === 'external') assert.equal(f.store.read().boards[0].title, '其他页面修改')
+    if (change === 'external') {
+      assert.equal(f.store.read().boards[0].title, '其他页面修改')
+      assert.match(f.toasts.shift(), /保存失败.*本地修改已保留/)
+      assert.equal(f.session.read().dirty, true)
+    }
   }
 })
 

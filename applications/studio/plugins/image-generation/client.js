@@ -8,7 +8,7 @@ import { defaultProvider, orderedProviders } from './providers.js'
 
 export default function (ctx, sdk) {
   const s = ctx.canvasSession, view = ctx.canvasUI
-  const { el, button, safe, field, flush, edit, board, api, refresh } = view
+  const { el, button, safe, field, prepareEdit: flush, edit, board, api, refresh } = view
   const details = new Map(), form = createModelForm(view, s), references = createReferenceUI(ctx, view, s, sdk)
   const library = createLibraryUI(ctx, view, s, sdk), layout = createCardLayout(ctx, view, s, sdk)
   const promptOptimizer = createPromptOptimizer(ctx, view, s, sdk)
@@ -43,7 +43,7 @@ export default function (ctx, sdk) {
       const boardId = s.boardId
       const task = submissions.then(async () => {
         if (stopped || s.boardId !== boardId) throw Error('画板已切换，请重新生成')
-        await flush(); await refresh({ fresh: true })
+        await s.flush(); await refresh({ fresh: true })
         if (revision !== undefined && revision !== s.board().revision) throw Error('画布已变化，请重新读取')
         const node = board().nodes.find(item => item.id === nodeId), provider = selectedProvider(node)
         if (node && provider?.modelCatalog && form.hasErrors(node, provider)) throw Error('请先修正模型参数中的错误')

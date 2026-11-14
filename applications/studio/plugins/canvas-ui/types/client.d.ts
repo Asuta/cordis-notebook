@@ -51,6 +51,7 @@ export interface CanvasUI {
   syncRenderedNode(id: string, patch: Record<string, unknown>): boolean
   edit(operations: CanvasOperation[], options?: { expectedRevision?: number; history?: boolean; targetBoard?: string }): Promise<EditResult>
   flush(): Promise<void>
+  prepareEdit(): Promise<void>
   refresh(): Promise<void>
   execute(id: string, args?: Record<string, unknown>, source?: 'user' | 'agent'): Promise<unknown>
   api<T = unknown>(path: string, body?: unknown): Promise<T>

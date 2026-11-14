@@ -10,11 +10,12 @@ export interface CanvasDocuments {
   types: Registry<CardType>
   snapshots: Registry<{ id: string; read(): Record<string, unknown>; revision?(): unknown }>
   read(): CanvasState
-  edit(boardId: string, revision: number, operations: CanvasOperation[]): Promise<EditResult>
+  edit(boardId: string, revision: number, operations: CanvasOperation[], requestId?: string): Promise<EditResult>
   addBoard(title: string): Promise<CanvasBoard>
   addImage(bytes: Buffer, name?: string): Promise<CanvasAsset>
   addVideo(bytes: Buffer, name?: string): Promise<CanvasAsset>
   media(id: string): Promise<Buffer>
+  purgeAssets(ids: string[], libraryRevision: number): Promise<{ removed: string[]; warnings: string[] }>
   image(id: string, thumbnail?: boolean): Promise<Buffer>
   /** Callback is synchronous; network and image decoding must happen outside the transaction. */
   records<T extends object = Record<string, unknown>>(namespace: string): { read(): T[]; change<R>(callback: (transaction: RecordTransaction<T>) => R extends PromiseLike<unknown> ? never : R): Promise<R> }

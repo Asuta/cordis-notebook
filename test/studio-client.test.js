@@ -12,6 +12,8 @@ import { copySelection } from '../applications/studio/plugins/canvas/copy.js'
 import { normalizeModels } from '../applications/studio/plugins/image-provider-wavespeed/schema.js'
 import { modelRows } from './helpers/studio-wavespeed.js'
 import { snapshotGenerator } from '../applications/studio/plugins/image-generation/snapshot.js'
+import { createAssetLibrary } from '../applications/studio/plugins/canvas-basic-cards/library.js'
+import { serializeClientBoard } from '../applications/studio/plugins/canvas/client-state.js'
 
 async function setup(t, { models = {}, providers = [], systemDark = false, library = null, libraryService = null, llmConfig = null, promptOptimizations = null, broadcastChannel = null } = {}) {
   const window = new Window({ settings: { disableCSSFileLoading: true } }), previous = { window: globalThis.window, document: globalThis.document, FileReader: globalThis.FileReader }
@@ -20,21 +22,28 @@ async function setup(t, { models = {}, providers = [], systemDark = false, libra
   globalThis.window = window; globalThis.document = window.document; globalThis.FileReader = window.FileReader
   const cleanups = [], hooks = new Map(), tools = new Map(), editBatches = []
   const board = newBoard('测试画板'), state = {
-    boards: [board], assets: {}, jobs: [], config: { hasKey: true, model: 'test-model', baseUrl: 'https://example.com' },
+    boards: [board], assets: {}, jobs: [], types: createTypes().list().map(({id,label,fields,accepts,output,defaults}) => ({id,label,fields,accepts,output,defaults:defaults()})), config: { hasKey: true, model: 'test-model', baseUrl: 'https://example.com' },
     llmConfig: llmConfig || { format: 'openai-responses', defaultModelId: null, models: [] }, promptOptimizations: promptOptimizations || { templates: [] },
   }
   const generated = [], toasts = [], assetFavorites = new Set()
   const ctx = { effect: fn => cleanups.push(fn()), on: (name, fn) => hooks.set(name, fn) }
+  let libraryRecords = []
+  const assetLibrary = createAssetLibrary({
+    read: () => ({ assets: { ...state.assets, ...ctx.canvasSession?.state.assets } }),
+    records: () => ({ read: () => structuredClone(libraryRecords), async change(fn) { const next = structuredClone(libraryRecords), result = fn({ records: next }); libraryRecords = next; return result } }),
+  }, () => [...assetFavorites])
   const sdk = {
     application: { id: 'studio', name: '灵感画布', manageData: true },
     provide(name, service) { ctx[name] = service; return service },
     el(tag, props = {}, text) { const node = window.document.createElement(tag); for (const [key, value] of Object.entries(props)) { if (key === 'class') node.className = value; else if (key.startsWith('aria-') || key.startsWith('data-')) node.setAttribute(key, value); else node[key] = value }; if (text !== undefined) node.textContent = text; return node },
     mount: (name, node) => window.document.body.append(node), toast: message => toasts.push(message),
-    storage: { local: window.localStorage }, agent: { register: (definition, callback) => tools.set(definition.name, callback) },
+    storage: { local: window.localStorage, session: window.sessionStorage }, agent: { register: (definition, callback) => tools.set(definition.name, callback) },
     listen(target, name, fn) { target.addEventListener(name, fn); cleanups.push(() => target.removeEventListener(name, fn)) },
     async request(path, method, body) {
+      if (path === '/api/studio/asset-library') return method === 'POST' ? assetLibrary.mutate(body) : assetLibrary.read()
+      if (path === '/api/studio/asset-library/revision') return { revision: assetLibrary.read().revision }
       if (path === '/api/studio/summary') return { revision: JSON.stringify([state.boards, state.assets, state.jobs]) }
-      if (path === '/api/studio') return structuredClone({ ...state, stateRevision: JSON.stringify([state.boards, state.assets, state.jobs]) })
+      if (path === '/api/studio') return structuredClone({ ...state, boards: state.boards.map(board => serializeClientBoard(board, createTypes())), stateRevision: JSON.stringify([state.boards, state.assets, state.jobs]) })
       if (path === '/api/studio/copy') return copySelection(state.boards[0], body.nodeIds, createTypes(), state.assets)
       if (path === '/api/studio/generation-library') {
         if (libraryService) return libraryService({ method, body, state })
@@ -95,7 +104,7 @@ async function setup(t, { models = {}, providers = [], systemDark = false, libra
         editBatches.push(structuredClone(body.operations))
         const inverse = []
         for (const op of body.operations) { const result = applyOperation(state.boards[boardIndex], op, state.assets); state.boards[boardIndex] = result.board; inverse.unshift(result.inverse) }
-        return { board: structuredClone(state.boards[boardIndex]), inverse }
+        return { board: serializeClientBoard(state.boards[boardIndex], createTypes()), inverse }
       }
       if (path === '/api/studio/generate') { generated.push(structuredClone(state.boards[0])); return { id: 'job', status: 'queued' } }
       if (path === '/api/studio/cancel') { state.cancelledJob = body.id; const job = state.jobs.find(item => item.id === body.id); if (job) job.status = 'interrupted'; return { ok: true } }
@@ -133,7 +142,7 @@ async function setup(t, { models = {}, providers = [], systemDark = false, libra
     await modules[id](child, childSdk)
   }
   for (const id of Object.keys(modules)) await start(id)
-  return { window, state, tools, hooks, generated, toasts, editBatches, assetFavorites, ctx, start, stop: id => running.get(id)() }
+  return { window, state, tools, hooks, generated, toasts, editBatches, assetFavorites, assetLibrary, ctx, start, stop: id => running.get(id)() }
 }
 
 async function waitUntil(predicate) {
@@ -816,15 +825,19 @@ test('媒体缩放拖拽阻止 Agent 修改，保存完成后恢复编辑', asyn
   assert.deepEqual(toasts, [])
 })
 
-test('媒体缩放拖拽遇到远端版本冲突时保留远端尺寸并恢复显示', async t => {
+test('媒体缩放遇到版本冲突时保留本地修改，显式载入后显示远端尺寸', async t => {
   const { window, state, ctx, pointer, toasts } = await startProtectedResize(t)
   state.boards[0] = applyOperation(state.boards[0], { type: 'update', id: 'pic', patch: { frameWidth: 700, frameHeight: 500, mediaWidth: 600 } }, state.assets).board
   await ctx.canvasSession.refresh({ fresh: true })
   assert.equal(ctx.canvasSession.board().nodes[0].frameWidth, undefined, '拖拽期间不替换本地画板')
   window.dispatchEvent(pointer('pointerup', 400))
-  await waitUntil(() => toasts.length > 0 && ctx.canvasSession.board().nodes[0].frameWidth === 700)
+  await waitUntil(() => !!ctx.canvasSession.saveError)
   assert.equal(state.boards[0].nodes[0].frameWidth, 700)
   assert.match(toasts[0], /画布已变化/)
+  assert.notEqual(ctx.canvasSession.board().nodes[0].frameWidth, 700)
+  assert.equal(ctx.canvasSession.pendingEdits, 1)
+  assert.equal(window.document.querySelector('.studio-retry-save').hidden, false)
+  await ctx.canvasSession.discardDrafts()
   assert.equal(window.document.querySelector('[data-node="pic"]').style.width, '704px')
   assert.equal(ctx.canvasSession.editable(), true)
 })
@@ -1069,7 +1082,7 @@ test('拖动取消与无移动点击不写布局，文字组词中的 Esc 不退
   await new Promise(resolve => window.requestAnimationFrame(resolve))
   assert.notEqual(tools.get('studio_read')().board.nodes[0].x, 0)
   pointer('pointercancel', stage, 120, 160)
-  assert.deepEqual(tools.get('studio_read')().board, original)
+  assert.deepEqual(tools.get('studio_read')().board, serializeClientBoard(original, createTypes()))
   assert.deepEqual(state.boards[0], original)
   assert.equal(window.document.querySelector('.studio-card').style.left, '0px')
   assert.equal(window.document.querySelector('.studio-card').style.top, '0px')
@@ -1096,7 +1109,7 @@ test('空白左键框选、卡片中键拖动与空白中键平移正确分流',
   ctx.canvasSession.viewport = { x: 0, y: 0, zoom: 1 }
   ctx.canvasSession.rememberAsset({ id: 'pan-video', kind: 'video', name: '平移视频.mp4', extension: 'mp4', width: 480, height: 640, duration: 5.2, createdAt: 1 })
   await window.document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  await waitUntil(() => window.document.querySelector('.studio-assets .studio-asset-card video'))
+  await waitUntil(() => window.document.querySelector('.asset-sidebar .asset-tile[data-kind=video] img'))
   const stage = window.document.querySelector('.studio-stage'), context = window.document.querySelector('.studio-context-tools')
   const pointer = (type, target, x, y, button = 0) => target.dispatchEvent(new window.PointerEvent(type, { bubbles: true, cancelable: true, button, pointerId: 21, clientX: x, clientY: y }))
   pointer('pointerdown', stage, 0, 0)
@@ -1113,12 +1126,12 @@ test('空白左键框选、卡片中键拖动与空白中键平移正确分流',
   assert.equal(first().y, 30); assert.equal(second().y, 30)
   assert.match(context.textContent, /已选 2 张卡片/, '中键从输入框拖动时保留整组选择')
 
-  const videoBeforePan = window.document.querySelector('.studio-assets .studio-asset-card video')
+  const videoBeforePan = window.document.querySelector('.asset-sidebar .asset-tile[data-kind=video] img')
   pointer('pointerdown', stage, 100, 100, 1)
   pointer('pointermove', stage, 150, 130, 1)
   pointer('pointerup', stage, 150, 130, 1)
   assert.deepEqual(ctx.canvasSession.viewport, { x: 50, y: 30, zoom: 1 }, '空白中键拖动只平移画布')
-  assert.ok(window.document.querySelector('.studio-assets .studio-asset-card video') === videoBeforePan, '平移后不重建素材库视频')
+  assert.ok(window.document.querySelector('.asset-sidebar .asset-tile[data-kind=video] img') === videoBeforePan, '平移后不重建素材库视频封面')
 
   stage.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true }))
   pointer('pointerdown', stage, 100, 100)
@@ -1243,181 +1256,140 @@ test('生成卡片正文和图片区域可直接拖动，文字输入区保持�
   assert.ok(window.document.querySelector('[data-node="video"] video') === videoPlayer, '移动视频卡片后不重建播放器')
 })
 
-test('左侧素材单击预览，拖到画布按落点创建卡片', async t => {
-  const { window, tools, state } = await setup(t)
-  const asset = await tools.get('studio_import_image')({ path: 'C:/test/sidebar.png' })
-  assert.equal(window.document.querySelectorAll('.studio-assets .studio-asset-card').length, 0, '未打开侧栏时不创建素材卡')
-  await window.document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  const button = window.document.querySelector('.studio-assets button')
-  assert.ok(button)
-  await button.onclick()
-  const viewer = window.document.querySelector('.studio-viewer')
-  assert.equal(viewer.open, true)
-  assert.equal(viewer.querySelector('.studio-viewer-stage img').getAttribute('src'), `/api/studio/images/${asset.id}.png`)
-  viewer.close()
-  assert.equal(state.boards[0].nodes.length, 0)
-  const drop = new window.Event('drop', { bubbles: true, cancelable: true })
-  Object.defineProperties(drop, {
-    clientX: { value: 360 }, clientY: { value: 260 },
-    dataTransfer: { value: { files: [], getData: type => type === 'application/x-cordis-studio-asset' ? asset.id : '' } },
-  })
-  window.document.querySelector('.studio-stage').dispatchEvent(drop)
-  await waitUntil(() => state.boards[0].nodes.length === 1)
-  const node = state.boards[0].nodes[0]
-  assert.equal(node.type, 'image'); assert.equal(node.assetId, asset.id)
-  assert.equal(node.x, 300); assert.equal(node.y, 200)
-})
 
-test('素材库支持模糊搜索、类型筛选、排序和完整视图', async t => {
-  const { window, ctx } = await setup(t)
-  const assets = [
-    { id: 'asset-camera', kind: 'image', name: 'Camera_Alpha.png', width: 1024, height: 768, createdAt: 100 },
-    { id: 'asset-character', kind: 'image', name: '角色立绘.png', width: 720, height: 1280, createdAt: 200 },
-    { id: 'asset-video', kind: 'video', name: '动作片段.mp4', extension: 'mp4', width: 720, height: 1280, duration: 5.2, createdAt: 300 },
-    { id: 'asset-scene', kind: 'image', name: '场景草图.webp', width: 1600, height: 900, createdAt: 400 },
-  ]
-  for (const asset of assets) ctx.canvasSession.rememberAsset(asset)
-  assert.equal(window.document.querySelector('.studio-asset-count').textContent, '4')
-  assert.equal(window.document.querySelectorAll('.studio-assets .studio-asset-card').length, 0, '隐藏素材库不提前渲染')
-  await window.document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  assert.equal(window.document.querySelectorAll('.studio-assets .studio-asset-card').length, 4)
-  assert.equal(window.document.querySelector('.studio-assets .studio-asset-card img').dataset.src, '/api/studio/images/asset-scene.small.webp')
-
-  const search = window.document.querySelector('[aria-label="搜索素材"]')
-  search.value = 'CAMERA'; search.oninput()
-  let cards = [...window.document.querySelectorAll('.studio-assets .studio-asset-card')]
-  assert.equal(cards.length, 1)
-  assert.match(cards[0].textContent, /Camera_Alpha\.png/)
-
-  search.value = ''; search.oninput(); await window.document.querySelector('.studio-assets-tools [data-kind="video"]').onclick()
-  cards = [...window.document.querySelectorAll('.studio-assets .studio-asset-card')]
-  assert.equal(cards.length, 1); assert.ok(cards[0].querySelector('video'))
-
-  await window.document.querySelector('.studio-assets-tools [data-kind="all"]').onclick()
-  await window.document.querySelector('.studio-assets-all').onclick()
-  const manager = window.document.querySelector('.studio-asset-manager')
-  assert.equal(manager.open, true)
-  assert.equal(manager.querySelectorAll('.studio-asset-card').length, 0)
-  assert.match(manager.querySelector('.studio-asset-manager-empty').textContent, /还没有收藏素材/)
-
-  await manager.querySelector('.studio-asset-filter[data-kind="all"]').onclick()
-  assert.equal(manager.querySelectorAll('.studio-asset-card').length, 4)
-  const star = manager.querySelector('.studio-asset-favorite')
-  assert.equal(star.getAttribute('aria-pressed'), 'false')
-  await star.onclick()
-  assert.equal(manager.querySelector('.studio-asset-favorite').getAttribute('aria-pressed'), 'true')
-  await manager.querySelector('.studio-asset-filter[data-kind="favorites"]').onclick()
-  assert.equal(manager.querySelectorAll('.studio-asset-card').length, 1)
-
-  await manager.querySelector('.studio-asset-filter[data-kind="all"]').onclick()
-  const sort = manager.querySelector('[aria-label="素材排序"]')
-  sort.value = 'name'; sort.onchange()
-  const names = [...manager.querySelectorAll('.studio-asset-card .studio-asset-caption strong')].map(node => node.textContent)
-  const expected = [...assets].sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })).map(asset => asset.name)
-  assert.deepEqual(names, expected)
-
-  await window.document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  assert.equal(window.document.querySelector('#studio-side-canvas').hidden, true)
-  assert.equal(window.document.querySelector('#studio-side-assets').hidden, false)
-  const sidebarMedia = window.document.querySelectorAll('.studio-assets .studio-asset-card img, .studio-assets .studio-asset-card video')
-  assert.equal(sidebarMedia.length, 4)
-  const favoriteOnly = window.document.querySelector('.studio-asset-favorite-only')
-  await favoriteOnly.onclick()
-  assert.equal(favoriteOnly.getAttribute('aria-pressed'), 'true')
-  assert.equal(window.document.querySelectorAll('.studio-assets .studio-asset-card').length, 1)
-  await window.document.querySelector('.studio-sidebar-tab[data-side-page="canvas"]').onclick()
-  assert.equal(window.document.querySelector('#studio-side-canvas').hidden, false)
-  assert.equal(window.document.querySelectorAll('.studio-assets .studio-asset-card').length, 0, '离开素材库后释放预览')
-})
-
-test('收藏页临时置顶只调整当前排序，再次置顶时前一张顺位', async t => {
-  const { window, ctx } = await setup(t)
-  const document = window.document
-  const assets = [
-    { id: 'asset-a', kind: 'image', name: 'A.png', width: 300, height: 200, createdAt: 100 },
-    { id: 'asset-b', kind: 'image', name: 'B.png', width: 320, height: 240, createdAt: 200 },
-    { id: 'asset-c', kind: 'image', name: 'C.png', width: 360, height: 280, createdAt: 300 },
-  ]
-  for (const asset of assets) ctx.canvasSession.rememberAsset(asset)
-
-  await document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  for (const id of ['asset-a', 'asset-b', 'asset-c']) await document.querySelector(`[data-favorite-asset="${id}"]`).onclick()
-  await document.querySelector('.studio-asset-favorite-only').onclick()
-  const sideOrder = () => [...document.querySelectorAll('.studio-assets .studio-asset-card')].map(card => card.dataset.asset)
-  const managerOrder = () => [...document.querySelectorAll('.studio-asset-manager-grid .studio-asset-card')].map(card => card.dataset.asset)
-  assert.deepEqual(sideOrder(), ['asset-c', 'asset-b', 'asset-a'])
-  assert.equal(managerOrder().length, 0, '关闭的素材库不构建隐藏网格')
-  await document.querySelector('.studio-asset-expand').onclick()
-
-  await document.querySelector('[data-promote-asset="asset-b"]').onclick()
-  assert.deepEqual(sideOrder(), ['asset-b', 'asset-c', 'asset-a'])
-  assert.deepEqual(managerOrder(), ['asset-b', 'asset-c', 'asset-a'])
-
-  await document.querySelector('[data-promote-asset="asset-a"]').onclick()
-  assert.deepEqual(sideOrder(), ['asset-a', 'asset-b', 'asset-c'])
-  assert.equal(document.querySelector('[data-promote-asset="asset-a"]').getAttribute('aria-pressed'), 'true')
-  assert.equal(document.querySelector('[data-promote-asset="asset-b"]').getAttribute('aria-pressed'), 'false')
-})
-
-test('切回标签页和打开素材库时重新读取其他页面修改的收藏', async t => {
-  const channels = []
-  class FavoriteChannel {
-    constructor() { this.listeners = new Set(); channels.push(this) }
-    addEventListener(type, listener) { if (type === 'message') this.listeners.add(listener) }
-    removeEventListener(type, listener) { if (type === 'message') this.listeners.delete(listener) }
-    postMessage() {}
-    emit() { for (const listener of this.listeners) listener({ data: 'changed' }) }
-    close() {}
+async function librarySetup(t, count = 8) {
+  const env = await setup(t), { ctx, state, window } = env
+  for (let i = 0; i < count; i++) {
+    const asset = { id: 'library-' + i, kind: i % 2 ? 'video' : 'image', name: '素材 ' + i, width: 320, height: 240, createdAt: i, extension: 'mp4' }
+    state.assets[asset.id] = ctx.canvasSession.rememberAsset(asset)
   }
-  const { window, ctx, assetFavorites } = await setup(t, { broadcastChannel: FavoriteChannel })
-  const document = window.document, id = 'cross-tab-image'
-  ctx.canvasSession.rememberAsset({ id, kind: 'image', name: '跨页图片.png', width: 640, height: 480 })
-  await document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  const star = () => document.querySelector('.studio-assets [data-favorite-asset="cross-tab-image"]')
-  await waitUntil(() => star()?.getAttribute('aria-pressed') === 'false')
-  assetFavorites.add(id)
-  channels[0].emit()
-  await waitUntil(() => star()?.getAttribute('aria-pressed') === 'true')
-  assetFavorites.delete(id)
-  let hidden = true
-  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
-  document.dispatchEvent(new window.Event('visibilitychange'))
-  hidden = false
-  document.dispatchEvent(new window.Event('visibilitychange'))
-  await waitUntil(() => star()?.getAttribute('aria-pressed') === 'false')
-  assetFavorites.add(id)
-  window.dispatchEvent(new window.Event('focus'))
-  await waitUntil(() => star()?.getAttribute('aria-pressed') === 'true')
-  await document.querySelector('.studio-sidebar-tab[data-side-page="canvas"]').onclick()
-  assetFavorites.delete(id)
-  await document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  await waitUntil(() => star()?.getAttribute('aria-pressed') === 'false')
+  await window.document.querySelector('[data-side-page="assets"]').onclick()
+  await window.document.querySelector('.studio-asset-expand').onclick()
+  await waitUntil(() => window.document.querySelector('.asset-window .asset-tile'))
+  return env
+}
+const libButton = (root, text) => [...root.querySelectorAll('button')].find(button => button.textContent === text)
+async function libraryDialog(window, run, value) {
+  const pending = run()
+  await waitUntil(() => window.document.querySelector('.asset-library-dialog'))
+  const dialog = window.document.querySelector('.asset-library-dialog'), input = dialog.querySelector('input,select')
+  if (input && value !== undefined) input.value = value
+  dialog.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+  await pending
+}
+
+test('素材库多窗口与同目录 Tab 独立搜索缩放，侧栏可完全收起', async t => {
+  const { window, ctx, toasts } = await librarySetup(t), doc = window.document
+  const first = doc.querySelector('.asset-window')
+  await libButton(first, '＋ 窗口').onclick()
+  const second = doc.querySelectorAll('.asset-window')[1]
+  assert.equal(doc.querySelectorAll('.asset-window').length, 2)
+  const search = first.querySelector('[aria-label="搜索素材"]'); search.value = '素材 2'; search.oninput()
+  assert.equal(first.querySelectorAll('.asset-tile').length, 1)
+  assert.equal(second.querySelectorAll('.asset-tile').length, 8)
+  await first.querySelector('[aria-label="新建素材库标签页"]').onclick()
+  assert.equal(first.querySelectorAll('[role="tab"]').length, 2)
+  assert.equal(first.querySelectorAll('.asset-tile').length, 8)
+  await first.querySelector('[role="tab"]').onclick()
+  assert.equal(first.querySelector('[aria-label="搜索素材"]').value, '素材 2')
+  const prior = second.querySelector('[aria-label="缩略图大小"]').value, viewport = structuredClone(ctx.canvasSession.viewport)
+  const wheel = new window.MouseEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true }); Object.defineProperty(wheel, 'deltaY', { value: -120 }); first.querySelector('.asset-grid').dispatchEvent(wheel)
+  assert.ok(Number(first.querySelector('[aria-label="缩略图大小"]').value) > Number(prior))
+  assert.equal(second.querySelector('[aria-label="缩略图大小"]').value, prior)
+  assert.deepEqual(ctx.canvasSession.viewport, viewport)
+  await doc.querySelector('.studio-sidebar-collapse').onclick()
+  assert.ok(doc.querySelector('.studio-app').classList.contains('sidebar-collapsed'))
+  assert.equal(doc.querySelectorAll('.asset-window').length, 2)
+  assert.equal(doc.querySelectorAll('.asset-sidebar .asset-tile').length, 0)
+  await doc.querySelector('.studio-sidebar-toggle').onclick()
+  assert.equal(doc.querySelector('.studio-app').classList.contains('sidebar-collapsed'), false)
+  assert.deepEqual(toasts, [])
 })
 
-test('大量素材仅在打开侧栏时分批挂载，后台标签释放预览并在返回时恢复', async t => {
-  const { window, ctx, tools, state } = await setup(t)
-  const document = window.document
-  for (let i = 0; i < 100; i++) ctx.canvasSession.rememberAsset({ id: 'asset-' + i, kind: 'image', name: '图片' + i, width: 640, height: 480, createdAt: i })
-  state.assets['background-video'] = ctx.canvasSession.rememberAsset({ id: 'background-video', kind: 'video', name: '测试.mp4', width: 640, height: 480, duration: 2, createdAt: 100 })
-  await tools.get('studio_edit')({ revision: 0, operations: [{ type: 'add', node: { id: 'video-card', type: 'video', assetId: 'background-video', x: 0, y: 0 } }] })
-  const player = document.querySelector('[data-node="video-card"] video')
-  player.setAttribute('src', '/api/studio/videos/background-video')
-  const list = document.querySelector('.studio-assets')
-  assert.equal(list.querySelectorAll('.studio-asset-card').length, 0)
-  await document.querySelector('.studio-sidebar-tab[data-side-page="assets"]').onclick()
-  assert.equal(list.querySelectorAll('.studio-asset-card').length, 48)
-  list.dispatchEvent(new window.Event('scroll'))
-  assert.equal(list.querySelectorAll('.studio-asset-card').length, 96)
-  let hidden = true
-  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
-  document.dispatchEvent(new window.Event('visibilitychange'))
-  assert.equal(list.querySelectorAll('.studio-asset-card').length, 0)
-  assert.equal(player.hasAttribute('src'), false, '后台标签释放画布视频资源')
-  assert.equal(player.dataset.src, '/api/studio/videos/background-video')
-  hidden = false
-  document.dispatchEvent(new window.Event('visibilitychange'))
-  await waitUntil(() => list.querySelectorAll('.studio-asset-card').length === 48)
-  assert.equal(list.querySelector('img').dataset.src.endsWith('.small.webp'), true)
+test('素材库创建目录、多选移动、收藏集、重命名和撤销同步所有窗口', async t => {
+  const { window, assetLibrary, toasts } = await librarySetup(t), doc = window.document, root = doc.querySelector('.asset-window')
+  await libraryDialog(window, () => root.querySelector('[data-command="mkdir"]').onclick(), '人物')
+  const folderId = assetLibrary.read().folders[0].id
+  await libButton(root, '＋ 窗口').onclick(); const second = doc.querySelectorAll('.asset-window')[1]
+  await second.querySelector('[data-location="folder:' + folderId + '"]').onclick()
+  const tiles = [...root.querySelectorAll('.asset-tile')]
+  tiles[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })); tiles[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true, ctrlKey: true }))
+  await libraryDialog(window, () => root.querySelector('[data-command="move"]').onclick(), folderId)
+  assert.equal(second.querySelectorAll('.asset-tile').length, 2)
+  assert.equal(Object.values(assetLibrary.read().items).filter(item => item.folderId === folderId).length, 2)
+  await libraryDialog(window, () => root.querySelector('[data-command="collection"]').onclick(), '服装')
+  const collection = assetLibrary.read().collections[1]
+  await libraryDialog(window, () => root.querySelector('[data-command="collect"]').onclick(), collection.id)
+  assert.equal(assetLibrary.read().collections[1].assetIds.length, 2)
+  assert.equal(second.querySelectorAll('.asset-tile').length, 2)
+  const selected = second.querySelector('.asset-tile'); selected.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await libraryDialog(window, () => {
+    second.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, key: 'F2' }))
+  }, '新名字')
+  await waitUntil(() => second.textContent.includes('新名字'))
+  await root.querySelector('[data-command="undo"]').onclick()
+  assert.equal(second.querySelector('.asset-tile strong').textContent.startsWith('素材'), true)
+  assert.deepEqual(toasts, [])
+})
+
+test('素材库虚拟网格控制挂载数量，滚动后全选包含屏幕外素材', async t => {
+  const { window, state, ctx } = await librarySetup(t, 600), root = window.document.querySelector('.asset-window'), grid = root.querySelector('.asset-grid')
+  assert.ok(root.querySelectorAll('.asset-tile').length < 60)
+  Object.defineProperties(grid, { clientWidth: { value: 550 }, clientHeight: { value: 400 } })
+  grid.scrollTop = 10000; grid.onscroll()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  grid.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, key: 'a', ctrlKey: true }))
+  assert.match(root.querySelector('.asset-browser-foot').textContent, /已选 600/)
+  assert.equal(ctx.canvasSession.board().nodes.length, 0)
+  assert.equal(state.boards[0].nodes.length, 0)
+  let hidden = true; Object.defineProperty(window.document, 'hidden', { configurable: true, get: () => hidden })
+  window.document.dispatchEvent(new window.Event('visibilitychange'))
+  assert.equal(root.querySelectorAll('.asset-tile').length, 0)
+  hidden = false; window.document.dispatchEvent(new window.Event('visibilitychange'))
+  await waitUntil(() => root.querySelectorAll('.asset-tile').length > 0)
+  assert.ok(root.querySelectorAll('.asset-tile').length < 60)
+})
+
+test('素材库拖动多选素材一次添加画布，窗口布局与 Tab 重载恢复', async t => {
+  const { window, state, stop, start, toasts } = await librarySetup(t), doc = window.document, root = doc.querySelector('.asset-window')
+  const tiles = root.querySelectorAll('.asset-tile'); tiles[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })); tiles[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true, ctrlKey: true }))
+  const values = new Map(), dt = { setData(k, v) { values.set(k, v) }, getData(k) { return values.get(k) || '' }, files: [] }
+  tiles[0].ondragstart({ dataTransfer: dt })
+  const event = new window.Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperties(event, { dataTransfer: { value: dt }, clientX: { value: 600 }, clientY: { value: 300 } })
+  doc.querySelector('.studio-stage').dispatchEvent(event)
+  await waitUntil(() => state.boards[0].nodes.length === 2)
+  assert.equal(new Set(state.boards[0].nodes.map(node => node.assetId)).size, 2)
+  await root.querySelector('[aria-label="新建素材库标签页"]').onclick()
+  const slider = root.querySelector('[aria-label="缩略图大小"]'); slider.value = '200'; slider.oninput()
+  const head = root.querySelector('.asset-window-head')
+  head.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 350, clientY: 120 }))
+  window.dispatchEvent(new window.PointerEvent('pointermove', { clientX: 380, clientY: 150 }))
+  window.dispatchEvent(new window.PointerEvent('pointerup'))
+  const left = root.style.left
+  await new Promise(resolve => setTimeout(resolve, 200))
+  await stop('basic'); await start('basic')
+  const restored = doc.querySelector('.asset-window')
+  assert.equal(restored.style.left, left)
+  assert.equal(restored.querySelectorAll('[role="tab"]').length, 2)
+  assert.equal(restored.querySelector('[aria-label="缩略图大小"]').value, '200')
+  assert.deepEqual(toasts, [])
+})
+
+test('素材库搜索筛选排序、双击预览和外部收藏更新', async t => {
+  const { window, assetLibrary, toasts } = await librarySetup(t), root = window.document.querySelector('.asset-window')
+  const kind = root.querySelector('[aria-label="素材类型"]'); kind.value = 'image'; kind.onchange()
+  assert.equal(root.querySelectorAll('.asset-tile video').length, 0)
+  assert.equal(root.querySelectorAll('.asset-tile').length, 4)
+  const sort = root.querySelector('[aria-label="素材排序"]'); sort.value = 'name'; sort.onchange()
+  assert.equal(root.querySelector('.asset-tile strong').textContent, '素材 0')
+  const tile = root.querySelector('.asset-tile'); tile.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); assert.equal(window.document.querySelector('.studio-viewer').open, false)
+  tile.ondblclick({ target: tile }); assert.equal(window.document.querySelector('.studio-viewer').open, true)
+  window.document.querySelector('.studio-viewer').close()
+  await assetLibrary.mutate({ revision: assetLibrary.read().revision, type: 'collect', collectionId: 'favorites', ids: ['library-0'] })
+  window.dispatchEvent(new window.Event('focus'))
+  await waitUntil(() => root.querySelector('.asset-star').textContent === '★')
+  assert.deepEqual(toasts, [])
 })
 
 test('用户与 Agent 共用画布操作、自动保存、撤销和版本冲突规则，连线不自动生图', async t => {
@@ -1540,6 +1512,7 @@ test('提示词停顿自动保存后继续输入，点击生成使用最新内�
   input.focus(); input.value = '鳄'; input.oninput()
   await waitUntil(() => !tools.get('studio_read')().dirty)
   assert.equal(state.boards[0].nodes[0].prompt, '鳄')
+  assert.equal(window.document.querySelector('.studio-status').textContent, '已保存')
   assert.equal(window.document.querySelector('textarea'), input, '保存不能打断输入或更换正在使用的输入框')
   input.value = '鳄鱼'; input.oninput()
   await input.onblur()
@@ -1808,7 +1781,7 @@ test('生成视频首次播放后写入播放状态，导入视频不显示未�
   assert.equal(imported.classList.contains('is-unplayed'), false)
   assert.equal(imported.querySelector('.studio-video-unplayed'), null)
   card.querySelector('video').dispatchEvent(new window.Event('play'))
-  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'result').played === true)
+  await waitUntil(() => state.boards[0].nodes.find(node => node.id === 'result').played === true && !card.classList.contains('is-unplayed'))
   assert.equal(card.classList.contains('is-unplayed'), false)
   assert.equal(card.querySelector('.studio-video-unplayed'), null)
 })
@@ -2183,8 +2156,8 @@ test('上传期间切换画板，排队粘贴仍使用原画板和原位置', as
   assert.deepEqual(toasts, [])
 })
 
-test('删除失败后立即同步其他页面改动，后续删除不被阻断', async t => {
-  const { window, state, tools } = await setup(t)
+test('删除冲突时保留本地意图，显式放弃后可继续删除最新画板', async t => {
+  const { window, state, tools, ctx } = await setup(t)
   await tools.get('studio_edit')({ revision: 0, operations: [
     { type: 'add', node: { id: 'a', type: 'text', x: 0, y: 0, text: 'A' } },
     { type: 'add', node: { id: 'b', type: 'text', x: 340, y: 0, text: 'B' } },
@@ -2200,7 +2173,11 @@ test('删除失败后立即同步其他页面改动，后续删除不被阻断',
   select('a')
   stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }))
   await new Promise(resolve => setTimeout(resolve, 150))
-  assert.equal(window.document.querySelectorAll('.studio-card').length, 1, '删除失败后应立即同步其他页面的改动')
+  assert.equal(ctx.canvasSession.pendingEdits, 1)
+  assert.ok(ctx.canvasSession.saveError)
+  assert.equal(window.document.querySelector('[data-node="a"]'), null, '本地删除仍保留供用户恢复或导出')
+  assert.equal(state.boards[0].nodes[0].id, 'a', '冲突不得覆盖远端')
+  await ctx.canvasSession.discardDrafts()
   select('a')
   stage.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }))
   await waitUntil(() => state.boards[0].nodes.length === 0)

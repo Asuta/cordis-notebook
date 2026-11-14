@@ -4,7 +4,7 @@ import { createQuickEdit } from './quick-edit.js'
 const ASSET_DRAG_TYPE = 'application/x-cordis-studio-asset'
 
 export function createReferenceUI(ctx, view, s, sdk) {
-  const { el, button, edit, flush } = view
+  const { el, button, edit, prepareEdit: flush } = view
   const { uploadMedia, mediaKind, mediaUrl } = s
   const picker = el('dialog', { class: 'studio-asset-picker' }), content = el('div', { class: 'studio-picker-grid studio-scroll' })
   const fileInput = el('input', { type: 'file', multiple: true, hidden: true, accept: 'image/png,image/jpeg,image/webp,video/mp4,video/webm' })

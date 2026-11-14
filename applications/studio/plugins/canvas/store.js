@@ -1,9 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import sharp from 'sharp'
 import { createNodeRegistry } from './registry.js'
-import { applyOperation, validateBoard, invalid, string } from './model.js'
+import { applyOperation, applyOperations, validateBoard, invalid, string } from './model.js'
 import { videoMetadata } from './video.js'
 import { copySelection } from './copy.js'
 
@@ -38,12 +38,16 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
     finally { if (smallImageJobs.get(id) === task) smallImageJobs.delete(id) }
   }
   let queue = Promise.resolve()
+  const enqueue = action => {
+    const task = queue.then(action)
+    queue = task.catch(() => {})
+    return task
+  }
   const store = {
     directory, types, revision: () => `${instance}:${revision}`,
     read: () => structuredClone(state),
     change(fn) {
-      const task = queue.then(async () => { const next = structuredClone(state), result = await fn(next); await writeSnapshot(file, JSON.stringify(next, null, 2)); state = structuredClone(next); revision++; return result })
-      queue = task.catch(() => {}); return task
+      return enqueue(async () => { const next = structuredClone(state), result = await fn(next); await writeSnapshot(file, JSON.stringify(next, null, 2)); state = structuredClone(next); revision++; return result })
     },
     flush: () => queue,
     records(namespace) {
@@ -69,15 +73,30 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
         }),
       }
     },
-    async edit(boardId, revision, operations) {
+    async edit(boardId, expectedRevision, operations, requestId) {
       if (!Array.isArray(operations) || !operations.length || operations.length > 100) invalid('一次需要 1–100 个操作')
-      return store.change(state => {
+      if (requestId !== undefined && !/^[a-f0-9-]{36}$/.test(requestId)) invalid('编辑请求 ID 无效')
+      const frozen = structuredClone(operations)
+      const signature = requestId && createHash('sha256').update(JSON.stringify([boardId, expectedRevision, frozen])).digest('hex')
+      return enqueue(async () => {
         const index = state.boards.findIndex(b => b.id === boardId)
         if (index < 0) invalid('画板不存在')
-        if (state.boards[index].revision !== revision) throw Object.assign(Error('画布已变化，请重新读取；本次操作未写入'), { status: 409 })
-        let board = state.boards[index]; const inverse = []
-        for (const op of operations) { const result = applyOperation(board, op, state.assets, types); board = result.board; inverse.unshift(result.inverse) }
-        state.boards[index] = board; return { board: structuredClone(board), inverse }
+        const receipt = requestId && state.editReceipts?.find(item => item.id === requestId)
+        if (receipt) {
+          if (receipt.signature !== signature) throw Object.assign(Error('编辑请求 ID 已用于其他操作'), { status: 409 })
+          return { board: structuredClone(state.boards[index]), inverse: [], replayed: true }
+        }
+        if (state.boards[index].revision !== expectedRevision) throw Object.assign(Error('画布已变化，请重新读取；本次操作未写入'), { status: 409 })
+        // Only the edited board is mutable. Unrelated boards, assets and jobs
+        // remain shared until the complete JSON snapshot has been saved.
+        const result = applyOperations(state.boards[index], frozen, state.assets, types, { validateEach: true })
+        const next = { ...state, boards: state.boards.slice() }
+        next.boards[index] = result.board
+        if (requestId) next.editReceipts = [...(state.editReceipts || []), { id: requestId, signature }].slice(-256)
+        await writeSnapshot(file, JSON.stringify(next, null, 2))
+        state = next
+        revision++
+        return { board: structuredClone(result.board), inverse: structuredClone(result.inverse) }
       })
     },
     async addBoard(title) {
@@ -134,6 +153,38 @@ export async function createStore(directory, writeSnapshot, types = createNodeRe
       return { path: join(directory, 'videos', id + '.' + asset.extension), mimeType: asset.mimeType }
     },
     async media(id) { return readFile(store.mediaFile(id).path) },
+    async purgeAssets(ids, libraryRevision) {
+      if (!Array.isArray(ids) || !ids.length || ids.length > 10000 || ids.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id))) invalid('永久删除素材参数无效')
+      const removed = await store.change(next => {
+        const library = next.extensions?.['asset-library']?.[0]
+        if (!library || library.revision !== libraryRevision) throw Object.assign(Error('素材库已更新，请重试'), { status: 409 })
+        const referenced = new Set(), targets = new Set(ids)
+        const scan = value => {
+          if (typeof value === 'string') { if (targets.has(value)) referenced.add(value) }
+          else if (Array.isArray(value)) value.forEach(scan)
+          else if (value && typeof value === 'object') Object.values(value).forEach(scan)
+        }
+        scan(next.boards); scan(next.jobs)
+        for (const [namespace, records] of Object.entries(next.extensions || {})) if (!['asset-library', 'asset-favorites'].includes(namespace)) scan(records)
+        if (referenced.size) invalid('所选素材仍被画板、生成记录或扩展引用，不能永久删除；可以继续保留在回收站')
+        const assets = ids.map(id => {
+          if (!next.assets[id] || !library.data.items[id]?.trashedAt) invalid('只能永久删除回收站中的素材')
+          return next.assets[id]
+        })
+        for (const id of ids) { delete next.assets[id]; delete library.data.items[id] }
+        for (const collection of library.data.collections) collection.assetIds = collection.assetIds.filter(id => !targets.has(id))
+        if (next.extensions['asset-favorites']) next.extensions['asset-favorites'] = next.extensions['asset-favorites'].filter(item => !targets.has(item.assetId))
+        library.undo = []; library.redo = []; library.revision++
+        return assets
+      })
+      const warnings = []
+      for (const asset of removed) {
+        await smallImageJobs.get(asset.id)?.catch(() => {})
+        const files = asset.kind === 'video' ? ['mp4', 'webm'].map(ext => join(directory, 'videos', asset.id + '.' + ext)) : ['png', 'webp', 'small.webp'].map(ext => join(directory, 'images', asset.id + '.' + ext))
+        for (const path of files) try { await rm(path, { force: true }) } catch { warnings.push('部分文件清理失败：' + asset.name) }
+      }
+      return { removed: removed.map(asset => asset.id), warnings }
+    },
   }
   return store
 }

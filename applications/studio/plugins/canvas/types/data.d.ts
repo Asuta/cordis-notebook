@@ -2,7 +2,7 @@ import type { Context } from 'cordis'
 export interface CanvasNode { id: string; type: string; title: string; x: number; y: number; resolvedOutput?: { text?: string; assetId?: string; kind?: 'image' | 'video' }; [field: string]: unknown }
 export interface CanvasBoard { id: string; title: string; revision: number; viewport: { x: number; y: number; zoom: number }; nodes: CanvasNode[]; edges: { id: string; from: string; to: string }[] }
 export interface CanvasAsset { id: string; name: string; width: number; height: number; createdAt: number; kind?: 'image' | 'video'; mimeType?: string; extension?: 'mp4' | 'webm'; duration?: number; size?: number }
-export interface CanvasState { version: number; boards: CanvasBoard[]; assets: Record<string, CanvasAsset>; jobs: Record<string, unknown>[]; types?: Omit<CardType, 'validate' | 'resolve' | 'defaults' | 'copy'>[]; providers?: Record<string, unknown>[] }
+export interface CanvasState { version: number; boards: CanvasBoard[]; assets: Record<string, CanvasAsset>; jobs: Record<string, unknown>[]; types?: (Omit<CardType, 'validate' | 'resolve' | 'defaults' | 'copy'> & { defaults?: Record<string, unknown> })[]; providers?: Record<string, unknown>[] }
 export interface Registry<T extends { id: string }> {
   register(owner: Context, definition: T): () => unknown
   get(id: string): Readonly<T> | undefined

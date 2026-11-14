@@ -28,7 +28,7 @@ export function serializeClientState(store, snapshots) {
   const state = {
     ...store.read(),
     ...Object.assign({}, ...snapshots.list().map(item => item.read())),
-    types: store.types.list().map(({ id, label, fields, accepts, output }) => ({ id, label, fields, accepts, output })),
+    types: store.types.list().map(({ id, label, fields, accepts, output, defaults }) => ({ id, label, fields, accepts, output, defaults: defaults() })),
     stateRevision: clientStateRevision(store, snapshots),
   }
   state.boards = state.boards.map(board => serializeClientBoard(board, store.types))

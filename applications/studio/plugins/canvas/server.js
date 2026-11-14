@@ -18,9 +18,9 @@ export default async function (ctx, settings, runtime) {
   const service = Object.assign(new Service(ctx, 'canvasDocuments'), {
     types: store.types, snapshots,
     read: store.read, addBoard: store.addBoard, addImage: store.addImage, image: store.image, addVideo: store.addVideo, media: store.media,
-    records: store.records,
+    records: store.records, purgeAssets: store.purgeAssets,
     observe(owner, fn) { return owner.effect(() => { changes.add(fn); return () => changes.delete(fn) }) },
-    async edit(...args) { const result = await store.edit(...args); for (const fn of changes) await fn(result.board); return result },
+    async edit(...args) { const result = await store.edit(...args); if (!result.replayed) for (const fn of changes) await fn(result.board); return result },
     async legacyPixelConfig() {
       try { return JSON.parse(await readFile(join(runtime.dataDir, 'pixel-private.json'), 'utf8')) }
       catch (error) { if (error.code === 'ENOENT') return null; throw error }
@@ -35,7 +35,7 @@ export default async function (ctx, settings, runtime) {
   route('POST', /^\/api\/studio\/boards\/([\w-]{1,80})\/copy$/, async ({ match }) => serializeClientBoard(await store.duplicateBoard(match[1]), store.types))
   route('POST', /^\/api\/studio\/edit$/, async ({ req }) => {
     const input = await ctx.http.body(req)
-    const result = await service.edit(input.boardId, input.revision, input.operations)
+    const result = await service.edit(input.boardId, input.revision, input.operations, input.requestId)
     return { ...result, board: serializeClientBoard(result.board, store.types) }
   })
   route('POST', /^\/api\/studio\/copy$/, async ({ req }) => {

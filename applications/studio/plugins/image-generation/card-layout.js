@@ -1,7 +1,7 @@
 import { textInputs } from './snapshot.js'
 
 export function createCardLayout(ctx, view, s, sdk) {
-  const { el, button, safe, edit, flush } = view
+  const { el, button, safe, edit, prepareEdit: flush } = view
   let resizing
   function cancel() { if (!resizing) return; const gesture = resizing; resizing = null; view.endEditing(gesture.handle); view.render() }
   sdk.listen(window, 'blur', cancel)

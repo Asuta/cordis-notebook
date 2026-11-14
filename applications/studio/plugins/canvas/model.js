@@ -56,8 +56,8 @@ function insertItems(list, items, positions) {
     list.splice(index, 0, structuredClone(items[i]))
   }
 }
-export function applyOperation(board, operation, assets, types) {
-  const next = structuredClone(board), op = operation || {}
+export function applyOperation(board, operation, assets, types, { inPlace = false, validate = true } = {}) {
+  const next = inPlace ? board : structuredClone(board), op = operation || {}
   if (Object.hasOwn(op, 'expected') && JSON.stringify(historyState(board, op)) !== JSON.stringify(op.expected)) {
     throw Object.assign(Error('撤销或重做冲突：相关内容已被其他页面或后续操作修改，本次操作未写入'), { status: 409 })
   }
@@ -83,7 +83,7 @@ export function applyOperation(board, operation, assets, types) {
       inverse = { type: 'update', id: node.id, patch: Object.fromEntries(keys.filter(key => node[key] !== undefined).map(key => [key, node[key]])) }
       const missing = keys.filter(key => node[key] === undefined)
       if (missing.length) inverse.unset = missing
-      Object.assign(node, op.patch)
+      Object.assign(node, structuredClone(op.patch))
       for (const key of unset) delete node[key]
       break
     }
@@ -142,8 +142,19 @@ export function applyOperation(board, operation, assets, types) {
     case 'viewport': inverse = { type: 'viewport', viewport: next.viewport }; next.viewport = structuredClone(op.viewport); break
     default: invalid('未知画布操作')
   }
-  validateBoard(next, assets, types)
+  if (validate) validateBoard(next, assets, types)
   next.revision++
   inverse.expected = structuredClone(historyState(next, inverse))
+  return { board: next, inverse }
+}
+
+// A transaction clones its board once. Servers can preserve per-step validation;
+// local previews validate the final board. Inverses still describe each step.
+export function applyOperations(board, operations, assets, types, { validateEach = false } = {}) {
+  if (!Array.isArray(operations) || !operations.length || operations.length > 100) invalid('一次需要 1–100 个操作')
+  const next = structuredClone(board), inverse = []
+  for (const node of next.nodes) delete node.resolvedOutput
+  for (const operation of operations) inverse.unshift(applyOperation(next, operation, assets, types, { inPlace: true, validate: validateEach }).inverse)
+  if (!validateEach) validateBoard(next, assets, types)
   return { board: next, inverse }
 }

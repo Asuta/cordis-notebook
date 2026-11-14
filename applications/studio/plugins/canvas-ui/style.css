@@ -12,6 +12,9 @@
 .studio-app .studio-sidebar-tab.is-active{background:var(--asset-card-bg)!important;color:var(--accent);font-weight:600;box-shadow:0 1px 4px #26351f16}
 .studio-sidebar-page{display:flex;flex-direction:column;gap:12px;flex:1;min-height:0}
 .studio-sidebar-page[hidden]{display:none}
+.studio-app.sidebar-collapsed>.studio-sidebar{display:none}
+.studio-app .studio-sidebar-collapse{align-self:flex-end;padding:3px 8px;font-size:11px}
+.studio-app .studio-sidebar-toggle{flex:0 0 auto}
 .studio-sidebar-page.is-canvas{overflow:auto}
 .studio-sidebar-page.is-assets{overflow:hidden}
 .studio-sidebar-main{display:flex;flex-direction:column;gap:8px}

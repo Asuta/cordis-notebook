@@ -46,6 +46,11 @@
         "type": "copy",
         "input": "style.css",
         "output": "style.css"
+      },
+      {
+        "type": "copy",
+        "input": "library.css",
+        "output": "library.css"
       }
     ],
     "server": {
@@ -55,10 +60,12 @@
     "client": "client.js",
     "public": [
       "client.js",
-      "style.css"
+      "style.css",
+      "library.css"
     ],
     "styles": [
-      "style.css"
+      "style.css",
+      "library.css"
     ]
   }
 }

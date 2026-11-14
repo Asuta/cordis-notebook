@@ -5,7 +5,8 @@ import { createMediaViewer } from './media-viewer.js'
 import { createApplicationSettings } from './settings.js'
 export default async function (ctx, sdk) {
   const s = ctx.canvasSession, el = sdk.el, uuid = () => crypto.randomUUID();
-  const { board, api, edit, flush, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
+  const { board, api, flush, prepareEdit, draft, choose, newBoard, refresh, imageUrl, rememberAsset, importImage, saveViewport } = s;
+  const edit = (operations, options = {}) => s.edit(operations, { ...options, waitForSave: false });
   const renderers = new Map(), menus = new Map(), extensions = new Map(), renderedNodes = new Map();
   const cardElements = new Map(), cardSizes = new Map(), wireElements = new Map();
   let pointerFrame = null, pendingPointer = null, canvasWindowFrame = null, windowBounds = null, boardsSignature = '';
@@ -90,7 +91,7 @@ export default async function (ctx, sdk) {
     return point;
   };
   async function add(type, extra = {}, options = {}) {
-    await flush();
+    await prepareEdit();
     const id = uuid();
     await edit([{ type: "add", node: { id, type, ...position(), ...extra } }]);
     selected.clear();
@@ -101,20 +102,13 @@ export default async function (ctx, sdk) {
   }
   async function connect(from, to) {
     stopConnecting();
-    await flush();
+    await prepareEdit();
     await edit([{ type: "connect", id: uuid(), from, to }]);
     notice.textContent = "已连接输入";
     render();
   }
   async function historyStep(back) {
-    await flush();
-    const source = back ? s.undo : s.redo, target = back ? s.redo : s.undo, stack = source.get(s.boardId) || [];
-    if (!stack.length) return;
-    const result = await edit(stack.at(-1), { history: false });
-    stack.pop();
-    const next = target.get(s.boardId) || [];
-    next.push(result.inverse);
-    target.set(s.boardId, next);
+    await s.historyStep(back);
     render();
   }
   const newBoardButton = button("＋ 新建画板", () => newBoard(), "studio-new-board")
@@ -155,20 +149,42 @@ export default async function (ctx, sdk) {
     extensions.get('assets')?.refresh?.()
   }
   showSidePage("canvas")
+  const sidebarToggle = button('☰', () => setSidebarCollapsed(!root.classList.contains('sidebar-collapsed')), 'studio-sidebar-toggle')
+  sidebarToggle.setAttribute('aria-label', '展开或收起左侧栏')
+  toolbar.prepend(sidebarToggle)
+  const collapseSidebar = button('收起 ‹', () => setSidebarCollapsed(true), 'studio-sidebar-collapse')
+  side.prepend(collapseSidebar)
+  function setSidebarCollapsed(collapsed) {
+    root.classList.toggle('sidebar-collapsed', collapsed)
+    sidebarToggle.setAttribute('aria-expanded', String(!collapsed))
+    sdk.storage.local.setItem('studio-sidebar-collapsed', collapsed ? '1' : '0')
+    extensions.get('assets')?.refresh?.()
+    scheduleCanvasWindow(true)
+  }
+  // Avoid scheduling canvas work before the UI has finished initializing.
+  root.classList.toggle('sidebar-collapsed', sdk.storage.local.getItem('studio-sidebar-collapsed') === '1')
+  sidebarToggle.setAttribute('aria-expanded', String(!root.classList.contains('sidebar-collapsed')))
   sdk.listen(document, 'pointerdown', event => {
     if (event.target.closest('.studio-board-menu')) return;
     for (const menu of boardList.querySelectorAll('.studio-board-menu[open]')) menu.open = false;
   });
   const undoButton = button("↶", () => historyStep(true)), redoButton = button("↷", () => historyStep(false));
   undoButton.title = "撤销 Ctrl+Z";
-  redoButton.title = "重做 Ctrl+Shift+Z";
+  redoButton.title = "重做 Ctrl+Y / Ctrl+Shift+Z";
   const tidyControl = createLayoutMenu({ ctx, sdk, el, button, stage, run: tidyCanvas });
   dock.append(tidyControl, undoButton, redoButton);
+  const retrySave = button('重试保存', () => s.retrySave(), 'studio-retry-save');
+  const exportPending = button('导出未保存修改', () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(s.exportPending(), null, 2)], { type: 'application/json' }));
+    const link = el('a', { href: url, download: '画布未保存修改.json' }); root.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, 'studio-export-pending');
+  retrySave.hidden = exportPending.hidden = !s.saveError;
   toolbar.append(
     boardTitle,
     notice,
+    retrySave, exportPending,
     button("载入最新", async () => {
-      if (s.drafts.size && !window.confirm("本页未保存草稿将被放弃，请先复制需要保留的文字。是否载入已保存画板？")) return;
+      if (s.read().dirty && !window.confirm("本页尚未保存的修改将被放弃，请先导出需要保留的修改或复制草稿。是否载入已保存画板？")) return;
       await s.discardDrafts();
       notice.textContent = "已载入最新画板";
     })
@@ -284,17 +300,17 @@ export default async function (ctx, sdk) {
     }
   }
   async function removeSelection() {
-    await flush();
+    await prepareEdit();
     await removeNodes([...selected]);
   }
   async function arrangeSelection() {
-    await flush();
+    await prepareEdit();
     const operations = arrangeGrid(selectedNodes(), cardSize);
     if (operations.length > 100) throw Error("请每次选择不超过 100 张卡片进行排列。");
     if (operations.length) await edit(operations);
   }
   async function arrangeNodes(nodeIds, options = {}) {
-    await flush();
+    await prepareEdit();
     const nodes = nodeIds.map(id => board().nodes.find(node => node.id === id)).filter(Boolean), layout = {};
     if (options.after) {
       const anchor = board().nodes.find(node => node.id === options.after);
@@ -306,7 +322,7 @@ export default async function (ctx, sdk) {
     if (operations.length) await edit([{ type: 'layout', nodes: operations }]);
   }
   async function tidyCanvas(algorithm) {
-    await flush();
+    await prepareEdit();
     const operations = arrangeCanvas(board().nodes, board().edges, cardSize, algorithm);
     if (operations.length) await edit([{ type: 'layout', nodes: operations }], { repaint: false });
     selected.clear();
@@ -315,7 +331,7 @@ export default async function (ctx, sdk) {
     notice.textContent = `${canvasLayouts.find(layout => layout.id === algorithm).label} · 已整理 ${board().nodes.length} 张卡片`;
   }
   async function stackSelection(position) {
-    await flush();
+    await prepareEdit();
     const ids = new Set(selected), nodes = board().nodes;
     if (!ids.size || !nodes.some(node => ids.has(node.id))) return;
     const picked = nodes.filter(node => ids.has(node.id)), rest = nodes.filter(node => !ids.has(node.id));
@@ -734,7 +750,7 @@ export default async function (ctx, sdk) {
     if (!clipboard) return false;
     const copy = materializeClipboard(point);
     if (!copy) return false;
-    await flush();
+    await prepareEdit();
     await edit(copy.operations);
     selected.clear();
     copy.nodeIds.forEach((id) => selected.add(id));
@@ -987,9 +1003,9 @@ export default async function (ctx, sdk) {
       } else board().nodes.forEach((n) => selected.add(n.id));
       updateSelectionTools();
     }
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
       event.preventDefault();
-      await historyStep(!event.shiftKey);
+      await historyStep(event.key.toLowerCase() === 'z' && !event.shiftKey);
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
       if (!selected.size) return;
@@ -1055,6 +1071,7 @@ export default async function (ctx, sdk) {
     add,
     edit,
     flush,
+    prepareEdit,
     refresh,
     board,
     imageUrl,
@@ -1166,7 +1183,13 @@ export default async function (ctx, sdk) {
       });
     }
   };
-  s.attachView(ctx, { render, syncRenderedNode: view.syncRenderedNode, status: (value) => notice.textContent = value, dragging: () => !!drag || interactions.size > 0, choose: () => {
+  s.attachView(ctx, { render, syncRenderedNode: view.syncRenderedNode, status(value) {
+    notice.textContent = value;
+    notice.title = s.saveError || '';
+    retrySave.hidden = exportPending.hidden = !s.saveError;
+    undoButton.disabled = !s.undo.get(s.boardId)?.length;
+    redoButton.disabled = !s.redo.get(s.boardId)?.length;
+  }, dragging: () => !!drag || interactions.size > 0, choose: () => {
     selected.clear();
     stopConnecting();
     clearConnectDrag();
