@@ -1,4 +1,5 @@
 import { validateProject, initialRuntime, validateRuntime, diagnose } from './model.js'
+import { defaultComposition, expandScene, editComposition, validateComposition } from './composition.js'
 
 export default async function(ctx,sdk) {
   let summaries = await sdk.request('/api/narrative/projects')
@@ -7,6 +8,20 @@ export default async function(ctx,sdk) {
   let runtime = null, mode = 'edit', selection = {nodeId:project.startNodeId,characterId:project.characters[0]?.id || ''}
   let status = '已保存', version = 0, dirty = false, held = false, stopped = false, timer, pending, operation, transitionDepth = 0
   const observers = new Set(), events = new Set(), nodeTypes = new Map(), actionTypes = new Map(), conditionTypes = new Map(), resources = new Map()
+  const undoScenes=[], redoScenes=[]
+  const composition = () => structuredClone(project.composition || defaultComposition(project))
+  function sceneCommand(command, expectedVersion=version, validate=()=>{}) {
+    if(expectedVersion!==version)throw Error('版本已变化，请重新读取')
+    const before=composition(),after=editComposition(before,command);validate(after)
+    engine.update(p=>{p.composition=after});undoScenes.push({before,after});if(undoScenes.length>50)undoScenes.shift();redoScenes.length=0
+    return composition()
+  }
+  function sceneHistory(source,target) {
+    const entry=source.at(-1);if(!entry)return
+    const expected=source===undoScenes?entry.after:entry.before
+    if(JSON.stringify(composition())!==JSON.stringify(expected))throw Error('场景已被其他编辑修改，不能覆盖，请重新编辑')
+    engine.update(p=>{p.composition=structuredClone(source===undoScenes?entry.before:entry.after)});source.pop();target.push(entry)
+  }
   async function prepareResources() {
     const stamp = version, next = structuredClone(project)
     for (const resource of resources.values()) await resource.prepare?.(next)
@@ -68,10 +83,13 @@ export default async function(ctx,sdk) {
   async function load(id) {
     await save()
     const next=validateProject(await sdk.request('/api/narrative/projects/'+encodeURIComponent(id)))
-    project=next;mode='edit';runtime=null;selection={nodeId:next.startNodeId,characterId:next.characters[0]?.id || ''};version++;dirty=false;status='已保存'
+    project=next;mode='edit';runtime=null;selection={nodeId:next.startNodeId,characterId:next.characters[0]?.id || ''};version++;dirty=false;status='已保存';undoScenes.length=0;redoScenes.length=0
     sdk.storage.local.setItem('current-project',next.id); notify('mode');notify('project')
   }
   const engine={
+    get composition(){return composition()},expandScene(id,doc=composition()){return expandScene(doc,id)},sceneCommand,
+    validateComposition,sceneUndo(){sceneHistory(undoScenes,redoScenes)},sceneRedo(){sceneHistory(redoScenes,undoScenes)},
+    get sceneHistory(){return{undo:undoScenes.length,redo:redoScenes.length}},
     get project(){return project},get runtime(){return runtime},get mode(){return mode},get selection(){return selection},get status(){return status},get version(){return version},get held(){return held},
     observe(owner,fn){observers.add(fn);owner.effect(()=>()=>observers.delete(fn));return()=>observers.delete(fn)},
     update(fn,{render=true}={}) {if(held||stopped||mode==='play'||operation)throw Error('请先返回编辑器'); const next=structuredClone(project);fn(next);validateProject(next);project=next;mark();notify('project',{render})},
@@ -79,7 +97,7 @@ export default async function(ctx,sdk) {
     asset(id){return project.assets.find(a=>a.id===id)?.url || ''},
     scene(){return project.nodes.find(n=>n.id===(mode==='play'?runtime?.nodeId:selection.nodeId)) || project.nodes[0]},
     transact(fn){if(!runtime)return;fn(runtime);notify('runtime')},
-    play(id){return exclusive(async()=>{await save();runtime=initialRuntime(project,id);mode='play';notify('mode');try{await go(runtime.nodeId)}catch(e){error(e.message)}})},
+    play(id){return exclusive(async()=>{await save();runtime=initialRuntime(project,id);mode='play';notify('mode');try{if(engine.expandScene(composition().startSceneId).objects.some(o=>o.type==='story-player'))await go(runtime.nodeId)}catch(e){error(e.message)}})},
     stop(){mode='edit';if(runtime?.nodeId)selection.nodeId=runtime.nodeId;runtime=null;notify('mode')},
     go,async advance(){if(runtime?.busy||held)return;const n=engine.scene();try{await nodeTypes.get(n.type)?.advance?.(n)}catch(e){error(e.message)}},
     registerNode(owner,d){register(nodeTypes,owner,d,'type')},nodeTypes(){return[...nodeTypes.values()]},
@@ -94,7 +112,7 @@ export default async function(ctx,sdk) {
     create(template,title){return exclusive(async()=>{await save();const p=await sdk.request('/api/narrative/projects','POST',{template,...(title?{title}:{})});await load(p.id);return p})},
     importProject(value){return exclusive(async()=>{await save();const next=structuredClone(value),bundles=next.resourceBundles||{};delete next.resourceBundles;validateProject(next);for(const [id,bundle] of Object.entries(bundles)){const resource=resources.get(id);if(!resource)throw Error('请先启用资源插件：'+id);await resource.import(next,bundle)}validateProject(next);const p=await sdk.request('/api/narrative/import','POST',next);await load(p.id);return p})},
     exportProject(){return structuredClone(project)},
-    exportBundle(){return exclusive(async()=>{await save();const next=structuredClone(project);next.resourceBundles={};for(const resource of resources.values()){const value=await resource.export?.(next);if(value)next.resourceBundles[resource.id]=value}if(next.characters.some(c=>c.meshAvatar)&&!resources.has('mesh-studio'))throw Error('请先启用角色工作室，以导出完整角色素材');return next})},
+    exportBundle(){return exclusive(async()=>{await save();const next=structuredClone(project);next.resourceBundles={};for(const resource of resources.values()){const value=await resource.export?.(next);if(value)next.resourceBundles[resource.id]=value}if(next.characters.some(c=>c.meshAvatar)&&!resources.has('mesh-studio'))throw Error('此旧作品含动态立绘资源，当前精简版不支持完整导出');return next})},
     registerResources(owner,d){register(resources,owner,d,'id')},
     restoreRuntime(snapshot){runtime=validateRuntime(snapshot,project);mode='play';notify('mode');notify('runtime')},
   }

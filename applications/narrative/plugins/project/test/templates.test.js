@@ -1,51 +1,26 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createFlowHandlers } from '../../flow/model.js'
-import { createDialoguePlayer } from '../../dialogue/player.js'
-import { registerRules } from '../../rules/engine.js'
-import { createChatController } from '../../ai-dialogue/chat.js'
-import { validateRuntime } from '../model.js'
-import { owner, setup } from './helpers.js'
+import { templateProject } from '../demo.js'
+import { validateProject, validateRuntime } from '../model.js'
+import { setupScene } from '../../scene-runtime/test/helpers.js'
 
-// Use the production interpreters so template reachability includes condition
-// gates, actions, rules and chat continuations rather than just graph edges.
-for (const template of ['hybrid', 'galgame', 'tavern']) {
-  const routes = template === 'tavern'
-    ? [{ choices: [], ending: 'quiet' }]
-    : [{ choices: ['stay', 'give', 'together'], ending: 'starlight' }, { choices: ['leave', 'home'], ending: 'quiet' }]
-  for (const route of routes) test(`${template} 模板通过真实剧情、规则和离线聊天走到 ${route.ending}，完成状态可以存档`, async t => {
-    const { engine, toasts } = await setup(t, { template }), plugin = owner()
-    t.after(() => plugin.dispose())
-    for (const handler of Object.values(createFlowHandlers(engine))) engine.registerNode(plugin, handler)
-    registerRules(plugin, engine)
-    const chat = createChatController(plugin, engine, () => assert.fail('默认模板不应调用外部 AI'), () => ({}))
-    const player = createDialoguePlayer(engine)
-    t.after(() => player.dispose())
-    async function readScene() {
-      if (engine.scene().type === 'chat') {
-        assert.equal(await chat.send('想听听这张旧唱片的故事。'), true)
-        assert.ok(engine.runtime.transcript.some(message => message.role === 'user'))
-        await chat.continueStory(engine.scene())
-      }
-      for (let count = 0; !player.view().atEnd && count < 20; count++) await player.advance()
-      assert.equal(player.view().atEnd, true)
-    }
-    await engine.play()
-    for (const choice of route.choices) {
-      await readScene()
-      assert.equal(player.view().choices.find(item => item.id === choice)?.available, true, `${choice} 的条件必须能够满足`)
-      assert.equal(await player.choose(choice), true)
-    }
-    await readScene()
-    assert.equal(engine.runtime.nodeId, route.ending)
-    assert.equal(engine.runtime.ended, true)
-    assert.equal(engine.runtime.error, '')
-    assert.equal(engine.runtime.busy, false)
-    validateRuntime(engine.runtime, engine.project)
-    if (route.ending === 'starlight') {
-      assert.equal(engine.runtime.variables.trust, 3)
-      assert.ok(engine.runtime.firedRules.includes('first-gift'))
-    }
-    assert.deepEqual(toasts, [])
-  })
-}
+test('只提供会客厅模板，所有对象类型均由保留插件注册', async t => {
+  validateProject(templateProject())
+  for (const id of ['hybrid', 'galgame', 'tavern']) assert.throws(() => templateProject(id), /仅提供七日会客厅/)
+  const f = await setupScene(t)
+  assert.deepEqual(f.scene.validate(), [])
+  assert.deepEqual(f.engine.nodeTypes(), [], '场景玩法不需要旧剧情插件注册处理器')
+  await f.engine.play()
+  assert.equal(f.engine.runtime.error, '')
+  await f.scene.call('lin-session', 'send', {text:'你好'})
+  await f.scene.call('yao-session', 'send', {text:'你好遥'})
+  await f.scene.call('next-day', 'click', {})
+  assert.equal(f.scene.runtime.state('relationship').value, 2)
+  assert.equal(f.scene.runtime.state('day').value, 2)
+  const snapshot = validateRuntime(f.engine.runtime, f.engine.project)
+  f.engine.stop()
+  f.engine.restoreRuntime(snapshot)
+  assert.equal(f.scene.runtime.state('day').value, 2)
+  assert.equal(f.scene.runtime.state('lin-session').messages.length, 2)
+  assert.deepEqual(f.toasts, [])
+})

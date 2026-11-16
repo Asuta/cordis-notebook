@@ -62,7 +62,7 @@ export interface ClientSDK {
   readonly config: Readonly<Record<string, string | number | boolean>>
   onConfig(callback: (config: Readonly<Record<string, string | number | boolean>>, signal: AbortSignal) => void | Promise<void>): () => unknown
   provide<T extends object>(name: string, value: T): T
-  request<T = unknown>(path: string, method?: string, data?: unknown): Promise<T>
+  request<T = unknown>(path: string, method?: string, data?: unknown, signal?: AbortSignal): Promise<T>
   service<K extends keyof ClientServices>(name: K): ClientServices[K]
   effect(callback: () => void | (() => void | Promise<void>)): () => unknown
   listen(target: EventTarget, event: string, handler: EventListener): void

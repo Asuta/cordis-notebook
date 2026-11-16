@@ -1,0 +1,5 @@
+{
+  "name": "@cordis-narrative/scene-runtime", "version": "1.0.0", "private": true, "type": "module",
+  "scripts": {"test": "node --test test/*.test.js"},
+  "cordis": {"schemaVersion":1,"id":"scene-runtime","name":"对象与场景运行时","description":"独立对象、预制体实例、引用、方法事件与运行快照。","defaultEnabled":true,"order":5,"client":"client.js","requires":{"client":["narrative"],"server":[]},"provides":{"client":["sceneRuntime"],"server":[]},"public":["client.js"],"build":[{"type":"bundle","input":"client.js","output":"client.js","platform":"browser"}]}
+}

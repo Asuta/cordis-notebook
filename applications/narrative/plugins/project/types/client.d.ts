@@ -10,6 +10,11 @@ export interface NarrativeProject {schemaVersion:1;id:string;revision:number;tit
 export interface NarrativeRuntime {nodeId:string;lineIndex:number;text:{speaker:string;text:string};variables:Record<string,number>;stage:NarrativeStage;transcript:{id:string;role:'user'|'assistant'|'narrator';name:string;text:string}[];chatTurns:number;ended:boolean;busy:boolean;error:string;visited:string[];firedRules:string[];log:unknown[]}
 export interface NarrativeChange {type:string;render?:boolean}
 export interface NarrativeService {
+  readonly composition:NarrativeComposition;readonly sceneHistory:{undo:number;redo:number};
+  expandScene(id:string,document?:NarrativeComposition):NarrativeScene;
+  validateComposition(document:NarrativeComposition):NarrativeComposition;
+  sceneCommand(command:NarrativeSceneCommand,version?:number,validate?:(document:NarrativeComposition)=>void):NarrativeComposition;
+  sceneUndo():void;sceneRedo():void;
   readonly project:NarrativeProject;readonly runtime:NarrativeRuntime|null;readonly mode:'edit'|'play';readonly selection:{nodeId:string;characterId:string};readonly status:string;readonly version:number;readonly held:boolean;
   update(fn:(p:NarrativeProject)=>void,options?:{render?:boolean}):void;select(patch:Partial<{nodeId:string;characterId:string}>):void;observe(owner:ClientContext,fn:(event:NarrativeChange)=>void):()=>void;
   asset(id:string):string;scene():NarrativeNode;transact(fn:(r:NarrativeRuntime)=>void):void;play(nodeId?:string):Promise<void>;stop():void;go(id:string):Promise<void>;advance():Promise<void>;
@@ -22,3 +27,20 @@ export interface NarrativeService {
   exportBundle():Promise<NarrativeProject & {resourceBundles?:Record<string,unknown>}>;
 }
 declare module '@cordis-notebook/host' { interface ClientServices {narrative:NarrativeService} }
+
+export interface NarrativeLayout {
+  mode?:'column'|'row'|'grid'|'overlay'|'anchor'|'scroll';
+  anchor?:'flow'|'fill'|'top-left'|'top-right'|'bottom-left'|'bottom-right'|'center';
+  gap?:number;padding?:number;columns?:number;width?:number;height?:number;grow?:number;
+  align?:'stretch'|'start'|'center'|'end';compact?:Omit<NarrativeLayout,'compact'>;
+}
+export interface NarrativeObjectOverride {props?:Record<string,unknown>;refs?:Record<string,string>;layout?:NarrativeLayout;visible?:boolean;enabled?:boolean;paused?:boolean}
+export interface NarrativeObject extends NarrativeObjectOverride {id:string;name?:string;parent?:string|null;type?:string;prefab?:{id:string;version:number};overrides?:Record<string,NarrativeObjectOverride>}
+export interface NarrativeConnection {id:string;source:string;event:string;target:string;method:string;args?:Record<string,unknown>;argument?:string}
+export interface NarrativeScene {id:string;name:string;objects:NarrativeObject[];connections:NarrativeConnection[]}
+export interface NarrativePrefab extends NarrativeScene {version:number;bindings?:Record<string,string>}
+export interface NarrativeComposition {schemaVersion:1;startSceneId:string;dependencies:{id:string;version:string}[];scenes:NarrativeScene[];prefabs:NarrativePrefab[]}
+export interface NarrativeSceneCommand {op:'add'|'patch'|'move'|'remove'|'clone'|'connect'|'disconnect'|'save-prefab'|'instantiate'|'unpack'|'add-scene'|'start-scene'|'rename-scene'|'batch';sceneId?:string;id?:string;commands?:NarrativeSceneCommand[];[key:string]:unknown}
+export interface NarrativeObjectSnapshot {schemaVersion:1;sceneId:string;states:Record<string,Record<string,unknown>>;flags:Record<string,{visible?:boolean;enabled?:boolean;paused?:boolean}>}
+export interface NarrativeProject {composition?:NarrativeComposition}
+export interface NarrativeRuntime {objects?:NarrativeObjectSnapshot}

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
 import client from '../client.js'
-import { templateProject } from '../demo.js'
+import { templateProject as salonProject } from '../demo.js'
+import { templateProject as legacyProject } from './fixtures/legacy-project.js'
+const templateProject = (template,...args) => template === 'salon' ? salonProject(template,...args) : legacyProject(template,...args)
 
 export const deferred = () => Promise.withResolvers()
 export const settle = () => new Promise(resolve => setImmediate(resolve))

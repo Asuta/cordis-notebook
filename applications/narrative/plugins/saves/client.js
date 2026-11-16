@@ -5,12 +5,17 @@ export default function(ctx,sdk) {
   const key=(slot)=>'save:'+engine.project.id+':'+slot
   const read=slot=>{try{return JSON.parse(sdk.storage.local.getItem(key(slot))||'null')}catch{return null}}
   const button=(text,action,cls='ne-button')=>{const b=el('button',cls,text);b.type='button';b.addEventListener('click',()=>Promise.resolve().then(action).catch(e=>sdk.toast(e.message)));return b}
-  function capture(){if(!engine.runtime||engine.runtime.busy)return null;return{projectId:engine.project.id,revision:engine.project.revision,label:engine.scene().title,updatedAt:new Date().toISOString(),runtime:structuredClone(engine.runtime)}}
+  function capture(){
+    if(!engine.runtime||engine.runtime.busy||Object.values(engine.runtime.objects?.states||{}).some(s=>s.busy===true))return null
+    const sceneId=engine.runtime.objects?.sceneId,scene=engine.composition.scenes.find(s=>s.id===sceneId)
+    const label=scene&&!engine.expandScene(sceneId).objects.some(o=>o.type==='story-player')?scene.name:engine.scene().title
+    return{projectId:engine.project.id,revision:engine.project.revision,label,updatedAt:new Date().toISOString(),runtime:structuredClone(engine.runtime)}
+  }
   function save(slot){const value=capture();if(!value)throw Error('请先试玩作品，等待当前对话结束后存档');sdk.storage.local.setItem(key(slot),JSON.stringify(value));sdk.toast('进度已保存');return value}
   function load(slot){const value=read(slot);if(!value)throw Error('这个位置还没有存档');if(value.revision!==engine.project.revision)throw Error('作品已编辑，旧存档不再匹配。请重新试玩当前版本');engine.restoreRuntime(value.runtime);dialog?.close()}
   function renderSlots(container){
     container.replaceChildren()
-    container.append(el('p','ne-muted','进度保存在当前浏览器，包含对白位置、好感度、已触发事件和聊天记录。'))
+    container.append(el('p','ne-muted','进度保存在当前浏览器，包含当前场景、天数、共同经历和各角色的聊天记录。'))
     for(const slot of ['auto','1','2','3']){
       const value=read(slot),card=el('div','ne-card ne-save-card'),title=el('div','ne-row')
       title.append(el('strong','',slot==='auto'?'自动进度':'存档 '+slot),el('span','ne-badge',value?(value.revision===engine.project.revision?'可继续':'版本已变化'):'空'))

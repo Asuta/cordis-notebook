@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { templateProject } from '../demo.js'
+import { templateProject } from './fixtures/legacy-project.js'
 import { diagnose, initialRuntime, validateProject, validateRuntime } from '../model.js'
 
 const project = () => templateProject('hybrid', '测试作品', 'test-project')

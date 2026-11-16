@@ -91,7 +91,7 @@ test('HTTP settings/reply/test endpoints use the stored connection and expose no
 
 test('manifest declares optional server/client services and publishes only browser assets', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.deepEqual(pkg.cordis.requires, { server: ['http'], client: ['narrative', 'narrativeUI'] })
+  assert.deepEqual(pkg.cordis.requires, { server: ['http'], client: ['narrative', 'narrativeUI', 'sceneRuntime'] })
   assert.deepEqual(pkg.cordis.public, ['client.js', 'style.css'])
   assert.equal(pkg.cordis.public.includes('server.js'), false)
   assert.equal(pkg.dependencies, undefined)

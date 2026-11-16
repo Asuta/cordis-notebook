@@ -14,7 +14,7 @@ export default function(ctx,sdk) {
   e.registerAction(ctx,{type:'stop-audio',label:'停止音频',execute:()=>stop()})
   ui.registerToolbar(ctx,{id:'sound-toggle',label:'播放音乐',icon:'♫',place:'player',run:()=>play(e.project.settings.bgm,true)})
   ui.registerPanel(ctx,{id:'sound',label:'声音与氛围',icon:'♫',order:70,render(container){
-    container.append(el('p','ne-muted','为故事选一首循环背景音乐，也可以在事件规则中加入声音动作。'))
+    container.append(el('p','ne-muted','为会客厅选择循环背景音乐，可在试玩时点击播放音乐。'))
     const field=el('label','ne-field','背景音乐'),select=el('select','ne-select');const none=el('option','','暂不播放');none.value='';select.append(none)
     for(const a of e.project.assets.filter(a=>a.kind==='audio')){const o=el('option','',a.name);o.value=a.id;select.append(o)}select.value=e.project.settings.bgm||'';select.addEventListener('change',()=>run(()=>e.update(p=>{p.settings.bgm=select.value})));field.append(select);container.append(field)
     const volume=el('input');volume.type='range';volume.min='0';volume.max='100';volume.value=String((e.project.settings.volume??.45)*100);volume.setAttribute('aria-label','背景音乐音量');volume.addEventListener('input',()=>{if(current)current.volume=Number(volume.value)/100});volume.addEventListener('change',()=>run(()=>e.update(p=>{p.settings.volume=Number(volume.value)/100},{render:false})));const vf=el('label','ne-field','音量');vf.append(volume);container.append(vf)

@@ -13,7 +13,7 @@
     "defaultEnabled": true,
     "server": { "entry": "server.js", "export": "default" },
     "client": "client.js",
-    "requires": { "server": ["http"], "client": ["narrative", "narrativeUI"] },
+    "requires": { "server": ["http"], "client": ["narrative", "narrativeUI", "sceneRuntime"] },
     "provides": { "server": [], "client": [] },
     "public": ["client.js", "style.css"],
     "styles": ["style.css"],

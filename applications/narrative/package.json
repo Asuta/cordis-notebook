@@ -6,7 +6,7 @@
   "cordisApp": {
     "id": "narrative",
     "name": "叙事引擎",
-    "description": "用舞台、角色、剧情和 AI 插件，组装可以游玩的互动故事。",
+    "description": "组合角色会话、界面场景与事件，搭建可以游玩的互动作品。",
     "icon": "assets/icon.svg"
   }
 }

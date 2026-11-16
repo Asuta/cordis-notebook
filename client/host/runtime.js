@@ -41,7 +41,7 @@ function sdkFor(ctx, plugin) {
     agent: agentBridge.forOwner(ctx),
     application: application.current,
     storage: { local: applicationStorage(localStorage, application.current.id, plugin.id), session: applicationStorage(sessionStorage, application.current.id, plugin.id) },
-    request: (path, method, data) => request(path, method, data, controller.signal),
+    request: (path, method, data, signal) => request(path, method, data, signal ? AbortSignal.any([controller.signal, signal]) : controller.signal),
     stream: (path, method, data, onEvent, signal) => streamRequest(path, method, data, onEvent, signal ? AbortSignal.any([controller.signal, signal]) : controller.signal),
     provide(name, value) { return new class extends Service { constructor() { super(ctx, name); Object.defineProperties(this, Object.getOwnPropertyDescriptors(value)) } }() },
     service: name => ctx[name], effect: callback => ctx.effect(callback),

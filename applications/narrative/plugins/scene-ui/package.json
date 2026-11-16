@@ -1,0 +1,4 @@
+{
+  "name":"@cordis-narrative/scene-ui","version":"1.0.0","private":true,"type":"module","scripts":{"test":"node --test test/*.test.js"},
+  "cordis":{"schemaVersion":1,"id":"scene-ui","name":"场景基础对象","description":"布局容器、文字、图片、按钮、数值、独立会话与剧情兼容对象。","defaultEnabled":true,"order":6,"client":"client.js","requires":{"client":["narrative","narrativeUI","sceneRuntime"],"server":[]},"provides":{"client":["sceneViews"],"server":[]},"public":["client.js","style.css"],"styles":["style.css"],"build":[{"type":"bundle","input":"client.js","output":"client.js","platform":"browser"},{"type":"copy","input":"style.css","output":"style.css"}]}
+}

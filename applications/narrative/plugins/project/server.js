@@ -24,14 +24,14 @@ export default async function(ctx,config,runtime) {
   }
   async function write(p) { validateProject(p); await runtime.writeSnapshot(file(p.id),JSON.stringify(p)); index = [summary(p),...index.filter(row=>row.id!==p.id)]; await writeIndex(); return structuredClone(p) }
   try { index = JSON.parse(await readFile(indexFile,'utf8')); if (!Array.isArray(index) || index.some(p => !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(p.id))) throw Error('作品索引损坏') }
-  catch(error) { if (error.code !== 'ENOENT') throw error; index = []; await write(templateProject('hybrid',undefined,'starlight-observatory')) }
+  catch(error) { if (error.code !== 'ENOENT') throw error; index = []; await write(templateProject('salon',undefined,'seven-day-salon')) }
   const route = (method,path,fn) => ctx.http.route(ctx,method,path,fn)
   route('GET',/^\/api\/narrative\/projects$/,()=>structuredClone(index))
   route('POST',/^\/api\/narrative\/projects$/,async({req})=> {
     const input = await body(req)
     return enqueue(async()=> {
       if (index.length >= 50) fail(400,'最多保存 50 部作品')
-      if (!['hybrid','galgame','tavern'].includes(input.template)) fail(400,'请选择作品模板')
+      if (input.template !== 'salon') fail(400,'请选择作品模板')
       if (input.title !== undefined && (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 120)) fail(400,'作品名称无效')
       return write(templateProject(input.template,input.title?.trim()))
     })

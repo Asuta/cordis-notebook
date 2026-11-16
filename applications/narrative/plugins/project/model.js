@@ -1,3 +1,4 @@
+import { validateComposition, defaultComposition, expandScene } from './composition.js'
 const object = v => v && typeof v === 'object' && !Array.isArray(v)
 const text = (v, max = 4000) => typeof v === 'string' && v.length <= max
 const idOK = v => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(v)
@@ -53,6 +54,7 @@ export function validateProject(p) {
   }
   if (!object(p.settings) || !['novel','chat'].includes(p.settings.dialogueStyle) || !/^#[a-f0-9]{6}$/i.test(p.settings.accent) || !text(p.settings.worldInfo,16000)) fail('作品设置无效')
   if (p.settings.volume !== undefined && (!finite(p.settings.volume) || p.settings.volume < 0 || p.settings.volume > 1) || p.settings.bgm !== undefined && !text(p.settings.bgm,80)) fail('背景音乐配置无效')
+  if (p.composition !== undefined) validateComposition(p.composition)
   return p
 }
 export function diagnose(p) {
@@ -78,5 +80,12 @@ export function validateRuntime(value, project) {
   const node = project.nodes.find(n => n.id === value.nodeId)
   if (value.lineIndex >= Math.max(1,node.lines.length)) fail('存档对白位置无效')
   if (!text(value.stage.background,80) || !text(value.stage.characterId,80) || !text(value.stage.expression,80) || !finite(value.stage.position) || value.stage.position < 0 || value.stage.position > 100 || !finite(value.stage.scale) || value.stage.scale < 30 || value.stage.scale > 180 || value.visited.some(id => !idOK(id)) || value.firedRules.some(id => !idOK(id))) fail('存档舞台数据无效')
+  if (value.objects !== undefined) {
+    const s=value.objects,doc=project.composition||defaultComposition(project)
+    if (!object(s)||s.schemaVersion!==1||!doc.scenes.some(scene=>scene.id===s.sceneId)||!object(s.states)||!object(s.flags)||JSON.stringify(s).length>2000000) fail('对象存档无效')
+    const ids=new Set(doc.scenes.flatMap(scene=>expandScene(doc,scene.id).objects.map(o=>scene.id+'/'+o.id)))
+    for(const [id,state]of Object.entries(s.states))if(!ids.has(id)||!object(state))fail('存档引用了不存在的对象')
+    for(const [id,flags]of Object.entries(s.flags))if(!ids.has(id)||!object(flags)||Object.entries(flags).some(([key,v])=>!['visible','enabled','paused'].includes(key)||typeof v!=='boolean'))fail('对象存档状态无效')
+  }
   return { ...structuredClone(value), busy: false, error: '' }
 }

@@ -1,0 +1,4 @@
+{
+  "name":"@cordis-narrative/scene-editor","version":"1.0.0","private":true,"type":"module","scripts":{"test":"node --test test/*.test.js"},
+  "cordis":{"schemaVersion":1,"id":"scene-editor","name":"场景搭建编辑器","description":"层级、属性、预制体、响应式预览与事件方法连接。","defaultEnabled":true,"order":7,"client":"client.js","requires":{"client":["narrative","narrativeUI","sceneRuntime","sceneViews"],"server":[]},"provides":{"client":[],"server":[]},"public":["client.js","style.css"],"styles":["style.css"],"build":[{"type":"bundle","input":"client.js","output":"client.js","platform":"browser"},{"type":"copy","input":"style.css","output":"style.css"}]}
+}

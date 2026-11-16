@@ -4,10 +4,10 @@
 
 ## 作品结构
 
-`{schemaVersion:1,id,revision,title,description,template,startNodeId,characters,assets,variables,nodes,rules,settings}`。
+`{schemaVersion:1,id,revision,title,description,template,startNodeId,characters,assets,variables,nodes,rules,settings,composition?}`。
 
 - character: `{id,name,description,personality,portrait,expressions:{neutral,happy,sad},color}`；图片字段为 asset ID，可为空。
-  可选 `meshAvatar:{archiveId,name,size}` 引用角色工作室保存的不可变 `.mavatar`。原生工程不塞进作品草稿。配置后舞台优先播放此动态立绘，Cubism 配置仍可保留。
+  旧动态立绘字段仅保留数据校验，不提供播放与编辑能力。
 - asset: `{id,name,kind:"image"|"audio",url,mime?,size?}`；通过 `engine.asset(id)` 返回 URL。内置素材归 project 插件。
 - variable: `{id,name,initial,min,max}`，数值类型。
 - node: `{id,type:"story"|"chat"|"ending",title,stage:{background,characterId,expression,position,scale},lines:[{speaker,text}],choices:[{id,text,target,condition?,actions:[]}],next?,chat?:{characterId,prompt,maxTurns,next,label,demoReplies:[string]}}`。position 是百分比 0–100，scale 是百分比 30–180。speaker 为角色 ID 或空字符串旁白。
@@ -43,12 +43,32 @@ runtime: `{nodeId,lineIndex,text:{speaker,text},variables:{[id]:number},stage:{b
 
 ## 生命周期与交付
 
-每个插件自行拥有实现、清单、样式；注册项与监听随 ctx 释放，停用不残留 UI。project 负责保存与切换保护。首版包含真实固定剧情、可配置规则、离线示例聊天和可配置的真实 AI 接口。离线示例必须标注；Live2D 未接模型时不能宣称已实现模型动画。
+### 界面场景与对象
 
-## 角色工作室
+可选 composition 文档为 {schemaVersion:1,startSceneId,dependencies:[{id,version}],scenes:[],prefabs:[]}。旧格式保留兼容数据定义，但旧剧情舞台类型已移除，新作品统一使用会客厅场景。scene 为 {id,name,objects,connections}，与剧情 nodes 相互独立。
 
-`mesh-studio` 拥有完整 Mesh Avatar Studio 编辑器、播放库、Python 制作工具和后端。资源位于该插件数据目录的 `archives/<sha256>.mavatar`；可编辑工程在 `projects/<作品ID>/projects/`，不同作品隔离。编辑器 iframe 通过同源消息桥与插件协作，所有写入携带应用会话，原生工程写入另有修订冲突保护。保存产生新资源包，旧存档继续使用其原有资源引用。
+object 为 {id,type?,prefab?:{id,version},name?,parent?,props?,refs?,layout?,visible?,enabled?,paused?,overrides?}。type 和 prefab 二选一；父子关系禁止循环。逻辑对象可以没有可视表现，仍具备状态与生命周期。引用仅在同一场景内，用稳定 ID 解析；目标类型由注册描述的 refs 声明。父对象停用或暂停会中止后代的在途请求；隐藏只影响显示。重新启用后允许新调用，旧调用不能继续写状态。
 
-舞台支持 `meshParameters`、`meshMotion:{id,token}`、`meshIdle` 扩展。`mesh-pose` 动作接受原生数值参数，`mesh-motion` 播放原生动作 ID；常规 `expression` 同样驱动动态角色，happy 映射为 smile。文字对白提供模拟口型，不代表已生成语音。
+prefab 为 {id,name,version,objects,connections,bindings?}，同 ID 不同版本可并存。实例展开时内部 ID 加上实例前缀，内部引用和连接同步重写。外部引用在定义中写成 @槽位，并通过实例 refs 绑定。overrides 以预制体内部 ID 为键，只允许 props、refs、layout、visible、enabled、paused；不改变预制体原定义。暂不支持预制体嵌套预制体。
 
-Agent 工具为 `narrative_mesh_open/read/edit/preview/save/check/rebuild`。绑定修改先读取真实 `localVersion`，整批通过原生验证才写入；重建和差分导入使用隔离暂存目录，成功后替换工程文件。角色工作室不生成 Cubism 的 `.moc3` 文件。
+layout 支持 mode:column/row/grid/overlay/anchor/scroll、anchor:flow/fill/top-left/top-right/bottom-left/bottom-right/center，以及 gap、padding、columns、width、height、grow、align。compact 为容器宽度小于 600px 时的覆盖。浏览器 Flex/Grid 和定位负责布局；不保存像素坐标副本或第二份编辑树。
+
+connection 为 {id,source,event,target,method,args?,argument?}：源事件触发目标公开方法。args 为常量参数；argument 可把完整事件负载映射到一个声明参数（最终值仍需通过类型校验）。事件按顺序 await；同一调用链超过 64 步报错。连接和引用不会改变归属。插件方法可以修改自己的状态，其他对象通过 call(ref,method,args) 协作，不直接写他人状态。
+
+narrative 增加 composition、expandScene(id,doc?)、validateComposition(doc)、sceneCommand(command,version?,validator?)、sceneUndo/sceneRedo 和 sceneHistory。sceneCommand 支持 add/patch/move/remove/clone/connect/disconnect/save-prefab/instantiate/unpack/add-scene/start-scene/rename-scene/batch；命令在副本上校验，成功一次保存并记入撤销历史。batch 子命令继承顶层 sceneId，也可显式指定场景。撤销重做仅限场景内容，最多 50 次；切作品清空，遇到其他入口已修改的内容则拒绝覆盖。
+
+### sceneRuntime 与 sceneViews 服务
+
+scene-runtime 提供 sceneRuntime。register(owner,descriptor) 登记类型，descriptor 包含 type、label、plugin、visual、container、singleton、fields、refs、methods、events 和 initial/restore/interrupt 钩子。methods[name] 为 {label,fields,run(api,args)}；api 提供只读 props/state、副作用方法 set/emit/call/flags、signal、current() 与服务访问。异步方法在返回后必须检查 current()，请求使用 signal。对象状态读取返回深冻结副本。
+
+运行服务提供 selected/document/playing/runtime、types()/descriptor(type)、select(sceneId)、switchScene(sceneId)、expanded(sceneId?)、edit(command,version?)、undo()/redo()、call(id,method,args)、validate()、observe(owner,fn)。运行快照写入 narrative.runtime.objects:{schemaVersion:1,sceneId,states,flags}；状态键为 场景ID/对象ID。切换场景保留其他场景已保存的状态，恢复会话清除 busy。玩家进度由 saves 保存，不进入作品配置。
+
+provide(owner,name,value)/service(name) 提供对象需要的服务；ai-dialogue 提供 ai.reply(payload,signal)，未配置接口时明确报错。sdk.request(path,method,data,signal?) 合并对象取消信号与插件卸载信号。基础 conversation 对象来源为 script 或 ai，消息、轮数与请求状态逐实例隔离；成功回复才提交一轮消息并触发 completed。
+
+scene-ui 提供 sceneViews.mount(container,{sceneId?,design?,onSelect?})，返回 refresh()/dispose()。scene.player 接管中央预览。类型渲染和注册随 Cordis owner 卸载，不把每个对象变成单独 Cordis 插件。
+
+Agent 工具 narrative_scene_read 返回文档、类型、方法、版本、诊断和运行快照；narrative_scene_edit 接受 {version,command}，与属性面板走同一校验及保存；narrative_scene_call 接受 {id,method,args?}，只允许试玩模式调用声明方法。编写新类型或编辑器功能通过修改插件代码完成，不在作品中执行任意代码字符串。
+
+当前限制为每文档 40 场景、100 个预制体版本，每场景 500 条对象记录、1000 条连接，展开后最多 2000 个对象；作品总量仍受原有大小上限约束。
+
+每个插件自行拥有实现、清单、样式；注册项与监听随 ctx 释放，停用不残留 UI。project 负责保存与切换保护。当前仅提供会客厅场景，包含预写文本、真实 AI、对象方法与事件连接。旧节点和规则字段仅保留数据兼容。

@@ -42,7 +42,7 @@ test('真实宿主 HTTP：模板、并发修订、独立导入、私有设置隔
   const original = (await request('/api/narrative/projects/' + listed.result[0].id)).result
   validateProject(original); assert.deepEqual(diagnose(original), [])
   assert.equal(original.revision, 0)
-  for (const template of ['hybrid', 'galgame', 'tavern']) {
+  for (const template of ['salon']) {
     const created = await request('/api/narrative/projects', 'POST', { template, title: '  新建 ' + template + '  ' })
     assert.equal(created.status, 200)
     validateProject(created.result); assert.deepEqual(diagnose(created.result), [])
@@ -95,7 +95,7 @@ test('真实宿主 HTTP：模板、并发修订、独立导入、私有设置隔
   assert.equal(changedImport.status, 200)
   assert.equal((await request('/api/narrative/projects/' + original.id)).result.title, original.title)
   const all = (await request('/api/narrative/projects')).result
-  assert.equal(all.length, 5)
+  assert.equal(all.length, 3)
   assert.equal(new Set(all.map(value => value.id)).size, all.length)
   assert.equal(all.find(value => value.id === original.id).revision, 1)
 
@@ -122,7 +122,7 @@ test('真实宿主 HTTP：模板、并发修订、独立导入、私有设置隔
   await f.restart()
   assert.deepEqual((await request('/api/narrative/projects/' + original.id)).result, saved)
   assert.deepEqual((await request('/api/narrative/projects/' + imported.result.id)).result, changedImport.result)
-  assert.equal((await request('/api/narrative/projects')).result.length, 5)
+  assert.equal((await request('/api/narrative/projects')).result.length, 3)
   const restoredSettings = (await request('/api/narrative/ai/settings')).result
   assert.equal(restoredSettings.hasApiKey, true)
   assert.equal(restoredSettings.protocol, 'responses')
@@ -134,7 +134,7 @@ test('真实宿主 HTTP：拒绝坏 JSON、无效模板及导入，失败后作�
   const initial = (await request('/api/narrative/projects')).result
   const original = (await request('/api/narrative/projects/' + initial[0].id)).result
   assert.equal((await request('/api/narrative/import', 'POST', '{damaged', { raw: true })).status, 400)
-  for (const input of [{ template: 'unknown' }, { template: 'hybrid', title: '  ' }, { template: 'hybrid', title: 'A'.repeat(121) }]) {
+  for (const input of [{ template: 'unknown' }, {template:'hybrid'}, {template:'galgame'}, {template:'tavern'}, { template: 'salon', title: '  ' }, { template: 'salon', title: 'A'.repeat(121) }]) {
     assert.equal((await request('/api/narrative/projects', 'POST', input)).status, 400)
   }
   for (const input of [null, { ...original, id: '../outside' }, { ...original, nodes: [] }, { ...original, assets: [...original.assets, { id: 'unsafe', name: '恶意素材', kind: 'image', url: 'javascript:alert(1)' }] }]) {
@@ -144,7 +144,7 @@ test('真实宿主 HTTP：拒绝坏 JSON、无效模板及导入，失败后作�
   assert.equal((await request('/api/narrative/projects/' + original.id, 'PUT', invalid)).status, 400)
   assert.equal((await request('/api/narrative/projects/missing')).status, 404)
   assert.equal((await request('/api/narrative/projects/missing', 'PUT', original)).status, 404)
-  assert.equal((await request('/api/narrative/projects', 'POST', { template: 'hybrid' }, { session: null })).status, 409)
+  assert.equal((await request('/api/narrative/projects', 'POST', { template: 'salon' }, { session: null })).status, 409)
   assert.deepEqual((await request('/api/narrative/projects')).result, initial)
   assert.deepEqual((await request('/api/narrative/projects/' + original.id)).result, original)
   const valid = await request('/api/narrative/projects/' + original.id, 'PUT', { ...original, title: '失败后仍可保存' })
@@ -156,7 +156,7 @@ test('真实宿主 HTTP：并发创建在作品上限处串行检查，满额导
   const { request } = await setup(t)
   const initial = (await request('/api/narrative/projects')).result
   const original = (await request('/api/narrative/projects/' + initial[0].id)).result
-  const creates = await Promise.all(Array.from({ length: 51 }, (_, index) => request('/api/narrative/projects', 'POST', { template: 'tavern', title: '并发作品 ' + index })))
+  const creates = await Promise.all(Array.from({ length: 51 }, (_, index) => request('/api/narrative/projects', 'POST', { template: 'salon', title: '并发作品 ' + index })))
   assert.equal(creates.filter(response => response.status === 200).length, 49)
   assert.equal(creates.filter(response => response.status === 400).length, 2)
   const imported = await request('/api/narrative/import', 'POST', original)
