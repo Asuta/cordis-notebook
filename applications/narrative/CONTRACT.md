@@ -34,8 +34,8 @@ runtime: `{nodeId,lineIndex,text:{speaker,text},variables:{[id]:number},stage:{b
 
 ## narrativeUI 服务
 
-- `registerPanel(owner,{id,label,icon,order,render(container)})`：面板 factory 返回可选 disposer；由 shell 在选择变化或 project(render!==false) 时重新挂载。
-  可选 `wide:true` 获得独立宽屏工作区；宽屏面板在同作品、同模式下保持挂载。`beforeLeave()` 异步保存后再切换面板；失败继续保留当前编辑器。`navigate(id)` 返回 Promise。
+- `registerPanel(owner,{id,label,icon,order,render(container)})`：面板 factory 返回可选 disposer。scene.editor 是主工作区，同作品编辑/试玩之间保持挂载；其余面板通过顶部设置入口打开，project(render!==false) 或 mode 变化时更新。
+  `wide` 保留类型兼容，已不控制页面布局。`beforeLeave()` 在关闭或切换设置面板前调用，失败保留当前面板。`navigate('scene.editor')` 关闭设置返回工作区；`navigate(id)` 返回 Promise。试玩时设置只读，存档面板保持可交互。
 - `registerSurface(owner,{id,order,mount(container)})`：舞台或对话叠层，挂在带相应 class 的 div；factory 返回可选 disposer。组件自行 observe runtime 并更新 DOM。
 - `registerToolbar(owner,{id,label,icon,place:"player"|"header",run})`；`navigate(id)`、`refresh()`。
 - CSS 公共类 `ne-card`、`ne-field`(label 容器)、`ne-input`、`ne-select`、`ne-textarea`、`ne-button`、`ne-primary`、`ne-muted`、`ne-row`、`ne-stack`、`ne-section-title`、`ne-badge`、`ne-empty`、`ne-danger`。所有按钮 type=button，输入有 label。
@@ -61,11 +61,15 @@ narrative 增加 composition、expandScene(id,doc?)、validateComposition(doc)�
 
 scene-runtime 提供 sceneRuntime。register(owner,descriptor) 登记类型，descriptor 包含 type、label、plugin、visual、container、singleton、fields、refs、methods、events 和 initial/restore/interrupt 钩子。methods[name] 为 {label,fields,run(api,args)}；api 提供只读 props/state、副作用方法 set/emit/call/flags、signal、current() 与服务访问。异步方法在返回后必须检查 current()，请求使用 signal。对象状态读取返回深冻结副本。
 
-运行服务提供 selected/document/playing/runtime、types()/descriptor(type)、select(sceneId)、switchScene(sceneId)、expanded(sceneId?)、edit(command,version?)、undo()/redo()、call(id,method,args)、validate()、observe(owner,fn)。运行快照写入 narrative.runtime.objects:{schemaVersion:1,sceneId,states,flags}；状态键为 场景ID/对象ID。切换场景保留其他场景已保存的状态，恢复会话清除 busy。玩家进度由 saves 保存，不进入作品配置。
+运行服务提供 selected/document/playing/runtime、types()/descriptor(type)、select(sceneId)、switchScene(sceneId)、expanded(sceneId?)、edit(command,version?)、undo()/redo()、call(id,method,args)、validate()、observe(owner,fn)。运行快照写入 narrative.runtime.objects:{schemaVersion:1,sceneId,states,flags}；状态键为 场景ID/对象ID。切换场景保留其他场景已保存的状态，恢复会话清除 busy。runtime.snapshot({interrupt:true}) 通过当前场景对象的 interrupt 钩子清理快照副本中的瞬时状态；目标场景成功创建后才中止原请求，加载失败不影响原场景。玩家进度由 saves 保存，不进入作品配置。
 
 provide(owner,name,value)/service(name) 提供对象需要的服务；ai-dialogue 提供 ai.reply(payload,signal)，未配置接口时明确报错。sdk.request(path,method,data,signal?) 合并对象取消信号与插件卸载信号。基础 conversation 对象来源为 script 或 ai，消息、轮数与请求状态逐实例隔离；成功回复才提交一轮消息并触发 completed。
 
-scene-ui 提供 sceneViews.mount(container,{sceneId?,design?,onSelect?})，返回 refresh()/dispose()。scene.player 接管中央预览。类型渲染和注册随 Cordis owner 卸载，不把每个对象变成单独 Cordis 插件。
+scene-ui 提供 sceneViews.mount(container,{sceneId?,design?,onSelect?})，返回 refresh()/dispose()。sceneId 与 design 可为 getter；编辑器据 mode 切换同一挂载点的交互语义。编辑模式拦截游戏按钮、支持点击及键盘选择；试玩模式调用运行方法。shell 仅在 scene.editor 未启用时挂载 scene.player 作为备用播放器，避免重复渲染。类型渲染和注册随 Cordis owner 卸载，不把每个对象变成单独 Cordis 插件。
+
+scene-editor 拥有层级、游戏画面、属性检查器、资源库四区域。对象拖动在 row/column/grid/scroll 中生成 move（index 为全场景 objects 数组索引）；在 overlay/anchor 中生成 layout.anchor 覆盖。宽高调整只写 layout.width/height，范围 24–4000；窄屏手势只修改 layout.compact。每次手势使用开始时的版本号，结束提交一次，Esc/取消不提交。预制体内部对象只改实例 overrides，不能直接重排内部结构。层级拖动也校验开始时版本；引用与父子关系继续经运行时校验。
+
+资源选择不新增作品数据结构；素材仍在 assets，人物仍在 characters，对象定义来自 sceneRuntime.types，预制体来自 composition.prefabs。音频不会伪装成可放入场景的可视对象；当前通过背景音乐设置与 sound 播放。资源导入批量读取后整体校验写入，切换作品或退出编辑后丢弃迟到结果。
 
 Agent 工具 narrative_scene_read 返回文档、类型、方法、版本、诊断和运行快照；narrative_scene_edit 接受 {version,command}，与属性面板走同一校验及保存；narrative_scene_call 接受 {id,method,args?}，只允许试玩模式调用声明方法。编写新类型或编辑器功能通过修改插件代码完成，不在作品中执行任意代码字符串。
 

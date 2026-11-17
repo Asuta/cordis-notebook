@@ -19,7 +19,7 @@ export interface SceneType {
 export interface SceneRuntimeInstance {
   readonly scene:NarrativeScene;readonly pending:number;
   state(id:string):Readonly<Record<string,unknown>>;status(id:string):{visible:boolean;enabled:boolean;paused:boolean};
-  snapshot():NarrativeObjectSnapshot;invoke(id:string,method:string,args?:Record<string,unknown>):Promise<unknown>;
+  snapshot(options?:{interrupt?:boolean}):NarrativeObjectSnapshot;invoke(id:string,method:string,args?:Record<string,unknown>):Promise<unknown>;
   setFlags(id:string,patch:{visible?:boolean;enabled?:boolean;paused?:boolean}):void;
 }
 export type SceneTypeDescription = Omit<SceneType,'initial'|'restore'|'interrupt'|'methods'> & {methods:Record<string,{label:string;fields?:Record<string,SceneField>}>}

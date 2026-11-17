@@ -43,12 +43,14 @@ export function mountScene(host,{scene,engine,ui,sceneId,onSelect,design=false})
   host.classList.add('scene-canvas');let signature='',views=[],disposed=false,lastWidth=0,resizeFrame
   const cleanup=()=>{for(const v of views)v.dispose();views=[];host.replaceChildren()}
   const readId=()=>typeof sceneId==='function'?sceneId():sceneId||scene.runtime?.scene.id||scene.selected
+  const isDesign=()=>typeof design==='function'?design():design
   function refresh(){
     if(disposed)return
-    const id=readId(),expanded=scene.expanded(id),next=JSON.stringify(expanded)+':'+scene.playing+':'+scene.types().map(d=>d.type).join(',')
+    const editing=isDesign(),id=readId(),expanded=scene.expanded(id),next=JSON.stringify(expanded)+':'+scene.playing+':'+editing+':'+engine.project.assets.map(a=>a.id+':'+a.url).join('|')+':'+scene.types().map(d=>d.type).join(',')
+    host.classList.toggle('is-editing',editing)
     if(next!==signature){
       signature=next;cleanup();const mounts=new Map(),visual=expanded.objects.filter(o=>scene.descriptor(o.type)?.visual!==false)
-      for(const o of visual){const n=element('section','scene-object');n.dataset.objectId=o.id;n.setAttribute('aria-label',o.name||scene.descriptor(o.type)?.label||o.type);if(design){n.tabIndex=0;n.classList.add('is-design');n.addEventListener('click',event=>{event.stopPropagation();onSelect?.(o.id)})}mounts.set(o.id,n)}
+      for(const o of visual){const n=element('section','scene-object');n.dataset.objectId=o.id;n.setAttribute('aria-label',o.name||scene.descriptor(o.type)?.label||o.type);if(editing){n.tabIndex=0;n.classList.add('is-design');n.addEventListener('keydown',event=>{if(event.target===n&&['Enter',' '].includes(event.key)){event.preventDefault();event.stopPropagation();onSelect?.(o.id)}})}mounts.set(o.id,n)}
       for(const o of visual){const n=mounts.get(o.id);let parentId=o.parent;while(parentId&&!mounts.has(parentId))parentId=expanded.objects.find(x=>x.id===parentId)?.parent;const parent=mounts.get(parentId);(parent||host).append(n);const view=mountObject(n,o,{scene,engine,ui,sceneId:id});views.push({...view,node:n,object:o,parentId})}
     }
     const compact=lastWidth>0&&lastWidth<600
@@ -56,14 +58,20 @@ export function mountScene(host,{scene,engine,ui,sceneId,onSelect,design=false})
       let status
       if(scene.runtime?.scene.id===id)status=scene.runtime.status(view.object.id)
       else{status={visible:true,enabled:true,paused:false};let o=view.object;while(o){status.visible&&=o.visible!==false;status.enabled&&=o.enabled!==false;status.paused||=o.paused===true;o=expanded.objects.find(x=>x.id===o.parent)}}
-      view.node.hidden=!status.visible&&!design;view.node.inert=!design&&(!status.enabled||status.paused)
-      applyLayout(view.node,view.object.layout,compact)
+      view.node.hidden=!status.visible&&!editing;view.node.inert=!editing&&(!status.enabled||status.paused)
+      view.node.classList.toggle('is-author-hidden',editing&&!status.visible)
       const parent=expanded.objects.find(x=>x.id===view.parentId),parentLayout={...parent?.layout,...(compact?parent?.layout?.compact:{})}
+      const layout={...view.object.layout,...(compact?view.object.layout?.compact:{})}
+      // A flow parent owns positioning. Absolute anchoring belongs to overlay/anchor containers.
+      if(!['overlay','anchor'].includes(parentLayout.mode))layout.anchor='flow'
+      applyLayout(view.node,layout,false)
       if(['overlay','anchor'].includes(parentLayout.mode))view.node.style.gridArea='1 / 1'
       if(view.node.hidden)view.node.style.display='none'
       view.update()
     }
   }
+  const select=event=>{if(!isDesign())return;const node=event.target.closest('[data-object-id]');if(!node||!host.contains(node))return;event.preventDefault();event.stopPropagation();onSelect?.(node.dataset.objectId)}
+  host.addEventListener('click',select,true)
   const owner={effect:fn=>fn()},off=scene.observe(owner,refresh)
   // ResizeObserver runs during layout. Defer writes to avoid a resize feedback error.
   const resize=typeof ResizeObserver==='function'?new ResizeObserver(entries=>{
@@ -72,5 +80,5 @@ export function mountScene(host,{scene,engine,ui,sceneId,onSelect,design=false})
     if(changed){cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>refresh())}
   }):null
   resize?.observe(host);refresh()
-  return{refresh,dispose(){disposed=true;off();resize?.disconnect();if(resizeFrame!==undefined)cancelAnimationFrame(resizeFrame);cleanup()}}
+  return{refresh,dispose(){disposed=true;off();host.removeEventListener('click',select,true);resize?.disconnect();if(resizeFrame!==undefined)cancelAnimationFrame(resizeFrame);cleanup()}}
 }

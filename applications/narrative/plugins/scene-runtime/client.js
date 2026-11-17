@@ -1,7 +1,7 @@
 import { ObjectRuntime, describeType, validateScene } from './runtime.js'
 export default function(ctx,sdk){
   const engine=ctx.narrative,types=new Map(),observers=new Set(),services=new Map()
-  let runtime=null,selected=engine.composition.startSceneId,savedRef=null,projectId=engine.project.id,disposed=false,syncing=false,failedRef=Symbol(),failure='',scheduled=false
+  let runtime=null,selected=engine.composition.startSceneId,editScene=selected,wasPlaying=false,savedRef=null,projectId=engine.project.id,disposed=false,syncing=false,failedRef=Symbol(),failure='',scheduled=false
   const notify=()=>{for(const fn of [...observers])fn()}
   const persist=snapshot=>{if(engine.mode!=='play'||disposed)return;savedRef=snapshot;engine.transact(r=>{r.objects=snapshot})}
   const document=()=>engine.composition
@@ -18,7 +18,10 @@ export default function(ctx,sdk){
     if(disposed||syncing)return
     syncing=true
     try{
-    if(projectId!==engine.project.id){projectId=engine.project.id;selected=document().startSceneId}
+    if(projectId!==engine.project.id){projectId=engine.project.id;selected=document().startSceneId;editScene=selected}
+    if(engine.mode==='play'&&!wasPlaying)editScene=selected
+    if(engine.mode!=='play'&&wasPlaying)selected=editScene
+    wasPlaying=engine.mode==='play'
     if(engine.mode==='play'){if((!runtime||engine.runtime.objects!==savedRef)&&engine.runtime.objects!==failedRef){try{start(engine.runtime.objects);failedRef=Symbol();if(failure&&engine.runtime.error===failure)engine.transact(r=>{r.error=''});failure=''}catch(error){failedRef=engine.runtime.objects;failure=error.message;runtime?.dispose();runtime=null;engine.error(error.message)}}}
     else {runtime?.dispose();runtime=null;savedRef=null;failedRef=Symbol();failure='';if(!document().scenes.some(s=>s.id===selected))selected=document().startSceneId}
     if(event?.type!=='status')notify()
@@ -37,7 +40,7 @@ export default function(ctx,sdk){
     service:name=>services.get(name),
     observe(owner,fn){observers.add(fn);const off=()=>observers.delete(fn);owner.effect(()=>off);return off},
     select(id){if(!document().scenes.some(s=>s.id===id))throw Error('场景不存在');if(engine.mode==='play')throw Error('请使用切换场景方法');selected=id;notify()},
-    switchScene(id){if(engine.mode!=='play')throw Error('请先开始试玩');if(!document().scenes.some(s=>s.id===id))throw Error('场景不存在');const snapshot=runtime?.snapshot();start({...snapshot,sceneId:id})},
+    switchScene(id){if(engine.mode!=='play')throw Error('请先开始试玩');if(!document().scenes.some(s=>s.id===id))throw Error('场景不存在');const snapshot=runtime?.snapshot({interrupt:true});start({...snapshot,sceneId:id})},
     expanded(id=selected){return engine.expandScene(id)},
     edit(command,version=engine.version){const result=engine.sceneCommand(command,version,validateTypes);notify();return result},
     undo(){engine.sceneUndo();notify()},redo(){engine.sceneRedo();notify()},

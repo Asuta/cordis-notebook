@@ -56,7 +56,12 @@ export class ObjectRuntime {
     while(o){const flags={...o,...this.flags[this.key(o.id)]};visible&&=flags.visible!==false;enabled&&=flags.enabled!==false;paused||=flags.paused===true;o=this.scene.objects.find(x=>x.id===o.parent)}
     return{visible,enabled,paused}
   }
-  snapshot(){return{schemaVersion:1,sceneId:this.scene.id,states:copy(this.states),flags:copy(this.flags)}}
+  snapshot({interrupt=false}={}){
+    const states=copy(this.states)
+    // Prepare outgoing state without cancelling live work until the next scene validates.
+    if(interrupt)for(const o of this.scene.objects){const clean=this.types.get(o.type)?.interrupt;if(clean)states[this.key(o.id)]=clean(states[this.key(o.id)]||{})}
+    return{schemaVersion:1,sceneId:this.scene.id,states,flags:copy(this.flags)}
+  }
   observe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn)}
   notify(id){if(this.dead)return;this.changed(this.snapshot());for(const fn of [...this.listeners])fn(id)}
   cancel(id){

@@ -67,3 +67,21 @@ test('取消按钮中止请求、保留草稿，并且不把正常取消显示�
   assert.deepEqual(f.scene.runtime.state('lin-session').messages, [])
   assert.deepEqual(f.toasts, [])
 })
+
+test('同一画面在编辑时选择对象、试玩时执行按钮，流式布局忽略自由锚点', async t => {
+  const f=await setupScene(t),host=document.createElement('div');let selected=''
+  f.scene.edit({op:'patch',id:'next-day',patch:{layout:{anchor:'bottom-right'}}})
+  document.body.append(host)
+  const view=mountScene(host,{scene:f.scene,engine:f.engine,ui:{},design:()=>!f.scene.playing,onSelect:id=>{selected=id}})
+  f.ctx.effect(()=>()=>view.dispose())
+  const node=()=>host.querySelector('[data-object-id="next-day"]')
+  assert.equal(node().style.position,'relative')
+  node().dispatchEvent(new f.window.MouseEvent('click',{bubbles:true,cancelable:true}))
+  assert.equal(selected,'next-day');assert.deepEqual(f.toasts,[])
+  const original=f.engine.composition
+  await f.engine.play();node().querySelector('button').click();await settle()
+  assert.equal(f.scene.runtime.state('day').value,2)
+  assert.equal(node().classList.contains('is-design'),false)
+  f.engine.stop();assert.deepEqual(f.engine.composition,original)
+  assert.equal(node().classList.contains('is-design'),true)
+})
