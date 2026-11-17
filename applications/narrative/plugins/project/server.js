@@ -31,7 +31,7 @@ export default async function(ctx,config,runtime) {
     const input = await body(req)
     return enqueue(async()=> {
       if (index.length >= 50) fail(400,'最多保存 50 部作品')
-      if (input.template !== 'salon') fail(400,'请选择作品模板')
+      if (!['salon','last-train'].includes(input.template)) fail(400,'请选择作品模板')
       if (input.title !== undefined && (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 120)) fail(400,'作品名称无效')
       return write(templateProject(input.template,input.title?.trim()))
     })

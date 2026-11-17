@@ -23,9 +23,24 @@ export async function readAsset(file) {
   return { id: 'asset-' + crypto.randomUUID(), name: file.name.slice(0, 160), kind: mime.startsWith('image/') ? 'image' : 'audio', mime, size: file.size, url }
 }
 
-export function mountResources(host, { engine, scene, ui, run, button, field, input, select, place, jump }) {
+export function mountResources(host, { engine, scene, ui, run, button, field, input, select, place, jump, prefs }) {
   let category = 'all', query = '', selected, signature = '', disposed = false
   const head = el('div', 'scene-assets-head'), tabs = el('div', 'scene-asset-tabs'), cards = el('div', 'scene-assets-grid')
+  let resourceSize = prefs?.value.resourceSize || 114
+  const zoom = button('100%', () => { resourceSize = 114; applyZoom() }, 'scene-resource-zoom ne-button')
+  zoom.title = 'Ctrl + 滚轮调整资源大小；点击恢复默认'; zoom.setAttribute('aria-label', '重置资源缩放')
+  function applyZoom() {
+    host.style.setProperty('--resource-width', resourceSize + 'px'); host.style.setProperty('--resource-art-height', Math.round(resourceSize * .48) + 'px')
+    zoom.textContent = Math.round(resourceSize / 114 * 100) + '%'
+    if (prefs) { prefs.value.resourceSize = resourceSize; prefs.save() }
+  }
+  function wheel(event) {
+    if (!event.ctrlKey) return
+    event.preventDefault(); event.stopPropagation()
+    if (!event.deltaY) return
+    resourceSize = Math.max(80, Math.min(240, resourceSize + (event.deltaY < 0 ? 8 : -8))); applyZoom()
+  }
+  host.addEventListener('wheel', wheel, { passive: false }); applyZoom()
   const search = el('input', 'ne-input scene-resource-search'); search.placeholder = '搜索资源…'; search.setAttribute('aria-label', '搜索资源')
   search.addEventListener('input', () => { query = search.value.trim().toLowerCase(); renderCards() })
   const upload = el('input'); upload.type = 'file'; upload.multiple = true; upload.hidden = true; upload.accept = 'image/png,image/jpeg,image/webp,audio/mpeg,audio/wav,audio/ogg'
@@ -38,7 +53,7 @@ export function mountResources(host, { engine, scene, ui, run, button, field, in
     engine.update(p => { p.assets.push(...assets) }); choose({ kind: 'asset', id: assets[0].id })
   }))
   for (const [id, label] of [['all', '全部'], ['image', '图片'], ['audio', '音频'], ['type', '对象类型'], ['prefab', '预制体'], ['character', '人物资料']]) { const b = button(label, () => { category = id; renderCards() }, 'scene-resource-tab'); b.dataset.category = id; tabs.append(b) }
-  head.append(el('strong', '', '资源库'), tabs, search, importButton, upload); host.append(head, cards)
+  head.append(el('strong', '', '资源库'), tabs, search, zoom, importButton, upload); host.append(head, cards)
   function choose(value) { selected = value; select(value); mark() }
   function entries() {
     return [
@@ -89,5 +104,5 @@ export function mountResources(host, { engine, scene, ui, run, button, field, in
   }
   function refresh() { const stamp = JSON.stringify([engine.project.assets, engine.project.characters, scene.document.prefabs, scene.types(), scene.playing]); if (stamp !== signature) { signature = stamp; renderCards() } importButton.disabled = scene.playing }
   refresh()
-  return { refresh, renderInspector, clearSelection() { selected = null; mark() }, dispose() { disposed = true; host.replaceChildren() } }
+  return { refresh, renderInspector, clearSelection() { selected = null; mark() }, dispose() { disposed = true; host.removeEventListener('wheel', wheel); host.replaceChildren() } }
 }

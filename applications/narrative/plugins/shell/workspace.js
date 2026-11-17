@@ -12,10 +12,15 @@ export function mountWorkspace(ctx, sdk, engine, { projectPanel, showLibrary, do
   settings.setAttribute('aria-label', '全局设置')
   settings.addEventListener('change', () => { const id = settings.value; settings.value = ''; run(() => id === 'plugins' ? document.querySelector('#manage-plugins')?.click() : navigate(id)) })
   const projectHead = el('div', 'ne-project-heading'); projectHead.append(title, status)
-  header.append(el('strong', 'ne-brand', '◈ 叙事引擎'), projectHead, headerTools)
+  const editorTools=el('div','ne-editor-tools')
+  header.append(projectHead, editorTools, headerTools)
   const save = button('保存', () => engine.save()), restart = button('重新开始', () => engine.play())
-  headerTools.append(button('作品库', () => showLibrary(false)), save, settings, mode, restart)
-  const contributedTools = el('div', 'ne-contributed-tools'); headerTools.append(contributedTools)
+  projectHead.prepend(button('作品库', () => showLibrary(false)))
+  const more=el('details','ne-tools-more'),moreTitle=el('summary','','更多'),moreBody=el('div','ne-tools-more-body')
+  more.append(moreTitle,moreBody);headerTools.append(save,mode,more)
+  const contributedTools = el('div', 'ne-contributed-tools'); moreBody.append(settings,restart,contributedTools)
+  const fitHeader=()=>{if(window.innerWidth<=800){moreBody.prepend(title,save)}else{projectHead.insertBefore(title,status);headerTools.prepend(save)}}
+  window.addEventListener('resize',fitHeader);fitHeader()
   const error = el('div', 'ne-runtime-error'); error.setAttribute('role', 'alert'); error.hidden = true
   root.append(header, workspace, error); sdk.mount('app', root)
   let editorDispose, editorDescriptor, editorProject, dialog, panelDispose, active = '', disposed = false, scheduled = false, panelRefresh = false
@@ -72,7 +77,7 @@ export function mountWorkspace(ctx, sdk, engine, { projectPanel, showLibrary, do
     map.set(descriptor.id, descriptor); refresh()
     owner.effect(() => () => { map.delete(descriptor.id); if (active === descriptor.id) closePanel(); if (!disposed) refresh() })
   }
-  const ui = { registerPanel: (o, d) => register(panels, o, d), registerSurface: (o, d) => register(surfaces, o, d), registerToolbar: (o, d) => register(tools, o, d), navigate, refresh }
+  const ui = { mountEditorToolbar(node) { editorTools.replaceChildren(node); return () => node.remove() }, registerPanel: (o, d) => register(panels, o, d), registerSurface: (o, d) => register(surfaces, o, d), registerToolbar: (o, d) => register(tools, o, d), navigate, refresh }
   sdk.provide('narrativeUI', ui)
   engine.observe(ctx, event => {
     renderState()
@@ -89,7 +94,7 @@ export function mountWorkspace(ctx, sdk, engine, { projectPanel, showLibrary, do
       })
     }
   })
-  ctx.effect(() => () => { disposed = true; closePanel(); editorDispose?.(); for (const m of mounted.values()) m.dispose?.(); root.remove() })
+  ctx.effect(() => () => { disposed = true; window.removeEventListener('resize',fitHeader); closePanel(); editorDispose?.(); for (const m of mounted.values()) m.dispose?.(); root.remove() })
   refresh()
   return { root, ui }
 }

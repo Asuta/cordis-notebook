@@ -5,6 +5,7 @@ import { RESOURCE_MIME, resourceReferences, readAsset } from '../resources.js'
 import { setupScene } from '../../scene-runtime/test/helpers.js'
 import { mountScene } from '../../scene-ui/renderer.js'
 import { settle, owner } from '../../project/test/helpers.js'
+import { fittedScreen, preferences } from '../layout.js'
 
 async function fixture(t) {
   const f = await setupScene(t), ctx = owner(), host = document.createElement('main')
@@ -14,6 +15,60 @@ async function fixture(t) {
   return { ...f, host, click, canvas: host.querySelector('.scene-canvas'), select(id) { host.querySelector('[data-id="' + id + '"]').click() } }
 }
 const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height })
+test('固定屏幕完整适配横竖区域，调整分区、取消拖动、重置与持久化', async t => {
+  const f = await fixture(t), grid = f.host.querySelector('.scene-editor-grid'), viewport = f.host.querySelector('.scene-viewport')
+  for (const orientation of ['landscape', 'portrait']) for (const [w,h] of [[900,400],[300,700],[1200,900]]) {
+    const screen = fittedScreen(w,h,orientation)
+    assert.ok(screen.width * screen.scale <= w - 24 + .001)
+    assert.ok(screen.height * screen.scale <= h - 24 + .001)
+    assert.equal(screen.width / screen.height, orientation === 'landscape' ? 16/9 : 9/16)
+  }
+  Object.defineProperties(grid, { clientWidth: { value: 1200, configurable: true }, clientHeight: { value: 700, configurable: true } })
+  Object.defineProperties(viewport, { clientWidth: { value: 600, configurable: true }, clientHeight: { value: 400, configurable: true } })
+  window.dispatchEvent(new f.window.Event('resize'))
+  const version = f.engine.version
+  for (const [key,x,y,endX,endY,expected] of [['left',210,100,260,100,260],['right',900,100,850,100,340],['bottom',100,520,100,470,230]]) {
+    const handle = grid.querySelector('[data-split="' + key + '"]')
+    pointer(f,handle,'pointerdown',x,y); pointer(f,handle,'pointermove',endX,endY); pointer(f,handle,'pointerup',endX,endY)
+    assert.equal(grid.style.getPropertyValue('--scene-' + key), expected + 'px')
+    assert.equal(preferences(f.sdk.storage.local).value[key], expected)
+  }
+  const left = grid.querySelector('[data-split="left"]')
+  pointer(f,left,'pointerdown',260,100); pointer(f,left,'pointermove',800,100); pointer(f,left,'pointercancel',800,100)
+  assert.equal(grid.style.getPropertyValue('--scene-left'), '260px')
+  left.dispatchEvent(new f.window.MouseEvent('dblclick')); assert.equal(grid.style.getPropertyValue('--scene-left'), '210px')
+  const size = f.host.querySelector('[aria-label="预览比例"]'); size.value='portrait'; size.dispatchEvent(new f.window.Event('change')); await settle()
+  assert.equal(f.canvas.style.width,'540px'); assert.equal(f.canvas.style.height,'960px')
+  assert.equal(preferences(f.sdk.storage.local).value.orientation,'portrait')
+  assert.equal(f.engine.version,version)
+})
+
+test('资源 Ctrl 滚轮只缩放卡片，支持限幅、重置、持久化，普通滚轮不拦截', async t => {
+  const f=await fixture(t), assets=f.host.querySelector('.scene-assets'), version=f.engine.version
+  // happy-dom's WheelEvent omits MouseEvent modifier keys.
+  const wheel=(ctrlKey,deltaY)=>{const event=new f.window.WheelEvent('wheel',{deltaY,bubbles:true,cancelable:true});Object.defineProperty(event,'ctrlKey',{value:ctrlKey});assets.dispatchEvent(event);return event}
+  assert.equal(wheel(false,-100).defaultPrevented,false)
+  assert.equal(assets.style.getPropertyValue('--resource-width'),'114px')
+  assert.equal(wheel(true,-100).defaultPrevented,true)
+  assert.equal(assets.style.getPropertyValue('--resource-width'),'122px')
+  assert.equal(preferences(f.sdk.storage.local).value.resourceSize,122)
+  for(let i=0;i<50;i++)wheel(true,-100)
+  assert.equal(assets.style.getPropertyValue('--resource-width'),'240px')
+  for(let i=0;i<50;i++)wheel(true,100)
+  assert.equal(assets.style.getPropertyValue('--resource-width'),'80px')
+  f.host.querySelector('[aria-label="重置资源缩放"]').click();await settle()
+  assert.equal(assets.style.getPropertyValue('--resource-width'),'114px')
+  assert.equal(f.engine.version,version)
+})
+
+test('预览缩小后拖动尺寸手柄仍按逻辑像素提交', async t => {
+  const f=await fixture(t);await gestureScene(f,'anchor')
+  f.canvas.dataset.previewScale='0.5';f.select('a');await settle()
+  const node=f.canvas.querySelector('[data-object-id="a"]');node.getBoundingClientRect=()=>rect(0,0,45,45)
+  pointer(f,node.querySelector('[data-scene-handle="resize"]'),'pointerdown',45,45)
+  pointer(f,f.canvas,'pointermove',70,60);pointer(f,f.canvas,'pointerup',70,60)
+  assert.deepEqual(f.scene.expanded().objects.find(o=>o.id==='a').layout,{width:140,height:120})
+})
 function pointer(f, node, type, x, y) { node.dispatchEvent(new f.window.PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: x, clientY: y, pointerType: 'mouse' })) }
 async function gestureScene(f, mode = 'column') {
   f.scene.edit({ op: 'batch', commands: [{ op: 'add-scene', id: 'gestures', name: '手势场景' }, { op: 'add', sceneId: 'gestures', id: 'box', type: 'container', layout: { mode } }, ...['a', 'b', 'c'].map(id => ({ op: 'add', sceneId: 'gestures', id, parent: 'box', type: 'text', props: { text: id } }))] })

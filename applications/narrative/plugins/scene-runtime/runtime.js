@@ -1,11 +1,28 @@
 const copy = value => structuredClone(value)
 const plain = value => value && typeof value === 'object' && !Array.isArray(value)
 const frozen = value => { if(value&&typeof value==='object'){for(const v of Object.values(value))frozen(v);Object.freeze(value)}return value }
+function validJSON(value, seen = new Set(), depth = 0) {
+  if (depth > 64) return false
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (!value || typeof value !== 'object' || seen.has(value) || (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) return false
+  seen.add(value)
+  const valid = Object.values(value).every(v => validJSON(v, seen, depth + 1))
+  seen.delete(value); return valid
+}
+export function matchesReference(descriptor, requirement) {
+  if (!descriptor) return false
+  if (typeof requirement === 'string') return !requirement || descriptor.type === requirement
+  return (!requirement.type || descriptor.type === requirement.type) &&
+    (requirement.methods || []).every(name => descriptor.methods?.[name]) &&
+    (requirement.events || []).every(name => descriptor.events?.includes(name))
+}
 export function validateFields(fields = {}, value = {}) {
   if(!plain(value))throw Error('方法参数必须是对象')
   for(const [key,field]of Object.entries(fields)){
-    const v=value[key]??field.default
+    const v=field.kind==='json'&&Object.hasOwn(value,key)?value[key]:value[key]??field.default
     if(v===undefined){if(field.required)throw Error('缺少参数：'+field.label);continue}
+    if(field.kind==='json'){if(!validJSON(v)||JSON.stringify(v).length>(field.maxLength||250000))throw Error('结构化参数无效：'+field.label);continue}
     if(field.kind==='number'&&(!Number.isFinite(v)||v<(field.min??-1000000)||v>(field.max??1000000)))throw Error('数值参数无效：'+field.label)
     if(field.kind==='boolean'&&typeof v!=='boolean')throw Error('开关参数无效：'+field.label)
     if(!['number','boolean'].includes(field.kind)&&(typeof v!=='string'||v.length>(field.maxLength||16000)))throw Error('文字参数无效：'+field.label)
@@ -19,9 +36,11 @@ export function validateScene(scene, types, { allowMissing = false } = {}) {
     if (!d) { if (allowMissing) continue; throw Error('缺少对象类型插件：' + o.type) }
     validateFields(d.fields, o.props || {})
     if (d.singleton && scene.objects.filter(x => x.type === o.type).length > 1) throw Error(d.label + ' 在一个场景中只能放置一份')
-    for (const [slot, type] of Object.entries(d.refs || {})) {
+    for (const [slot, requirement] of Object.entries(d.refs || {})) {
       const target = byId.get(o.refs?.[slot])
-      if (!target || type && target.type !== type) throw Error((o.name || o.id) + ' 的引用 ' + slot + ' 类型不匹配')
+      if (!o.refs?.[slot] && (allowMissing || requirement?.optional)) continue
+      if (allowMissing && target && !types.has(target.type)) continue
+      if (!target || !matchesReference(types.get(target.type), requirement)) throw Error((o.name || o.id) + ' 的引用 ' + slot + ' 缺失或类型不匹配（需要声明的能力）')
     }
   }
   for (const c of scene.connections) {
@@ -40,7 +59,7 @@ export class ObjectRuntime {
     this.states=copy(snapshot?.states||{});this.flags=copy(snapshot?.flags||{});this.pending=0
     for(const o of this.scene.objects){
       const d=types.get(o.type),key=this.key(o.id)
-      if(d){validateFields(d.fields,o.props||{});for(const [slot,type]of Object.entries(d.refs||{})){const target=this.scene.objects.find(x=>x.id===o.refs?.[slot]);if(!target||type&&target.type!==type)throw Error((o.name||o.id)+' 的引用 '+slot+' 类型不匹配')}
+      if(d){validateFields(d.fields,o.props||{});
         const initial=d.initial?.(copy(o.props||{}))||{}
         this.states[key]=d.restore?d.restore(copy(this.states[key]??initial)):copy(this.states[key]??initial)
       }

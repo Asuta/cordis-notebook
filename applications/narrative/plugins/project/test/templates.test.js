@@ -4,9 +4,10 @@ import { templateProject } from '../demo.js'
 import { validateProject, validateRuntime } from '../model.js'
 import { setupScene } from '../../scene-runtime/test/helpers.js'
 
-test('只提供会客厅模板，所有对象类型均由保留插件注册', async t => {
+test('会客厅模板仍可独立运行，旧模板入口保持关闭', async t => {
   validateProject(templateProject())
-  for (const id of ['hybrid', 'galgame', 'tavern']) assert.throws(() => templateProject(id), /仅提供七日会客厅/)
+  validateProject(templateProject('last-train'))
+  for (const id of ['hybrid', 'galgame', 'tavern']) assert.throws(() => templateProject(id), /请选择七日会客厅或末班车之前/)
   const f = await setupScene(t)
   assert.deepEqual(f.scene.validate(), [])
   assert.deepEqual(f.engine.nodeTypes(), [], '场景玩法不需要旧剧情插件注册处理器')

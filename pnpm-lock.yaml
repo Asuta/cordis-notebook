@@ -106,7 +106,21 @@ importers:
 
   applications/narrative/plugins/ai-dialogue: {}
 
+  applications/narrative/plugins/auto-advance: {}
+
+  applications/narrative/plugins/background-view: {}
+
+  applications/narrative/plugins/character-view: {}
+
   applications/narrative/plugins/characters: {}
+
+  applications/narrative/plugins/choice-list: {}
+
+  applications/narrative/plugins/dialogue-view: {}
+
+  applications/narrative/plugins/history-view: {}
+
+  applications/narrative/plugins/playback-controls: {}
 
   applications/narrative/plugins/project:
     dependencies:
@@ -132,6 +146,10 @@ importers:
         version: link:../../../../packages/host
 
   applications/narrative/plugins/sound: {}
+
+  applications/narrative/plugins/story-editor: {}
+
+  applications/narrative/plugins/story-flow: {}
 
   applications/notebook: {}
 

@@ -1,0 +1,7 @@
+const check=v=>{if(!Array.isArray(v)||v.length>40||v.some(c=>!c||typeof c.id!=='string'||typeof c.text!=='string'||c.text.length>4000)||new Set(v.map(c=>c.id)).size!==v.length)throw Error('选项应为不重复的 id/text 列表');return structuredClone(v)}
+export default function(ctx){
+  ctx.sceneRuntime.register(ctx,{type:'choice-list',label:'选项列表',plugin:'choice-list',fields:{items:{kind:'json',label:'预览选项',default:[{id:'one',text:'第一个选项'},{id:'two',text:'第二个选项'}]}},events:['selected'],initial:p=>({items:check(p.items||[])}),
+    methods:{present:{label:'显示选项',fields:{value:{kind:'json',label:'选项列表',required:true}},run(a,{value}){a.set({items:check(value)})}},choose:{label:'选择选项',fields:{id:{kind:'string',label:'选项 ID',required:true}},async run(a,{id}){const before=a.state.items;if(!before.some(c=>c.id===id))return false;a.set({items:[]});try{await a.emit('selected',id)}catch(e){if(a.current()&&!a.state.items.length)a.set({items:before});throw e}return true}}},
+    mount(host,o,{scene,engine}){host.classList.add('choice-list');let signature='';return{update(){const items=scene.runtime?.state(o.id)?.items??o.props?.items??[],next=JSON.stringify([items,scene.playing]);if(next===signature)return;signature=next;host.replaceChildren();for(const c of items){const b=document.createElement('button');b.type='button';b.textContent=c.text;b.disabled=!scene.playing;b.addEventListener('click',()=>scene.call(o.id,'choose',{id:c.id}).catch(e=>engine.error(e.message)));host.append(b)}},dispose(){host.replaceChildren()}}}
+  })
+}

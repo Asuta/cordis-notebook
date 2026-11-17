@@ -14,6 +14,7 @@ import { createAgentBridge } from './agent-bridge.js'
 import { installDevelopmentSave } from './development-save.js'
 import { createRequest, createStream } from './request.js'
 import { errorDetail, restoreError } from '../../shared/errors.js'
+import { createToast } from './toast.js'
 let application = await (await fetch('/api/applications')).json()
 const pageSession = application.session
 let development = import.meta.hot ? await (await fetch('/__cordis/dev')).json() : null
@@ -23,12 +24,12 @@ mounts.register(root, 'app', $('#app'))
 const updatePlaceholder = () => { $('#app-placeholder').hidden = $('#app').childElementCount > 0 }
 new MutationObserver(updatePlaceholder).observe($('#app'), { childList: true })
 updatePlaceholder()
+const toast = createToast(document)
 const stopping = new StopCoordinator(root, error => toast(error.message))
 const agentBridge = createAgentBridge({ application: application.current, session: pageSession, stopping, enablePlugin: enablePluginFromAgent, window, document })
 let snapshot = { plugins: [] }, syncQueue = Promise.resolve(), working = false
 const request = createRequest(pageSession)
 const streamRequest = createStream(pageSession)
-function toast(message) { const node = $('#toast'); const dialog = [...document.querySelectorAll('dialog[open]')].at(-1); (dialog || document.body).append(node); node.textContent = message; node.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => node.hidden = true, 6000) }
 function el(tag, props = {}, text) {
   const node = document.createElement(tag)
   for (const [key, value] of Object.entries(props)) { if (key === 'class') node.className = value; else if (key.startsWith('aria-') || key.startsWith('data-')) node.setAttribute(key, value); else node[key] = value }

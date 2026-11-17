@@ -1,7 +1,9 @@
 import { defaultComposition } from './composition.js'
+import { lastTrainProject } from './last-train.js'
 const asset = (id,name,file) => ({ id,name,kind:'image',url:'/builtin/project/assets/' + file + '.png' })
 export function templateProject(template = 'salon', title, id = crypto.randomUUID()) {
-  if (template !== 'salon') throw Object.assign(Error('当前仅提供七日会客厅模板'), {status:400})
+  if (template === 'last-train') return lastTrainProject(title,id)
+  if (template !== 'salon') throw Object.assign(Error('请选择七日会客厅或末班车之前模板'), {status:400})
   const p = {
     schemaVersion:1,id,revision:0,title:title || '七日会客厅',template,
     description:'两个独立角色会话、天数推进与关系变化。打开场景搭建，自由重组窗口和事件。',startNodeId:'main',

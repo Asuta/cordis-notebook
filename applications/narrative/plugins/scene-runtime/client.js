@@ -34,7 +34,7 @@ export default function(ctx,sdk){
       if(types.has(d.type))throw Error('对象类型重复：'+d.type)
       types.set(d.type,d);failedRef=Symbol()
       if(engine.mode==='play'){if(!scheduled){scheduled=true;queueMicrotask(()=>{scheduled=false;sync()})}}else sync()
-      owner.effect(()=>()=>{types.delete(d.type);runtime?.dispose();runtime=null;notify()})
+      owner.effect(()=>()=>{types.delete(d.type);if(runtime?.scene.objects.some(o=>o.type===d.type)){runtime.dispose();runtime=null}notify()})
     },
     provide(owner,name,value){if(services.has(name))throw Error('场景服务重复：'+name);services.set(name,value);notify();owner.effect(()=>()=>{services.delete(name);notify()})},
     service:name=>services.get(name),

@@ -22,7 +22,7 @@ export default function(ctx,sdk) {
     const dialog=el('dialog','ne-library-dialog'),head=el('div','ne-modal-heading'),body=el('div','ne-modal-body');head.append(el('h2','',createOnly?'一个新故事，从这里开始':'你的故事收藏'),button('×',()=>dialog.close(),'ne-button ne-close'));dialog.append(head,body);root.append(dialog)
     dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal()
     const templates=el('div','ne-template-grid')
-    for(const [id,icon,name,desc,tags]of [['salon','▦','七日会客厅','独立的双角色聊天窗口，通过事件推进天数与关系。','角色 · 场景 · 事件']]){
+    for(const [id,icon,name,desc,tags]of [['last-train','☾','末班车之前','雨后站台、山顶星光，与林栀的一次告别或约定。预写对白，三个抉择，两个结局。','视觉小说 · 无需 AI · 约 10–15 分钟'],['salon','▦','七日会客厅','独立的双角色聊天窗口，通过事件推进天数与关系。','角色 · 场景 · 事件']]){
       const b=button('',async()=>{await engine.create(id);dialog.close();navigate('scene.editor')},'ne-template-card');b.append(el('span','ne-template-icon',icon),el('strong','',name),el('p','',desc),el('small','',tags));templates.append(b)
     }
     body.append(el('p','ne-muted','选择一个起始模板。所有作品都能继续组合对象、编辑布局和连接事件。'),templates)

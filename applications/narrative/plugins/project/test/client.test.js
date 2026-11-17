@@ -160,6 +160,7 @@ test('节点、动作、条件和事件注册随插件释放，异步动作严�
 test('缺失插件和异步节点异常显示可恢复错误，试玩禁止修改作品', async t => {
   const f = await setup(t), plugin = owner()
   t.after(() => plugin.dispose())
+  f.engine.update(p => { delete p.composition })
   await f.engine.play()
   assert.match(f.engine.runtime.error, /缺少.*story.*节点插件/)
   f.engine.stop()
@@ -181,12 +182,25 @@ test('缺失插件和异步节点异常显示可恢复错误，试玩禁止修�
 test('递归事件跳转被阻止，移除循环插件后可以继续剧情', async t => {
   const f = await setup(t), plugin = owner(), loop = owner()
   t.after(async () => { await loop.dispose(); await plugin.dispose() })
+  f.engine.update(p => { delete p.composition })
   f.engine.registerNode(plugin, { type: 'story' })
   f.engine.onEvent(loop, async event => { if (event === 'node.enter') await f.engine.go('arrival') })
   await f.engine.play()
   assert.match(f.engine.runtime.error, /跳转次数过多/)
   await loop.dispose(); await f.engine.go('arrival')
   assert.equal(f.engine.runtime.error, '')
+})
+
+test('旧作品的启动监听已进入节点时，兼容入口不重复执行', async t => {
+  const f = await setup(t), plugin = owner()
+  t.after(() => plugin.dispose())
+  f.engine.update(p => { delete p.composition })
+  let entered = 0
+  f.engine.registerNode(plugin, { type: 'story', enter() { entered++ } })
+  f.engine.onEvent(plugin, async event => { if (event === 'play.start') await f.engine.go('arrival') })
+  await f.engine.play()
+  assert.equal(entered, 1)
+  assert.deepEqual(f.engine.runtime.visited, ['arrival'])
 })
 
 test('Agent 编辑拒绝过期版本及其他作品，成功编辑使用相同保存与校验流程', async t => {

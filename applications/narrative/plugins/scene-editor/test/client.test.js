@@ -17,7 +17,7 @@ test('属性面板编辑预制体实例覆盖，撤销后还原，未影响其�
   assert.equal(expanded.find(o => o.id === 'first-chat--window').props.title, '独立窗口')
   assert.equal(expanded.find(o => o.id === 'second-chat--window').props.title, '角色对话')
   assert.equal(f.scene.document.prefabs[0].objects.find(o => o.id === 'window').props.title, '角色对话')
-  Array.from(host.querySelectorAll('button')).find(b => b.textContent.includes('撤销')).click(); await settle()
+  host.querySelector('[aria-label="撤销"]').click(); await settle()
   assert.equal(f.scene.expanded().objects.find(o => o.id === 'first-chat--window').props.title, '角色对话')
   assert.deepEqual(f.toasts, [])
 })

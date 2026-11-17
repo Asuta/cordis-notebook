@@ -53,6 +53,15 @@ test('手动存档保存完整且独立的状态，从编辑器恢复对白、�
   assert.equal(f.engine.runtime.busy, false)
 })
 
+test('从设置面板读档后关闭面板返回游戏画面',async t=>{
+  const f=await fixture(t),opened=[]
+  f.savesOwner.narrativeUI.navigate=async id=>opened.push(id)
+  f.engine.restoreRuntime(initialRuntime(f.engine.project));f.render()
+  await f.click(f.slot(1),'保存进度')
+  await f.click(f.slot(1),'继续游玩')
+  assert.deepEqual(opened,['scene.editor'])
+})
+
 test('生成中的手动存档拒绝覆盖已有进度，并把异步点击异常显示为通知', async t => {
   const f = await fixture(t)
   f.engine.restoreRuntime(initialRuntime(f.engine.project)); f.render()

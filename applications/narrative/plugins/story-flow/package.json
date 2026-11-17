@@ -1,0 +1,41 @@
+{
+  "name": "@cordis-narrative/story-flow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "story-flow",
+    "name": "剧情流程",
+    "description": "剧情流程，通过公开方法和事件独立组合。",
+    "defaultEnabled": true,
+    "order": 8,
+    "client": "client.js",
+    "requires": {
+      "client": [
+        "narrative",
+        "sceneRuntime"
+      ],
+      "server": []
+    },
+    "provides": {
+      "client": [],
+      "server": []
+    },
+    "public": [
+      "client.js"
+    ],
+    "styles": [],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      }
+    ]
+  }
+}

@@ -44,3 +44,4 @@ export interface NarrativeSceneCommand {op:'add'|'patch'|'move'|'remove'|'clone'
 export interface NarrativeObjectSnapshot {schemaVersion:1;sceneId:string;states:Record<string,Record<string,unknown>>;flags:Record<string,{visible?:boolean;enabled?:boolean;paused?:boolean}>}
 export interface NarrativeProject {composition?:NarrativeComposition}
 export interface NarrativeRuntime {objects?:NarrativeObjectSnapshot}
+export interface NarrativeRuntime {story?:{awaiting:boolean}}

@@ -1,10 +1,13 @@
 import { mountResources, RESOURCE_MIME } from './resources.js'
 import { mountInteraction, reorderCommand } from './interaction.js'
+import { preferences, mountLayout } from './layout.js'
+const matches=(d,r)=>!!d&&(typeof r==='string'?(!r||d.type===r):(!r.type||d.type===r.type)&&(r.methods||[]).every(m=>d.methods?.[m])&&(r.events||[]).every(e=>d.events?.includes(e)))
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n}
 export default function(ctx,sdk){
   const engine=ctx.narrative,scene=ctx.sceneRuntime,ui=ctx.narrativeUI,views=ctx.sceneViews
   ui.registerPanel(ctx,{id:'scene.editor',label:'场景编辑器',icon:'▦',order:2,wide:true,render:mount})
   function mount(container){
+    const prefs=preferences(sdk.storage?.local)
     let selected='',resource=null,resourceParent=null,view,interaction,resources,disposed=false,dragId='',dragVersion=0,inspectorStamp='',lastDoc='',lastResources='',editSelection='',editResource=null,wasPlaying=scene.playing
     const collapsed=new Set(),root=el('section','scene-editor'),toolbar=el('div','scene-editor-toolbar'),body=el('div','scene-editor-grid')
     const left=el('aside','scene-hierarchy'),center=el('section','scene-workspace'),right=el('aside','scene-properties'),inspector=el('fieldset','scene-inspector-fields'),liveState=el('pre','scene-live-state')
@@ -37,25 +40,34 @@ export default function(ctx,sdk){
     const undo=button('↶ 撤销',()=>scene.undo()),redo=button('↷ 重做',()=>scene.redo())
     const addScene=button('＋ 场景',()=>{const id='scene-'+crypto.randomUUID();command({op:'add-scene',id,name:'新场景 '+(doc().scenes.length+1)});scene.select(id);selectObject('')})
     const startScene=button('设为起始',()=>command({op:'start-scene',id:scene.selected}))
-    const size=options([['fit','自适应'],['desktop','桌面 960'],['phone','竖屏 390']], 'fit',value=>{canvasWrap.dataset.size=value},'预览尺寸')
+    const size=options([['landscape','横屏 16:9'],['portrait','竖屏 9:16']], prefs.value.orientation,()=>{},'预览比例')
     const modeBadge=el('span','ne-badge'),hint=el('span','scene-workspace-caption')
-    toolbar.append(sceneSelect,addScene,startScene,el('span','scene-toolbar-divider'),undo,redo,size,modeBadge)
+    const more=el('details','scene-toolbar-more'),summary=el('summary','','场景选项'),moreActions=el('div','scene-toolbar-menu')
+    summary.setAttribute('aria-label','场景选项');moreActions.append(startScene,modeBadge);more.append(summary,moreActions)
+    toolbar.append(sceneSelect,addScene,undo,redo,size,more)
+    undo.title='撤销';undo.setAttribute('aria-label','撤销');undo.textContent='↶'
+    redo.title='重做';redo.setAttribute('aria-label','重做');redo.textContent='↷'
+    addScene.title='添加场景';addScene.setAttribute('aria-label','添加场景');addScene.textContent='＋'
+    const fitToolbar=()=>{if(window.innerWidth<=800){moreActions.prepend(addScene,undo,redo);summary.textContent='⋯'}else{toolbar.insertBefore(addScene,size);toolbar.insertBefore(undo,size);toolbar.insertBefore(redo,size);summary.textContent='场景选项'}}
+    window.addEventListener('resize',fitToolbar);fitToolbar()
     const mobileNav=el('nav','scene-mobile-nav');mobileNav.setAttribute('aria-label','编辑器区域')
     for(const [id,label]of [['canvas','画面'],['hierarchy','层级'],['inspector','属性'],['assets','资源']]){const b=button(label,()=>{root.dataset.mobileTab=id},'scene-mobile-tab');b.dataset.tab=id;mobileNav.append(b)}
     root.dataset.mobileTab='canvas'
     left.append(el('div','scene-pane-heading','场景层级'),tree)
     right.append(el('div','scene-pane-heading','属性检查器'),liveState,inspector)
     canvasWrap.append(canvas);center.append(hint,canvasWrap);body.append(left,center,right,assets);root.append(toolbar,mobileNav,body,diagnostics);container.append(root)
-    resources=mountResources(assets,{engine,scene,ui,run,button,field,input,select:value=>{if(!resource)resourceParent=placementParent();resource=value;selected='';inspectorStamp='';render();root.dataset.mobileTab='inspector'},place,jump})
+    const detachToolbar=ui.mountEditorToolbar?.(toolbar)
+    resources=mountResources(assets,{engine,scene,ui,run,button,field,input,prefs,select:value=>{if(!resource)resourceParent=placementParent();resource=value;selected='';inspectorStamp='';render();root.dataset.mobileTab='inspector'},place,jump})
     view=views.mount(canvas,{sceneId:()=>scene.selected,design:()=>!scene.playing,onSelect:id=>selectObject(id)})
     interaction=mountInteraction(canvas,{engine,scene,getSelected:()=>selected,select:selectObject,patchObject,report:message=>sdk.toast(message),refreshView:()=>view.refresh()})
+    const layout=mountLayout({root,grid:body,viewport:canvasWrap,canvas,size,prefs,refresh:()=>view.refresh()})
     const off=scene.observe({effect:fn=>fn()},render)
     const offProject=engine.observe({effect:fn=>fn()},event=>{if(event.type==='project'||event.type==='mode')render()})
     function placementParent(){const o=raw();return o&&!o.prefab&&scene.descriptor(o.type)?.container?o.id:o?.parent||null}
     function add(type,propsOverride={},parent=placementParent()){
       const d=scene.descriptor(type);if(!d)throw Error('对象类型未启用')
       const id='o-'+crypto.randomUUID(),props={...Object.fromEntries(Object.entries(d.fields||{}).map(([key,f])=>[key,f.default??''])),...propsOverride},refs={},commands=[]
-      for(const[key,targetType]of Object.entries(d.refs||{})){let target=rawScene().objects.find(o=>o.type===targetType);if(!target){const targetId='o-'+crypto.randomUUID(),def=scene.descriptor(targetType);commands.push({op:'add',id:targetId,type:targetType,name:def.label,props:Object.fromEntries(Object.entries(def.fields||{}).map(([k,f])=>[k,f.default??'']))});target={id:targetId}}refs[key]=target.id}
+      for(const[key,requirement]of Object.entries(d.refs||{})){if(requirement.optional)continue;const candidates=rawScene().objects.filter(o=>matches(scene.descriptor(o.type),requirement));if(candidates.length===1)refs[key]=candidates[0].id;else if(typeof requirement==='string'&&!candidates.length){const targetId='o-'+crypto.randomUUID(),def=scene.descriptor(requirement);if(def){commands.push({op:'add',id:targetId,type:requirement,name:def.label,props:Object.fromEntries(Object.entries(def.fields||{}).map(([k,f])=>[k,f.default??'']))});refs[key]=targetId}}}
       commands.push({op:'add',id,type,name:d.label,props,refs,parent,layout:d.container?{mode:'column',gap:12,padding:16}:{}})
       command({op:'batch',commands});selectObject(id)
     }
@@ -110,7 +122,7 @@ export default function(ctx,sdk){
         const row=el('div','scene-tree-row');row.dataset.id=o.id;row.setAttribute('role','treeitem');row.setAttribute('aria-level',String(depth+1));row.style.paddingLeft=(6+depth*14)+'px';row.draggable=!!own&&!scene.playing
         row.addEventListener('click',event=>{if(event.target===row)selectObject(o.id)})
         if(children){const fold=button(collapsed.has(o.id)?'▸':'▾',()=>{collapsed.has(o.id)?collapsed.delete(o.id):collapsed.add(o.id);renderTree();render()},'scene-tree-fold');fold.setAttribute('aria-label','展开或折叠 '+(o.name||o.id));row.setAttribute('aria-expanded',String(!collapsed.has(o.id)));row.append(fold)}else row.append(el('span','scene-tree-spacer'))
-        const name=button((d?.visual===false?'◇ ':own?.prefab?'▣ ':'▧ ')+(o.name||d?.label||o.type),()=>selectObject(o.id),'scene-tree-item');name.title=o.id;row.append(name)
+        const name=button((d?.visual===false?'◇ ':own?.prefab?'▣ ':'▧ ')+(o.name||d?.label||o.type),()=>selectObject(o.id),'scene-tree-item');name.title=(o.name||d?.label||o.type)+' · '+o.id;row.append(name)
         if(o.visible===false||o.enabled===false||o.paused)row.append(el('span','scene-tree-flags',o.visible===false?'隐藏':o.enabled===false?'停用':'暂停'))
         row.addEventListener('dragstart',e=>{if(scene.playing){e.preventDefault();return}dragId=o.id;dragVersion=engine.version;e.dataTransfer.setData('text/plain',o.id);e.dataTransfer.effectAllowed='move'})
         row.addEventListener('dragend',()=>{dragId=''})
@@ -126,6 +138,7 @@ export default function(ctx,sdk){
     }
     function propsField(key,f,o){
       const value=o.props?.[key]??f.default,change=v=>patch({props:{...o.props,[key]:v}})
+      if(f.kind==='json')return field(f.label,input(JSON.stringify(value??null,null,2),v=>change(JSON.parse(v)),f.label,'textarea'))
       if(f.kind==='boolean'){const n=el('input');n.type='checkbox';n.checked=!!value;n.addEventListener('change',()=>run(()=>change(n.checked)));return field(f.label,n)}
       if(f.options)return field(f.label,options(f.options.map(x=>Array.isArray(x)?x:[x,x]),value,change,f.label))
       if(['character','asset','scene'].includes(f.kind)){const rows=f.kind==='character'?engine.project.characters:f.kind==='asset'?engine.project.assets.filter(x=>x.kind==='image'):doc().scenes;return field(f.label,options([['','请选择'],...rows.map(x=>[x.id,x.name||x.title])],value,change,f.label))}
@@ -153,8 +166,8 @@ export default function(ctx,sdk){
       layout.append(field('窄屏排列',options([['','继承桌面'],['column','纵向排列'],['row','横向排列'],['grid','网格']],l.compact?.mode||'',v=>{const compact={...l.compact};if(v)compact.mode=v;else delete compact.mode;setLayout('compact',compact)},'窄屏排列')));if(d?.visual!==false)right.append(layout)
       const refKeys=own?.prefab?Object.keys(own.refs||{}):Object.keys(d?.refs||{})
       if(refKeys.length){right.append(el('h3','','对象引用'));for(const key of refKeys){
-        const type=d?.refs?.[key],rows=expanded().objects.filter(x=>!type||x.type===type),target=(own?.prefab?own.refs:o.refs)?.[key]
-        if(own)right.append(field(key,options(rawScene().objects.filter(x=>!type||x.type===type).map(x=>[x.id,x.name||x.id]),target,value=>patch({refs:{...own.refs,[key]:value}}),'引用 '+key)))
+        const requirement=d?.refs?.[key]||'',rows=expanded().objects.filter(x=>matches(scene.descriptor(x.type),requirement)),target=(own?.prefab?own.refs:o.refs)?.[key]
+        if(own)right.append(field(key,options([['','未绑定'],...rows.map(x=>[x.id,x.name||x.id])],target,value=>{const refs={...own.refs};if(value)refs[key]=value;else delete refs[key];patch({refs})},'引用 '+key)))
         const targetObject=rows.find(x=>x.id===target);if(targetObject)right.append(button('跳转到 '+(targetObject.name||target),()=>selectObject(target),'scene-reference-link'))
       }}
       if(own){const order=el('div','scene-object-actions'),siblings=rawScene().objects.filter(x=>(x.parent||null)===(own.parent||null)),index=siblings.findIndex(x=>x.id===own.id)
@@ -168,13 +181,13 @@ export default function(ctx,sdk){
       const section=el('div','scene-property-section');section.append(el('h3','','事件 → 方法'))
       for(const c of rawScene().connections.filter(c=>c.source===o.id||c.target===o.id)){const row=el('div','scene-connection');row.append(el('span','',c.source+'.'+c.event+' → '+c.target+'.'+c.method),button('移除连接',()=>command({op:'disconnect',id:c.id})));section.append(row)}
       if(d?.events?.length){
-        const targets=rawScene().objects.filter(x=>Object.keys(scene.descriptor(x.type)?.methods||{}).length),form=el('div','ne-stack');let event=d.events[0],target=targets[0]?.id,method='',args={}
+        const targets=rawScene().objects.filter(x=>Object.keys(scene.descriptor(x.type)?.methods||{}).length),form=el('div','ne-stack');let event=d.events[0],target=targets[0]?.id,method='',args={},argument=''
         const methodSlot=el('div','ne-stack')
-        const drawMethods=()=>{methodSlot.replaceChildren();const desc=scene.descriptor(rawScene().objects.find(x=>x.id===target)?.type),methods=Object.entries(desc?.methods||{});method=methods[0]?.[0]||'';const fields=el('div','ne-stack');const drawArgs=()=>{fields.replaceChildren();args={};for(const[key,f]of Object.entries(desc.methods[method]?.fields||{})){args[key]=f.default??'';fields.append(field(f.label,input(args[key],value=>{args[key]=value},'连接参数 '+f.label,f.kind==='number'?'number':'text')))}};if(method){methodSlot.append(field('目标方法',options(methods.map(([id,m])=>[id,m.label]),method,v=>{method=v;drawArgs()},'目标方法')),fields);drawArgs()}}
-        form.append(field('触发事件',options(d.events.map(e=>[e,e]),event,v=>{event=v},'触发事件')),field('目标对象',options(targets.map(t=>[t.id,t.name||t.id]),target,v=>{target=v;drawMethods()},'目标对象')),methodSlot,button('添加连接',()=>{if(!target||!method)throw Error('请先添加可调用对象');command({op:'connect',source:o.id,event,target,method,args})}));drawMethods();section.append(form)
+        const drawMethods=()=>{methodSlot.replaceChildren();const desc=scene.descriptor(rawScene().objects.find(x=>x.id===target)?.type),methods=Object.entries(desc?.methods||{});method=methods[0]?.[0]||'';const fields=el('div','ne-stack');const drawArgs=()=>{fields.replaceChildren();args={};argument='';const entries=Object.entries(desc.methods[method]?.fields||{});fields.append(field('事件数据传入',options([['','只使用固定参数'],...entries.map(([key,f])=>[key,f.label])],'',value=>{argument=value},'事件数据传入')));for(const[key,f]of entries){args[key]=f.default??(f.kind==='json'?null:'');fields.append(field(f.label,input(f.kind==='json'?JSON.stringify(args[key]):args[key],value=>{args[key]=f.kind==='json'?JSON.parse(value):f.kind==='boolean'?value==='true':value},'连接参数 '+f.label,f.kind==='number'?'number':f.kind==='json'?'textarea':'text')))}};if(method){methodSlot.append(field('目标方法',options(methods.map(([id,m])=>[id,m.label]),method,v=>{method=v;drawArgs()},'目标方法')),fields);drawArgs()}}
+        form.append(field('触发事件',options(d.events.map(e=>[e,e]),event,v=>{event=v},'触发事件')),field('目标对象',options(targets.map(t=>[t.id,t.name||t.id]),target,v=>{target=v;drawMethods()},'目标对象')),methodSlot,button('添加连接',()=>{if(!target||!method)throw Error('请先添加可调用对象');const fixed={...args};if(argument)delete fixed[argument];command({op:'connect',source:o.id,event,target,method,args:fixed,...(argument?{argument}:{})})}));drawMethods();section.append(form)
       }else section.append(el('p','scene-help','此类型未公开事件。可以从其他对象的方法入口或引用建立协作。'))
       host.append(section)
     }
-    render();return()=>{disposed=true;off();offProject();interaction.dispose();resources.dispose();view.dispose();root.remove()}
+    render();return()=>{disposed=true;off();offProject();window.removeEventListener('resize',fitToolbar);layout.dispose();detachToolbar?.();interaction.dispose();resources.dispose();view.dispose();root.remove()}
   }
 }

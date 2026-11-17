@@ -1,7 +1,8 @@
 import type { ClientContext } from '@cordis-notebook/host'
 import type { NarrativeComposition, NarrativeScene, NarrativeSceneCommand, NarrativeObjectSnapshot, NarrativeService } from '../../project/types/client.js'
 
-export interface SceneField {kind:'string'|'number'|'boolean'|'character'|'asset'|'scene';label:string;default?:string|number|boolean;required?:boolean;min?:number;max?:number;maxLength?:number;multiline?:boolean;options?:(string|[string,string])[]}
+export interface SceneField {kind:'string'|'number'|'boolean'|'character'|'asset'|'scene'|'json';label:string;default?:unknown;required?:boolean;min?:number;max?:number;maxLength?:number;multiline?:boolean;options?:(string|[string,string])[]}
+export type SceneReference = string | {type?:string;methods?:string[];events?:string[];optional?:boolean}
 export interface SceneMethodContext {
   readonly id:string;readonly props:Readonly<Record<string,unknown>>;readonly state:Readonly<Record<string,unknown>>;readonly signal:AbortSignal;
   services:{engine:NarrativeService;service:(name:string)=>unknown};
@@ -11,16 +12,18 @@ export interface SceneMethodContext {
 }
 export interface SceneType {
   type:string;label:string;plugin?:string;visual?:boolean;container?:boolean;singleton?:boolean;
-  fields?:Record<string,SceneField>;refs?:Record<string,string>;events?:string[];
+  fields?:Record<string,SceneField>;refs?:Record<string,SceneReference>;events?:string[];
   methods?:Record<string,{label:string;fields?:Record<string,SceneField>;run:(context:SceneMethodContext,args:Record<string,unknown>)=>unknown}>;
   initial?:(props:Record<string,unknown>)=>Record<string,unknown>;
   restore?:(state:Record<string,unknown>)=>Record<string,unknown>;interrupt?:(state:Record<string,unknown>)=>Record<string,unknown>;
+  mount?:(host:HTMLElement,object:import('../../project/types/client.js').NarrativeObject,api:{scene:SceneRuntimeService;engine:NarrativeService;ui:import('../../shell/types/client.js').NarrativeUI;sceneId:string})=>{update?:()=>void;dispose?:()=>void}|(()=>void)|void;
 }
 export interface SceneRuntimeInstance {
   readonly scene:NarrativeScene;readonly pending:number;
   state(id:string):Readonly<Record<string,unknown>>;status(id:string):{visible:boolean;enabled:boolean;paused:boolean};
   snapshot(options?:{interrupt?:boolean}):NarrativeObjectSnapshot;invoke(id:string,method:string,args?:Record<string,unknown>):Promise<unknown>;
   setFlags(id:string,patch:{visible?:boolean;enabled?:boolean;paused?:boolean}):void;
+  emit(id:string,event:string,payload?:unknown):Promise<void>;
 }
 export type SceneTypeDescription = Omit<SceneType,'initial'|'restore'|'interrupt'|'methods'> & {methods:Record<string,{label:string;fields?:Record<string,SceneField>}>}
 export interface SceneRuntimeService {

@@ -1,0 +1,37 @@
+.ne-app .vn-editor { color: inherit; min-width: 0; width: 100%; }
+.ne-app .vn-editor-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.ne-app .vn-editor-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.ne-app .vn-editor-layout { display: grid; grid-template-columns: minmax(170px, .75fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+.ne-app .vn-editor-chapters { display: flex; flex-direction: column; gap: 8px; min-width: 0; position: sticky; top: 0; max-height: 70vh; overflow-y: auto; }
+.ne-app .vn-editor-chapter { display: flex; flex-direction: column; gap: 5px; width: 100%; text-align: left; padding: 12px; background: rgba(128,128,128,.06); border: 1px solid rgba(128,128,128,.25); border-radius: 10px; color: inherit; font: inherit; cursor: pointer; }
+.ne-app .vn-editor-chapter[aria-pressed="true"] { background: color-mix(in srgb, var(--ne-accent, #8c77cb) 14%, transparent); border-color: var(--ne-accent, #8c77cb); }
+.ne-app .vn-editor-chapter-title { font-weight: 650; overflow-wrap: anywhere; }
+.ne-app .vn-editor-meta { font-size: 11px; opacity: .75; }
+.ne-app .vn-editor-links { font-size: 12px; line-height: 1.5; opacity: .8; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ne-app .vn-editor-detail { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.ne-app .vn-editor-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ne-app .vn-editor-heading { font-size: 14px; font-weight: 650; margin: 0; }
+.ne-app .vn-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ne-app .vn-editor-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
+.ne-app .vn-editor-label { line-height: 1.5; overflow-wrap: anywhere; }
+.ne-app .vn-editor-input { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 7px; background: var(--ne-bg, #fff); color: inherit; font: inherit; line-height: 1.5; resize: vertical; }
+.ne-app .vn-editor-input:focus-visible, .ne-app .vn-editor-button:focus-visible, .ne-app .vn-editor-chapter:focus-visible { outline: 2px solid var(--ne-accent, #8c77cb); outline-offset: 2px; }
+.ne-app .vn-editor-input[aria-invalid="true"] { border-color: #c84343; outline-color: #c84343; }
+.ne-app .vn-editor-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid rgba(128,128,128,.22); border-radius: 10px; min-width: 0; }
+.ne-app .vn-editor-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ne-app .vn-editor-row > .vn-editor-label { flex: 1; }
+.ne-app .vn-editor-button { border: 1px solid rgba(128,128,128,.3); padding: 7px 11px; border-radius: 7px; background: rgba(128,128,128,.06); color: inherit; font: inherit; font-size: 12px; line-height: 1.5; cursor: pointer; align-self: start; }
+.ne-app .vn-editor-button:hover, .ne-app .vn-editor-chapter:hover { border-color: var(--ne-accent, #8c77cb); }
+.ne-app .vn-editor-button:disabled, .ne-app .vn-editor-fieldset:disabled { opacity: .55; cursor: default; }
+.ne-app .vn-editor-danger { color: #b84343; }
+.ne-app .vn-editor-hint { margin: 0; font-size: 12px; line-height: 1.65; opacity: .75; overflow-wrap: anywhere; }
+.ne-app .vn-editor-notice { margin: 0 0 12px; padding: 10px 12px; background: rgba(200,67,67,.09); color: #b84343; border-radius: 8px; font-size: 13px; overflow-wrap: anywhere; }
+.ne-app .vn-editor-notice[hidden] { display: none; }
+.ne-app .vn-editor-action { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.18); align-items: end; }
+.ne-app .vn-editor-confirm { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid #c84343; border-radius: 8px; }
+.ne-app .vn-editor-confirm > .vn-editor-hint { flex-basis: 100%; }
+@media (max-width: 700px) {
+  .ne-app .vn-editor-layout { grid-template-columns: minmax(0, 1fr); }
+  .ne-app .vn-editor-chapters { position: static; max-height: 240px; }
+  .ne-app .vn-editor-grid, .ne-app .vn-editor-action { grid-template-columns: minmax(0, 1fr); }
+}

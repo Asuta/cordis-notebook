@@ -1,0 +1,49 @@
+{
+  "name": "@cordis-narrative/story-editor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "story-editor",
+    "name": "剧情编辑",
+    "description": "剧情编辑，通过公开方法和事件独立组合。",
+    "defaultEnabled": true,
+    "order": 8,
+    "client": "client.js",
+    "requires": {
+      "client": [
+        "narrative",
+        "narrativeUI"
+      ],
+      "server": []
+    },
+    "provides": {
+      "client": [],
+      "server": []
+    },
+    "public": [
+      "client.js",
+      "editor.css"
+    ],
+    "styles": [
+      "editor.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "editor.css",
+        "output": "editor.css"
+      }
+    ]
+  }
+}

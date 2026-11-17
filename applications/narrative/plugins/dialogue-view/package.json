@@ -1,0 +1,49 @@
+{
+  "name": "@cordis-narrative/dialogue-view",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "dialogue-view",
+    "name": "对白显示",
+    "description": "对白显示，通过公开方法和事件独立组合。",
+    "defaultEnabled": true,
+    "order": 8,
+    "client": "client.js",
+    "requires": {
+      "client": [
+        "narrative",
+        "sceneRuntime"
+      ],
+      "server": []
+    },
+    "provides": {
+      "client": [],
+      "server": []
+    },
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ]
+  }
+}

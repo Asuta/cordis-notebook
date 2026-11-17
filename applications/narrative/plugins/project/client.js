@@ -4,7 +4,7 @@ import { defaultComposition, expandScene, editComposition, validateComposition }
 export default async function(ctx,sdk) {
   let summaries = await sdk.request('/api/narrative/projects')
   const preferred = sdk.storage.local.getItem('current-project')
-  let project = await sdk.request('/api/narrative/projects/' + encodeURIComponent(summaries.find(p=>p.id===preferred)?.id || summaries[0].id))
+  let project = validateProject(await sdk.request('/api/narrative/projects/' + encodeURIComponent(summaries.find(p=>p.id===preferred)?.id || summaries[0].id)))
   let runtime = null, mode = 'edit', selection = {nodeId:project.startNodeId,characterId:project.characters[0]?.id || ''}
   let status = '已保存', version = 0, dirty = false, held = false, stopped = false, timer, pending, operation, transitionDepth = 0
   const observers = new Set(), events = new Set(), nodeTypes = new Map(), actionTypes = new Map(), conditionTypes = new Map(), resources = new Map()
@@ -97,7 +97,15 @@ export default async function(ctx,sdk) {
     asset(id){return project.assets.find(a=>a.id===id)?.url || ''},
     scene(){return project.nodes.find(n=>n.id===(mode==='play'?runtime?.nodeId:selection.nodeId)) || project.nodes[0]},
     transact(fn){if(!runtime)return;fn(runtime);notify('runtime')},
-    play(id){return exclusive(async()=>{await save();runtime=initialRuntime(project,id);mode='play';notify('mode');try{if(engine.expandScene(composition().startSceneId).objects.some(o=>o.type==='story-player'))await go(runtime.nodeId)}catch(e){error(e.message)}})},
+    play(id){return exclusive(async()=>{
+      await save();runtime=initialRuntime(project,id);mode='play';notify('mode')
+      try {
+        await emit('play.start',{nodeId:runtime.nodeId})
+        // Legacy documents have no explicit object composition to start them.
+        // A listener may already have entered the node; never enter it twice.
+        if(!project.composition && !runtime.visited.length)await go(runtime.nodeId)
+      } catch(e){error(e.message)}
+    })},
     stop(){mode='edit';if(runtime?.nodeId)selection.nodeId=runtime.nodeId;runtime=null;notify('mode')},
     go,async advance(){if(runtime?.busy||held)return;const n=engine.scene();try{await nodeTypes.get(n.type)?.advance?.(n)}catch(e){error(e.message)}},
     registerNode(owner,d){register(nodeTypes,owner,d,'type')},nodeTypes(){return[...nodeTypes.values()]},

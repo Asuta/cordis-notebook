@@ -48,7 +48,8 @@ export function mountInteraction(canvas, { scene, engine, getSelected, select, p
     const rect = node.getBoundingClientRect(), compact = canvas.clientWidth > 0 && canvas.clientWidth < 600
     const parent = objects().find(p => p.id === o.parent), mode = effective(parent, compact).mode || 'column'
     select(id); event.preventDefault(); event.stopPropagation()
-    gesture = { id, node, object: o, resize, rect, mode, compact, x: event.clientX, y: event.clientY, pointerId: event.pointerId, version: engine.version, sceneId: scene.selected, moved: false }
+    const scale = Number(canvas.dataset.previewScale) || 1
+    gesture = { id, node, object: o, resize, rect, scale, mode, compact, x: event.clientX, y: event.clientY, pointerId: event.pointerId, version: engine.version, sceneId: scene.selected, moved: false }
     canvas.setPointerCapture?.(event.pointerId)
   }
   function move(event) {
@@ -57,7 +58,7 @@ export function mountInteraction(canvas, { scene, engine, getSelected, select, p
     if (!g.moved && Math.hypot(dx, dy) < 5) return
     event.preventDefault(); g.moved = true; clearMarks(); g.node.classList.add('is-dragging')
     if (g.resize) {
-      g.layout = resizedLayout(g.object.layout, g.rect.width + dx, g.rect.height + dy, g.compact)
+      g.layout = resizedLayout(g.object.layout, (g.rect.width + dx) / g.scale, (g.rect.height + dy) / g.scale, g.compact)
       const value = g.compact ? g.layout.compact : g.layout
       g.node.style.width = value.width + 'px'; g.node.style.height = value.height + 'px'; return
     }

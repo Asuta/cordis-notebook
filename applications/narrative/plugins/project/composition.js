@@ -1,3 +1,4 @@
+import { storyComposition } from './story-composition.js'
 // The project owns the serialized document. Runtime descriptors live in plugins.
 const clone = value => structuredClone(value)
 const record = v => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -86,8 +87,9 @@ export function defaultComposition(project) {
     {id:'session',type:'conversation',name:'独立会话',props:{characterId,source:'ai',prompt:'自然地回应来访者。',script:'欢迎来到这里。\n愿意和我聊聊今天发生的事吗？'}},
     {id:'window',type:'chat-window',name:'聊天窗口',props:{title:'角色对话'},refs:{session:'session'},layout:{grow:1}}
   ],connections:[]}
+  if(project.nodes?.length){const doc=storyComposition(project.title||'故事舞台',project.nodes[0].stage,project.nodes[0].lines?.[0]);doc.prefabs.push(chatPrefab);return doc}
   return {schemaVersion:1,startSceneId:'main',dependencies:[{id:'scene-runtime',version:'1.0.0'},{id:'scene-ui',version:'1.0.0'}],prefabs:[chatPrefab],scenes:[
-    {id:'main',name:'故事舞台',objects:[{id:'story',type:'story-player',name:'剧情与舞台',props:{},layout:{grow:1}}],connections:[]}
+    {id:'main',name:'故事舞台',objects:[{id:'layout',type:'container',name:'画面布局',props:{},layout:{grow:1}}],connections:[]}
   ]}
 }
 const descendants = (scene,id) => { const ids = new Set([id]); let changed=true; while(changed){changed=false;for(const o of scene.objects)if(ids.has(o.parent)&&!ids.has(o.id)){ids.add(o.id);changed=true}} return ids }

@@ -1,0 +1,50 @@
+{
+  "name": "@cordis-narrative/playback-controls",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "playback-controls",
+    "name": "播放控制",
+    "description": "播放控制，通过公开方法和事件独立组合。",
+    "defaultEnabled": true,
+    "order": 8,
+    "client": "client.js",
+    "requires": {
+      "client": [
+        "narrative",
+        "sceneRuntime",
+        "narrativeUI"
+      ],
+      "server": []
+    },
+    "provides": {
+      "client": [],
+      "server": []
+    },
+    "public": [
+      "client.js",
+      "style.css"
+    ],
+    "styles": [
+      "style.css"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "copy",
+        "input": "style.css",
+        "output": "style.css"
+      }
+    ]
+  }
+}

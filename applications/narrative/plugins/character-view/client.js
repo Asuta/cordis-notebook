@@ -1,0 +1,7 @@
+export default function(ctx) {
+  ctx.sceneRuntime.register(ctx,{type:'character-view',label:'角色显示',plugin:'character-view',fields:{characterId:{kind:'character',label:'角色',default:''},expression:{kind:'string',label:'表情',default:'neutral'},position:{kind:'number',label:'横向位置 %',default:62,min:0,max:100},scale:{kind:'number',label:'大小 %',default:100,min:30,max:180}},events:[],
+    initial:p=>({characterId:p.characterId||'',expression:p.expression||'neutral',position:p.position??62,scale:p.scale??100}),
+    methods:{present:{label:'设置角色与表情',fields:{value:{kind:'json',label:'角色数据',required:true}},run(a,{value:v}){if(!v||typeof v.characterId!=='string'||typeof v.expression!=='string'||!Number.isFinite(v.position)||v.position<0||v.position>100||!Number.isFinite(v.scale)||v.scale<30||v.scale>180)throw Error('角色数据无效');a.set({characterId:v.characterId,expression:v.expression,position:v.position,scale:v.scale})}}},
+    mount(host,o,{scene,engine}){host.classList.add('character-view');const image=document.createElement('img');host.append(image);let previous;return{update(){const s=scene.runtime?.state(o.id)||o.props||{},c=engine.project.characters.find(c=>c.id===s.characterId),url=engine.asset(c?.expressions?.[s.expression]||c?.portrait);if(url!==previous){previous=url;if(url)image.src=url;else image.removeAttribute('src')}image.hidden=!url;image.alt=c?.name||'';image.style.left=(s.position??62)+'%';image.style.height=(s.scale??100)*.85+'%'},dispose(){image.remove()}}}
+  })
+}

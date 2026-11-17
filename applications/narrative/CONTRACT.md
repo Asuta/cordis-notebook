@@ -45,7 +45,7 @@ runtime: `{nodeId,lineIndex,text:{speaker,text},variables:{[id]:number},stage:{b
 
 ### 界面场景与对象
 
-可选 composition 文档为 {schemaVersion:1,startSceneId,dependencies:[{id,version}],scenes:[],prefabs:[]}。旧格式保留兼容数据定义，但旧剧情舞台类型已移除，新作品统一使用会客厅场景。scene 为 {id,name,objects,connections}，与剧情 nodes 相互独立。
+可选 composition 文档为 {schemaVersion:1,startSceneId,dependencies:[{id,version}],scenes:[],prefabs:[]}。新作品使用会客厅场景或视觉小说舞台。scene 为 {id,name,objects,connections}，与剧情 nodes 相互独立。
 
 object 为 {id,type?,prefab?:{id,version},name?,parent?,props?,refs?,layout?,visible?,enabled?,paused?,overrides?}。type 和 prefab 二选一；父子关系禁止循环。逻辑对象可以没有可视表现，仍具备状态与生命周期。引用仅在同一场景内，用稳定 ID 解析；目标类型由注册描述的 refs 声明。父对象停用或暂停会中止后代的在途请求；隐藏只影响显示。重新启用后允许新调用，旧调用不能继续写状态。
 
@@ -75,4 +75,46 @@ Agent 工具 narrative_scene_read 返回文档、类型、方法、版本、诊�
 
 当前限制为每文档 40 场景、100 个预制体版本，每场景 500 条对象记录、1000 条连接，展开后最多 2000 个对象；作品总量仍受原有大小上限约束。
 
-每个插件自行拥有实现、清单、样式；注册项与监听随 ctx 释放，停用不残留 UI。project 负责保存与切换保护。当前仅提供会客厅场景，包含预写文本、真实 AI、对象方法与事件连接。旧节点和规则字段仅保留数据兼容。
+每个插件自行拥有实现、清单、样式；注册项与监听随 ctx 释放，停用不残留 UI。project 负责保存与切换保护。作品模板包括会客厅与《末班车之前》视觉小说。旧规则字段仅保留数据兼容。
+
+### 独立剧情与显示插件
+
+游戏由 composition 中的对象和连接组成。story-flow、background-view、character-view、dialogue-view、choice-list、history-view、auto-advance、playback-controls 分别登记自己的类型；story-editor 只提供编辑面板。显示插件不注入彼此或 story-flow 的服务，只依赖 narrative/sceneRuntime 等公共服务。playback-controls 通过 narrativeUI 打开存档面板，通过已注册动作使用可选音乐能力。
+
+- story-flow 是纯逻辑对象，每场景最多一份，登记 story/ending 节点处理器。公开 advance()、choose({id})、sync()，自身不挂载画面。play() 先创建运行状态、通知 mode，再 await emit('play.start',{nodeId})；启用且未暂停的流程对象进入起始节点。没有显式 composition 的旧作品保留节点启动兼容路径，已由监听器进入节点时不重复进入。
+- 剧情存储沿用 project.nodes/stage/lines/choices/variables。空 speaker 表示旁白；空 stage.characterId 表示角色离场。对白按顺序推进，末句之后再推进显示选项；无选项则进入 next，ending 或没有 next 时结束。空对白章节也需一次推进。
+- 选项支持 variable 条件 gte/lte/eq/gt/lt，以及 add-variable/set-variable 动作。先验证全部数值操作和目标，再提交选择；数值限制于变量 min/max，拒绝未知动作或变量。无可用选项时报错，并发选择只执行一次。
+- runtime.story.awaiting 记录等待选择状态；剧情进度和对象快照一起保存。恢复存档不重新进入节点，不重复累计变量或历史；自动播放开关在恢复时关闭，计时器和弹窗随视图卸载清理。
+- story-editor 的面板 ID 为 novel.editor，编辑通过 narrative.update 校验与保存，可从选中章节试读。场景层级显示独立对象，章节列表在「剧情与对白」面板。
+
+流程对象事件：
+
+| 事件 | 负载 | 模板中的接收方法 |
+| --- | --- | --- |
+| stage | {background,characterId,expression,position,scale} | 背景和立绘的 present({value}) |
+| line | {speaker,text,key,active}，speaker 为显示名称 | 对白 present({value}) |
+| choices | [{id,text}] | 选项 present({value}) |
+| chapter | {title,ended} | 播放控制 present({value}) |
+| history | [{name,text}] | 回看 present({value}) |
+| waiting / ended | 无业务负载 | 自动推进 stop() |
+
+对白 continued → 流程 advance；选项 selected(id) → 流程 choose({id})；对白 started/completed → 自动推进 reset/ready；自动推进 elapsed → 对白 advance；回看 opened → 自动推进 stop。连接都存为作品数据，可在场景编辑器改接。没有流程对象时，其他对象仍可通过 present 显示内容，通过事件驱动按钮、计数器等能力。
+
+自动推进在后台页面、隐藏/停用/暂停、设置弹窗打开时等待；模板在选项和结局事件上停止。逐字显示的计时器仅更新当前实例，空格和 Enter 只在对白框获得焦点时推进。全屏使用当前逻辑视口等比缩放并居中留黑边，退出时将原画布归还编辑器。
+
+旧 visual-novel 的 story-player 在 validateProject 时迁移为容器与独立对象，保留原 ID、父子位置和状态；指向旧对象 advance/choose 的连接改指向流程对象。迁移更新插件清单并验证结果，重复读取不重复拆分，下次保存写入新格式。
+
+### 能力引用与结构化参数
+
+refs 槽位既支持原有类型字符串，也支持 {type?,methods?:string[],events?:string[],optional?:boolean}。目标需满足所声明的类型及公开能力；optional 只允许不绑定，不允许绑定到不兼容对象。编辑阶段允许缺失能力以便补齐，运行前严格校验。
+
+fields 支持 kind:'json'，用于对白、舞台、选项等结构化消息；拒绝循环、非有限数字和非 JSON 对象，默认最大序列化长度 250000、最大嵌套深度 64。方法仍自行验证业务结构。connection.argument 将完整事件负载映射到指定方法参数，常量参数保留在 args；属性检查器提供 JSON 编辑和参数映射入口。
+
+### 编辑器视口与布局偏好
+
+- narrativeUI.mountEditorToolbar(node) 将编辑器工具栏挂入应用顶部单行区域，返回卸载函数；没有此能力时编辑器保留自己的工具栏。窄屏将次要操作收进菜单。
+- 编辑器与内嵌试玩共用固定逻辑视口：横屏 1280×720，竖屏 540×960。按可用宽高等比缩小并居中留黑边，不通过改变逻辑尺寸来适配编辑器面板。场景内部仍可滚动；compact 布局与聊天密度取决于逻辑视口宽度。
+- 对象拖拽尺寸需把显示坐标按预览缩放倍数换回逻辑像素；拖拽重排与锚点命中仍使用显示坐标。
+- 左右侧栏及资源库支持分隔条拖拽、方向键微调、双击复位、Esc 取消；面板保留最小尺寸，中间视口实时适配。窄屏保留区域标签切换。
+- 资源库中的 Ctrl + 滚轮调整卡片与缩略图大小，拦截该区域内的浏览器缩放；普通滚轮仍滚动列表。资源大小范围 80–240px，点击百分比恢复默认。
+- 分区尺寸、横竖屏和资源缩放使用插件本地存储 narrative:editor-layout:v1 保存，不进入作品或玩家存档，不增加编辑版本。监听、ResizeObserver 与顶部工具栏均随编辑器卸载清理。
