@@ -22,6 +22,8 @@ function references(project, id) {
 
 /** Standalone panel; optional ui.navigate closes the settings dialog before play. */
 export function mountEditor(host, { engine, sdk, ui }) {
+  const story=()=>(engine.project.stories||[]).find(s=>s.id===engine.selection.storyId)||engine.project.stories?.[0]
+  let storyId=story()?.id||''
   let disposed = false, updating = false, activeId = '', projectId = engine.project.id, pendingDelete = ''
   const cleanups = [], bindings = new Map(), commands = new Map()
   const root = element('section', 'vn-editor'), notice = element('p', 'vn-editor-notice')
@@ -31,7 +33,7 @@ export function mountEditor(host, { engine, sdk, ui }) {
   sidebar.setAttribute('aria-label', '剧情章节')
   layout.append(sidebar, detail); fieldset.append(toolbar, layout); root.append(notice, fieldset); host.append(root)
   const report = error => { if (!disposed) { notice.textContent = error.message || String(error); notice.hidden = false }; sdk.toast(error.message || String(error)) }
-  const current = () => engine.project.nodes.find(node => node.id === activeId && isChapter(node))
+  const current = () => (story()?.nodes||[]).find(node => node.id === activeId && isChapter(node))
   const editable = () => {
     if (disposed) throw Error('编辑器已卸载')
     if (engine.project.id !== projectId) throw Error('作品已切换，请重新打开编辑器')
@@ -39,7 +41,7 @@ export function mountEditor(host, { engine, sdk, ui }) {
   }
   function update(mutator, structural = false) {
     editable(); updating = true
-    try { engine.update(mutator, { render: structural }) } finally { updating = false }
+    try { engine.update(p=>{const source=p.stories.find(s=>s.id===storyId);if(!source)throw Error('剧情资源已移除');mutator(source)}, { render: structural }) } finally { updating = false }
     notice.textContent = ''; notice.hidden = true
     refreshChapters()
   }
@@ -95,14 +97,14 @@ export function mountEditor(host, { engine, sdk, ui }) {
     input.value = value || ''
   }
   const characterOptions = () => [['', '旁白 / 无角色'], ...engine.project.characters.map(c => [c.id, c.name || c.id])]
-  const variableOptions = () => engine.project.variables.map(v => [v.id, (v.name || v.id) + '（' + v.min + '～' + v.max + '）'])
-  const nodeName = id => { const n = engine.project.nodes.find(n => n.id === id); return n ? n.title || n.id : '缺失：' + id }
-  const targets = () => [['', '未连接'], ...engine.project.nodes.filter(isChapter).map((n, index) => [n.id, (index + 1) + '. ' + (n.title || n.id) + (n.type === 'ending' ? '（结局）' : '')])]
+  const variableOptions = () => (story()?.variables||[]).map(v => [v.id, (v.name || v.id) + '（' + v.min + '～' + v.max + '）'])
+  const nodeName = id => { const n = (story()?.nodes||[]).find(n => n.id === id); return n ? n.title || n.id : '缺失：' + id }
+  const targets = () => [['', '未连接'], ...(story()?.nodes||[]).filter(isChapter).map((n, index) => [n.id, (index + 1) + '. ' + (n.title || n.id) + (n.type === 'ending' ? '（结局）' : '')])]
   function section(title, parent = detail) {
     const node = element('section', 'vn-editor-section'); node.append(element('h3', 'vn-editor-heading', title)); parent.append(node); return node
   }
   function refreshChapters() {
-    const chapters = engine.project.nodes.filter(isChapter)
+    const chapters = (story()?.nodes||[]).filter(isChapter)
     const existing = new Map([...sidebar.querySelectorAll('button')].map(item => [item.dataset.nodeId, item]))
     const heading = sidebar.querySelector('h3') || element('h3', 'vn-editor-heading')
     heading.textContent = '章节 · ' + chapters.length + ' / ' + LIMITS.nodes
@@ -116,14 +118,14 @@ export function mountEditor(host, { engine, sdk, ui }) {
       item.setAttribute('aria-pressed', String(node.id === activeId))
       if (!item.firstChild) item.append(element('span', 'vn-editor-chapter-title'), element('span', 'vn-editor-meta'), element('span', 'vn-editor-links'))
       item.children[0].textContent = String(index + 1).padStart(2, '0') + ' · ' + (node.title || '未命名章节')
-      item.children[1].textContent = (node.type === 'ending' ? '结局 · ending' : '章节 · story') + (engine.project.startNodeId === node.id ? ' · 起点' : '')
+      item.children[1].textContent = (node.type === 'ending' ? '结局 · ending' : '章节 · story') + (story()?.startNodeId === node.id ? ' · 起点' : '')
       const links = node.choices.length ? node.choices.map(choice => (choice.text || '未命名选项') + ' → ' + (choice.target ? nodeName(choice.target) : '未连接')).join('；') : node.type === 'ending' ? '故事结束' : node.next ? '→ ' + nodeName(node.next) : '未设置后续章节'
       item.children[2].textContent = links; children.push(item)
     })
-    const other = engine.project.nodes.length - chapters.length
+    const other = (story()?.nodes||[]).length - chapters.length
     if (other) {
       const hint = sidebar.querySelector('.vn-editor-other') || element('p', 'vn-editor-hint vn-editor-other')
-      hint.textContent = '另有 ' + other + ' 个其他类型节点，仍保留在作品中；节点总数 ' + engine.project.nodes.length + ' / ' + LIMITS.nodes + '。'
+      hint.textContent = '另有 ' + other + ' 个其他类型节点，仍保留在作品中；节点总数 ' + (story()?.nodes||[]).length + ' / ' + LIMITS.nodes + '。'
       children.push(hint)
     }
     for (const item of existing.values()) commands.delete(item)
@@ -141,29 +143,49 @@ export function mountEditor(host, { engine, sdk, ui }) {
   function checkDelete(project, id) {
     if (project.startNodeId === id) throw Error('这是起始节点，请先将其他章节设为起点')
     const refs = references(project, id)
-    if (refs.length) throw Error('章节仍被引用：' + refs.join('、') + '。请先移除跳转或规则引用')
+    const doc=engine.composition
+    const collect=(label,{objects,connections})=>{
+      const flows=new Set(objects.filter(o=>o.type==='story-flow'&&o.props?.storyId===project.id).map(o=>o.id))
+      for(const o of objects)if(flows.has(o.id)&&o.props?.startNodeId===id)refs.push(label+' / '+(o.name||o.id))
+      for(const c of connections)if(flows.has(c.target)&&c.method==='start'&&c.argument!=='nodeId'&&c.args?.nodeId===id){
+        const source=objects.find(o=>o.id===c.source);refs.push(label+' / '+(source?.name||c.source)+' → '+c.target)
+      }
+    }
+    for(const scene of doc.scenes)collect(scene.name,engine.expandScene(scene.id,doc))
+    for(const prefab of doc.prefabs)collect(prefab.name+' v'+prefab.version,prefab)
+    if (refs.length) throw Error('章节仍被引用：' + refs.join('、') + '。请先移除引用')
   }
   function render() {
     if (disposed) return
-    projectId = engine.project.id; activeId = engine.selection.nodeId
+    projectId = engine.project.id; storyId=story()?.id||'';activeId = engine.selection.nodeId
+    if(!story()?.nodes.some(n=>n.id===activeId))activeId=story()?.startNodeId||''
     bindings.clear(); commands.clear(); toolbar.replaceChildren(); detail.replaceChildren()
-    toolbar.append(button('新增章节', () => addChapter('story'), { disabled: engine.project.nodes.length >= LIMITS.nodes }), button('新增结局', () => addChapter('ending'), { disabled: engine.project.nodes.length >= LIMITS.nodes }))
+    const sourceLabel=element('label','vn-editor-field','剧情资源'),sourcePicker=element('select','vn-editor-input');sourcePicker.setAttribute('aria-label','剧情资源');sourcePicker.dataset.field='storyId';setOptions(sourcePicker,(engine.project.stories||[]).map(s=>[s.id,s.name]),storyId);sourcePicker.disabled=!storyId;sourceLabel.append(sourcePicker);toolbar.append(sourceLabel)
+    sourcePicker.addEventListener('change',()=>{if(!flush()){sourcePicker.value=storyId;return}const s=(engine.project.stories||[]).find(s=>s.id===sourcePicker.value);if(!s)return;updating=true;try{engine.select({storyId:s.id,nodeId:s.startNodeId,flowObjectId:'',flowSceneId:''})}finally{updating=false};render()})
+    toolbar.append(button('新建剧情资源',()=>{const id=uid('story');engine.update(p=>(p.stories??=[]).push({id,name:'新的剧情',startNodeId:'opening',variables:[],rules:[],nodes:[{id:'opening',type:'story',title:'开场',stage:{background:'',characterId:'',expression:'neutral',position:50,scale:100},lines:[{speaker:'',text:'新的故事从这里开始。'}],choices:[]}]}));engine.select({storyId:id,nodeId:'opening'});render()}))
+    if(!story()){detail.append(element('p','vn-editor-hint','这个作品还没有剧情资源。可先新建，再给流程对象绑定。'));syncState();return}
+    field(toolbar,'剧情名称',story().name,value=>update(s=>{s.name=value}),{maxLength:160,key:'story.name'})
+    toolbar.append(button('新增章节', () => addChapter('story'), { disabled: (story()?.nodes||[]).length >= LIMITS.nodes }), button('新增结局', () => addChapter('ending'), { disabled: (story()?.nodes||[]).length >= LIMITS.nodes }))
     refreshChapters(); syncState()
     const node = current()
     if (!node) { detail.append(element('p', 'vn-editor-hint', '请在左侧选择剧情章节或结局。其他类型节点由对应插件编辑。')); return }
+    const flows=flowTargets()
+    let chosen=flows.find(f=>f.objectId===engine.selection.flowObjectId&&f.sceneId===engine.selection.flowSceneId)||flows[0]
+    field(toolbar,'试读实例',chosen?chosen.sceneId+'/'+chosen.objectId:'',value=>{const f=flows.find(f=>f.sceneId+'/'+f.objectId===value);if(f){chosen=f;engine.select({flowSceneId:f.sceneId,flowObjectId:f.objectId})}},{options:flows.map(f=>[f.sceneId+'/'+f.objectId,f.label]),key:'flowTarget'})
     toolbar.append(button('从此段试读', async () => {
-      const id = activeId
+      const id = activeId, target=chosen
+      if(!target)throw Error('没有可运行的剧情流程，请检查绑定、启用和暂停状态')
       engine.select({ nodeId: id })
       await ui?.navigate?.('scene.editor')
-      await engine.play(id)
-    }), button(engine.project.startNodeId === node.id ? '当前为起点' : '设为起始节点', () => { update(p => { p.startNodeId = activeId }, true); render() }, { disabled: engine.project.startNodeId === node.id }))
-    toolbar.append(button('删除章节', () => { checkDelete(engine.project, activeId); pendingDelete = activeId; render() }, { danger: true }))
+      await engine.play({...target,nodeId:id,storyId})
+    },{disabled:!chosen}), button(story()?.startNodeId === node.id ? '当前为起点' : '设为起始节点', () => { update(p => { p.startNodeId = activeId }, true); render() }, { disabled: story()?.startNodeId === node.id }))
+    toolbar.append(button('删除章节', () => { checkDelete(story(), activeId); pendingDelete = activeId; render() }, { danger: true }))
     if (pendingDelete === activeId) {
       const confirm = element('div', 'vn-editor-confirm'); confirm.setAttribute('role', 'alert')
       confirm.append(element('p', 'vn-editor-hint', '删除「' + (node.title || node.id) + '」及其全部对白、选项？此操作不能撤销。'), button('确认删除章节', () => {
         const id = activeId
         update(project => { checkDelete(project, id); project.nodes = project.nodes.filter(item => item.id !== id) }, true)
-        pendingDelete = ''; engine.select({ nodeId: engine.project.nodes.find(isChapter)?.id || engine.project.startNodeId }); render()
+        pendingDelete = ''; engine.select({ nodeId: (story()?.nodes||[]).find(isChapter)?.id || story()?.startNodeId }); render()
       }, { danger: true }), button('取消删除', () => { pendingDelete = ''; render() })); detail.append(confirm)
     }
     const basics = section('章节与舞台'), grid = element('div', 'vn-editor-grid'); basics.append(grid)
@@ -185,7 +207,7 @@ export function mountEditor(host, { engine, sdk, ui }) {
     field(grid, '角色缩放（%）', node.stage.scale, value => editNode(n => { n.stage.scale = value }), { number: true, min: 30, max: 180, key: 'stage.scale' })
     field(grid, '后续章节（next）', node.next || '', value => editNode(n => { n.next = value }), { options: targets(), key: 'next' })
     basics.append(element('p', 'vn-editor-hint', '对白依次播放。设置了选项时由选项决定跳转；没有选项时进入 next。结局没有选项时结束，忽略 next。'))
-    renderLines(node); renderChoices(node)
+    renderLines(node); renderChoices(node); renderVariables()
   }
   function renderLines(node) {
     const lines = section('顺序对白 · ' + node.lines.length + ' / ' + LIMITS.lines)
@@ -220,8 +242,8 @@ export function mountEditor(host, { engine, sdk, ui }) {
       if (!choice.condition) {
         conditions.append(element('p', 'vn-editor-hint', '无条件，始终显示。'), button('添加变量条件', () => {
           editChoice((c, p) => { if (!p.variables.length) throw Error('作品中尚无变量，请先添加变量'); c.condition = { type: 'variable', variable: p.variables[0].id, op: 'gte', value: p.variables[0].initial } }, true); render()
-        }, { disabled: !engine.project.variables.length, title: '为选项 ' + (index + 1) + ' 添加变量条件' }))
-        if (!engine.project.variables.length) conditions.append(element('p', 'vn-editor-hint', '作品中尚无变量，添加变量后可配置条件和动作。'))
+        }, { disabled: !(story()?.variables||[]).length, title: '为选项 ' + (index + 1) + ' 添加变量条件' }))
+        if (!(story()?.variables||[]).length) conditions.append(element('p', 'vn-editor-hint', '作品中尚无变量，添加变量后可配置条件和动作。'))
       } else {
         if ((choice.condition.type || 'variable') === 'variable') {
           const grid = element('div', 'vn-editor-grid'); conditions.append(grid)
@@ -243,10 +265,25 @@ export function mountEditor(host, { engine, sdk, ui }) {
       })
       actions.append(button('添加变量动作', () => {
         editChoice((c, p) => { assertRoom(c.actions, 'actions', '动作'); if (!p.variables.length) throw Error('作品中尚无变量，请先添加变量'); c.actions.push({ type: 'add-variable', variable: p.variables[0].id, value: 1 }) }, true); render()
-      }, { disabled: !engine.project.variables.length || choice.actions.length >= LIMITS.actions, title: '为选项 ' + (index + 1) + ' 添加变量动作' }))
+      }, { disabled: !(story()?.variables||[]).length || choice.actions.length >= LIMITS.actions, title: '为选项 ' + (index + 1) + ' 添加变量动作' }))
       choices.append(row)
     })
     choices.append(button('新增选项', () => { editNode(n => { assertRoom(n.choices, 'choices', '选项'); n.choices.push({ id: uid('choice'), text: '新的选项', target: '', actions: [] }) }, true); render() }, { disabled: node.choices.length >= LIMITS.choices }))
+  }
+  function flowTargets(){
+    const doc=engine.composition
+    return doc.scenes.flatMap(s=>{
+      const {objects}=engine.expandScene(s.id,doc)
+      return objects.filter(o=>o.type==='story-flow'&&o.props?.storyId===storyId&&engine.canRunObject(objects,o.id)).map(o=>({sceneId:s.id,objectId:o.id,label:s.name+' / '+(o.name||o.id)}))
+    })
+  }
+  function renderVariables(){
+    const panel=section('本剧情的分支变量')
+    for(const v of story().variables){const row=element('div','vn-editor-grid');panel.append(row)
+      for(const[key,label]of [['name','名称'],['initial','初始值'],['min','最小值'],['max','最大值']])field(row,v.id+' '+label,v[key],value=>update(s=>{s.variables.find(x=>x.id===v.id)[key]=value}),{number:key!=='name',key:'variables.'+v.id+'.'+key})
+      row.append(button('删除变量',()=>{update(s=>{if(s.nodes.some(n=>n.choices.some(c=>c.condition?.variable===v.id||c.actions.some(a=>a.variable===v.id)))||s.rules.some(r=>r.condition?.variable===v.id||r.actions.some(a=>a.variable===v.id)))throw Error('变量仍被条件或动作引用');s.variables=s.variables.filter(x=>x.id!==v.id)},true);render()}))
+    }
+    panel.append(button('新增变量',()=>{update(s=>s.variables.push({id:uid('var'),name:'新变量',initial:0,min:0,max:100}),true);render()}))
   }
   function syncState() { fieldset.disabled = engine.mode === 'play' || engine.held }
   const change = event => { if (!disposed && bindings.has(event.target)) commit(event.target) }
@@ -260,8 +297,8 @@ export function mountEditor(host, { engine, sdk, ui }) {
   engine.observe(owner, event => {
     if (disposed || updating) return
     syncState()
-    if (event.type === 'selection' && engine.selection.nodeId !== activeId) {
-      if (!flush()) { updating = true; try { engine.select({ nodeId: activeId }) } finally { updating = false }; return }
+    if (event.type === 'selection' && (engine.selection.nodeId !== activeId || story()?.id !== storyId)) {
+      if (!flush()) { updating = true; try { engine.select({ nodeId: activeId, storyId }) } finally { updating = false }; return }
       pendingDelete = ''; render()
     } else if (event.type === 'project') {
       if (engine.project.id !== projectId || event.render !== false) render()

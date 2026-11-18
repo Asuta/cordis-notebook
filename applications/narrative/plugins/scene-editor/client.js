@@ -1,3 +1,4 @@
+import { installDebugPanel } from './debug.js'
 import { mountResources, RESOURCE_MIME } from './resources.js'
 import { mountInteraction, reorderCommand } from './interaction.js'
 import { preferences, mountLayout } from './layout.js'
@@ -5,10 +6,12 @@ const matches=(d,r)=>!!d&&(typeof r==='string'?(!r||d.type===r):(!r.type||d.type
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n}
 export default function(ctx,sdk){
   const engine=ctx.narrative,scene=ctx.sceneRuntime,ui=ctx.narrativeUI,views=ctx.sceneViews
+  installDebugPanel(ctx,ui,scene)
   ui.registerPanel(ctx,{id:'scene.editor',label:'场景编辑器',icon:'▦',order:2,wide:true,render:mount})
   function mount(container){
     const prefs=preferences(sdk.storage?.local)
     let selected='',resource=null,resourceParent=null,view,interaction,resources,disposed=false,dragId='',dragVersion=0,inspectorStamp='',lastDoc='',lastResources='',editSelection='',editResource=null,wasPlaying=scene.playing
+    const inspectorCleanups=[]
     const collapsed=new Set(),root=el('section','scene-editor'),toolbar=el('div','scene-editor-toolbar'),body=el('div','scene-editor-grid')
     const left=el('aside','scene-hierarchy'),center=el('section','scene-workspace'),right=el('aside','scene-properties'),inspector=el('fieldset','scene-inspector-fields'),liveState=el('pre','scene-live-state')
     const tree=el('div','scene-tree'),assets=el('section','scene-assets'),canvasWrap=el('div','scene-viewport'),canvas=el('div','scene-editor-preview'),diagnostics=el('div','scene-diagnostics')
@@ -61,18 +64,27 @@ export default function(ctx,sdk){
     view=views.mount(canvas,{sceneId:()=>scene.selected,design:()=>!scene.playing,onSelect:id=>selectObject(id)})
     interaction=mountInteraction(canvas,{engine,scene,getSelected:()=>selected,select:selectObject,patchObject,report:message=>sdk.toast(message),refreshView:()=>view.refresh()})
     const layout=mountLayout({root,grid:body,viewport:canvasWrap,canvas,size,prefs,refresh:()=>view.refresh()})
+    const offInspectors=ui.observeInspectors?.({effect:fn=>fn()},()=>{inspectorStamp='';render()})
     const off=scene.observe({effect:fn=>fn()},render)
     const offProject=engine.observe({effect:fn=>fn()},event=>{if(event.type==='project'||event.type==='mode')render()})
     function placementParent(){const o=raw();return o&&!o.prefab&&scene.descriptor(o.type)?.container?o.id:o?.parent||null}
     function add(type,propsOverride={},parent=placementParent()){
       const d=scene.descriptor(type);if(!d)throw Error('对象类型未启用')
-      const id='o-'+crypto.randomUUID(),props={...Object.fromEntries(Object.entries(d.fields||{}).map(([key,f])=>[key,f.default??''])),...propsOverride},refs={},commands=[]
+      const id='o-'+crypto.randomUUID(),props={...Object.fromEntries(Object.entries(d.fields||{}).map(([key,f])=>[key,(f.kind==='story'?engine.project.stories?.[0]?.id:undefined)??f.default??''])),...propsOverride},refs={},commands=[]
       for(const[key,requirement]of Object.entries(d.refs||{})){if(requirement.optional)continue;const candidates=rawScene().objects.filter(o=>matches(scene.descriptor(o.type),requirement));if(candidates.length===1)refs[key]=candidates[0].id;else if(typeof requirement==='string'&&!candidates.length){const targetId='o-'+crypto.randomUUID(),def=scene.descriptor(requirement);if(def){commands.push({op:'add',id:targetId,type:requirement,name:def.label,props:Object.fromEntries(Object.entries(def.fields||{}).map(([k,f])=>[k,f.default??'']))});refs[key]=targetId}}}
       commands.push({op:'add',id,type,name:d.label,props,refs,parent,layout:d.container?{mode:'column',gap:12,padding:16}:{}})
       command({op:'batch',commands});selectObject(id)
     }
     function place(value,parent=resource?resourceParent:placementParent()){
       if(scene.playing)throw Error('停止试玩后可放入场景')
+      if(value.kind==='story')return add('story-flow',{storyId:value.id},parent)
+      if(value.kind==='preset'){
+        const preset=engine.prefabPresets().find(p=>p.id===value.id);if(!preset)throw Error('组合不存在')
+        const missing=[...new Set(preset.objects.map(o=>o.type))].filter(type=>!scene.descriptor(type));if(missing.length)throw Error('请先启用这些对象类型的插件：'+missing.join('、'))
+        if(preset.objects.some(o=>o.type==='story-flow')&&!engine.project.stories?.length)throw Error('请先在剧情与对白中创建一份剧情资源')
+        const id='o-'+crypto.randomUUID(),installed=doc().prefabs.find(p=>p.id===preset.id&&p.version===preset.version)
+        command({op:'batch',commands:[...(!installed?[{op:'add-prefab',prefab:preset}]:[]),{op:'instantiate',id,prefabId:preset.id,prefabVersion:preset.version,parent}]});selectObject(id);return
+      }
       if(value.kind==='type')return add(value.id,{},parent)
       if(value.kind==='asset'){const a=engine.project.assets.find(a=>a.id===value.id);if(a?.kind==='image')return add('image',{asset:a.id,fit:'contain'},parent);throw Error('音频可在属性中设为背景音乐')}
       if(value.kind==='prefab'){const id='o-'+crypto.randomUUID();command({op:'instantiate',id,prefabId:value.id,prefabVersion:value.version,parent});selectObject(id)}
@@ -95,7 +107,7 @@ export default function(ctx,sdk){
       if(scene.playing!==wasPlaying){if(scene.playing){editSelection=selected;editResource=resource;root.dataset.mobileTab='canvas'}else{selected=editSelection;resource=editResource}wasPlaying=scene.playing;inspectorStamp=''}
       if(selected&&!object())selected=''
       const document=doc(),stamp=JSON.stringify(document)+':'+scene.selected+':'+scene.types().map(d=>d.type).join(',')
-      const resourceStamp=JSON.stringify([engine.project.assets,engine.project.characters,scene.playing])
+      const resourceStamp=JSON.stringify([engine.project.assets,engine.project.characters,engine.project.stories,scene.playing])
       undo.disabled=!engine.sceneHistory.undo||scene.playing;redo.disabled=!engine.sceneHistory.redo||scene.playing
       sceneSelect.disabled=addScene.disabled=startScene.disabled=scene.playing
       modeBadge.textContent=scene.playing?'正在试玩 · 配置只读':'编辑模式'
@@ -141,11 +153,11 @@ export default function(ctx,sdk){
       if(f.kind==='json')return field(f.label,input(JSON.stringify(value??null,null,2),v=>change(JSON.parse(v)),f.label,'textarea'))
       if(f.kind==='boolean'){const n=el('input');n.type='checkbox';n.checked=!!value;n.addEventListener('change',()=>run(()=>change(n.checked)));return field(f.label,n)}
       if(f.options)return field(f.label,options(f.options.map(x=>Array.isArray(x)?x:[x,x]),value,change,f.label))
-      if(['character','asset','scene'].includes(f.kind)){const rows=f.kind==='character'?engine.project.characters:f.kind==='asset'?engine.project.assets.filter(x=>x.kind==='image'):doc().scenes;return field(f.label,options([['','请选择'],...rows.map(x=>[x.id,x.name||x.title])],value,change,f.label))}
+      if(['character','asset','scene','story'].includes(f.kind)){const rows=f.kind==='story'?(engine.project.stories||[]):f.kind==='character'?engine.project.characters:f.kind==='asset'?engine.project.assets.filter(x=>x.kind==='image'):doc().scenes;return field(f.label,options([['','请选择'],...rows.map(x=>[x.id,x.name||x.title])],value,change,f.label))}
       return field(f.label,input(value,change,f.label,f.kind==='number'?'number':f.multiline?'textarea':'text'))
     }
     function renderInspector(){
-      const right=inspector;right.querySelectorAll('audio').forEach(a=>a.pause());right.replaceChildren()
+      const right=inspector;for(const clean of inspectorCleanups.splice(0))clean?.();right.querySelectorAll('audio').forEach(a=>a.pause());right.replaceChildren()
       if(resource){resources.renderInspector(resource,right);return}
       const o=object(),own=raw(),parentPrefab=holder()
       if(!o){right.append(el('h3','','场景设置'),field('场景名称',input(rawScene().name,value=>command({op:'rename-scene',name:value}),'场景名称')),el('p','scene-help','选择对象查看参数、布局、引用和行为连接。逻辑对象不占画面，但会参与运行。'));return}
@@ -153,6 +165,7 @@ export default function(ctx,sdk){
       if(parentPrefab)right.append(el('p','scene-help','正在编辑此实例的覆盖值。预制体原定义和其他实例保持独立。'))
       if(own){right.append(field('对象名称',input(own.name||'',value=>patch({name:value}),'对象名称')));const parents=[['','场景根级'],...rawScene().objects.filter(x=>x.id!==own.id&&scene.descriptor(x.type)?.container).map(x=>[x.id,x.name||x.id])];right.append(field('父对象',options(parents,own.parent||'',parent=>command({op:'move',id:own.id,parent}),'父对象')))}
       for(const key of ['visible','enabled','paused']){const n=el('input');n.type='checkbox';n.checked=o[key]??key!=='paused';n.addEventListener('change',()=>run(()=>patch({[key]:n.checked})));right.append(field({visible:'可见',enabled:'启用',paused:'暂停'}[key],n))}
+      for(const editor of ui.inspectors?.(o.type)||[]){const host=el('div','scene-property-section');right.append(host);const clean=editor.render(host,{object:o,sceneId:scene.selected,patch});if(typeof clean==='function')inspectorCleanups.push(clean)}
       const props=el('div','scene-property-section');props.append(el('h3','','对象参数'));for(const[key,f]of Object.entries(d?.fields||{}))props.append(propsField(key,f,o));right.append(props)
       if(own?.prefab)right.append(el('p','scene-help','预制体 '+own.prefab.id+' · 版本 '+own.prefab.version+'。在左侧展开的子对象上编辑覆盖值。'))
       const layout=el('div','scene-property-section'),l=o.layout||{},setLayout=(key,value)=>patch({layout:{...l,[key]:value}});layout.append(el('h3','','布局'))
@@ -188,6 +201,6 @@ export default function(ctx,sdk){
       }else section.append(el('p','scene-help','此类型未公开事件。可以从其他对象的方法入口或引用建立协作。'))
       host.append(section)
     }
-    render();return()=>{disposed=true;off();offProject();window.removeEventListener('resize',fitToolbar);layout.dispose();detachToolbar?.();interaction.dispose();resources.dispose();view.dispose();root.remove()}
+    render();return()=>{disposed=true;off();offProject();offInspectors?.();for(const clean of inspectorCleanups.splice(0))clean?.();window.removeEventListener('resize',fitToolbar);layout.dispose();detachToolbar?.();interaction.dispose();resources.dispose();view.dispose();root.remove()}
   }
 }

@@ -18,10 +18,10 @@ function mountObject(host,o,api){
   const state=()=>runtime()?.state(o.id),refState=key=>o.refs?.[key]?runtime()?.state(o.refs[key]):undefined
   if(d?.mount){const view=d.mount(host,o,api)||{};return typeof view==='function'?{update,dispose:view}:{update:view.update||update,dispose:view.dispose||dispose}}
   if(!d){host.append(element('p','scene-missing','缺少对象类型插件：'+o.type));return{update,dispose}}
-  if(o.type==='text'){const n=element('p','scene-text');n.style.fontSize=(p.size||18)+'px';host.append(n);update=()=>{n.textContent=state()?.text??p.text??'一段新的文字'}}
+  if(o.type==='text'){const n=element('p','scene-text');n.style.fontSize=(p.size||18)+'px';n.style.color=p.color||'';n.style.backgroundColor=p.background||'';if(p.background){n.style.padding='10px 16px';n.style.borderRadius='8px'}host.append(n);update=()=>{n.textContent=state()?.text??p.text??'一段新的文字'}}
   else if(o.type==='container'&&p.title)host.append(element('h3','scene-container-title',p.title))
   else if(o.type==='image'){const n=element('img','scene-image');n.alt=o.name||'场景图片';n.style.objectFit=p.fit||'cover';n.src=api.engine.asset(p.asset)||'';host.append(n)}
-  else if(o.type==='button'||o.type==='scene-link'){const b=button(p.text||'点击这里',()=>api.scene.call(o.id,o.type==='button'?'click':'open',{}));host.append(b);update=()=>{b.disabled=!api.scene.playing}}
+  else if(o.type==='button'||o.type==='scene-link'){const b=button(p.text||'点击这里',()=>api.scene.call(o.id,o.type==='button'?'click':'open',{}));host.append(b);update=()=>{b.disabled=!api.scene.playing||api.scene.runtime?.state(o.id).unlocked===false}}
   else if(o.type==='value'){const n=element('div','scene-value');host.append(n);update=()=>{const target=api.scene.expanded(api.sceneId).objects.find(x=>x.id===o.refs?.value);n.textContent=(p.label||target?.props?.label||'数值')+' '+(refState('value')?.value??target?.props?.initial??0)}}
   else if(o.type==='chat-window'){
     host.classList.add('scene-chat');const head=element('header','scene-chat-head'),badge=element('span','ne-badge'),list=element('div','scene-messages'),form=element('form','scene-compose'),input=element('textarea','ne-textarea'),send=element('button','ne-button ne-primary','发送'),notice=element('p','scene-chat-notice')

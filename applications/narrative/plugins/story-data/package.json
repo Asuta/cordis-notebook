@@ -1,0 +1,50 @@
+{
+  "name": "@cordis-narrative/story-data",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "cordis": {
+    "schemaVersion": 1,
+    "id": "story-data",
+    "name": "剧情资源",
+    "description": "读写剧情、校验章节与分支，兼容旧作品及进度。",
+    "defaultEnabled": true,
+    "order": 1,
+    "requires": {
+      "client": [
+        "narrative"
+      ],
+      "server": [
+        "projectFormats"
+      ]
+    },
+    "provides": {
+      "client": [
+        "storyData"
+      ],
+      "server": []
+    },
+    "server": {
+      "entry": "server.js",
+      "export": "default"
+    },
+    "client": "client.js",
+    "public": [
+      "client.js"
+    ],
+    "build": [
+      {
+        "type": "bundle",
+        "input": "client.js",
+        "output": "client.js",
+        "platform": "browser"
+      },
+      {
+        "type": "bundle",
+        "input": "server.js",
+        "output": "server.js",
+        "platform": "node"
+      }
+    ]
+  }
+}

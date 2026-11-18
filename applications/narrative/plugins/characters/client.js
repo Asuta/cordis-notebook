@@ -23,6 +23,11 @@ function picture(image, url) {
 }
 
 export default function charactersPlugin(ctx) {
+  ctx.narrativeUI.registerInspector?.(ctx,{id:'character-profile',types:['character-view','conversation'],render(host,{object}){
+    const c=ctx.narrative.project.characters.find(c=>c.id===object.props?.characterId);if(!c)return
+    const button=document.createElement('button');button.type='button';button.className='ne-button';button.textContent='编辑 '+c.name+' 的人物资料与表情';button.addEventListener('click',()=>{ctx.narrative.select({characterId:c.id});ctx.narrativeUI.navigate('characters')});host.append(button)
+  }})
+
   const engine = ctx.narrative, ui = ctx.narrativeUI
   const mounts = new Set()
 
@@ -227,7 +232,7 @@ export default function charactersPlugin(ctx) {
           const id = activeId
           const remaining = engine.project.characters.filter(character => character.id !== id)
           const next = remaining[0]?.id || ''
-          engine.update(project => removeCharacter(project, id), { render: false })
+          engine.update(project => removeCharacter(project, id, engine.hasProjectFormat('stories')), { render: false })
           engine.select({ characterId: next })
         } catch (error) { report(error) }
       })
@@ -283,7 +288,7 @@ export default function charactersPlugin(ctx) {
           const imageId = characterImage(chosen, key)
           picture(preview, imageId ? engine.asset(imageId) : '')
         }
-        const referenceCount = characterReferences(project, chosen.id)
+        const referenceCount = characterReferences(project, chosen.id, engine.hasProjectFormat('stories'))
         references.textContent = referenceCount ? `在剧情中被引用 ${referenceCount} 处。删除时会保留台词，并自动清理角色引用。` : '这位角色还没有出场。可以在“舞台布景”中安排相遇。'
       }
       const unobserve = engine.observe(ctx, event => {

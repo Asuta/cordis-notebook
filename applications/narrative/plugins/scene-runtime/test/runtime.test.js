@@ -52,6 +52,14 @@ for (const flag of ['enabled', 'paused']) test(`父对象 ${flag} 中断请求�
   r.dispose()
 })
 
+test('取消会话将发送记录为取消，取消命令本身仍成功',async()=>{
+  const f=fixture(),gate=Promise.withResolvers(),rows=[]
+  f.scene.objects.find(o=>o.id==='lin-session').props.source='ai';f.services.service=()=>({reply:()=>gate.promise})
+  const r=new ObjectRuntime({...f,trace:row=>rows.push({...row})}),sending=r.invoke('lin-session','send',{text:'等待回复'})
+  await r.invoke('lin-session','cancel');gate.resolve({reply:'迟到'});await sending
+  assert.deepEqual(r.state('lin-session').messages,[]);assert.equal(rows.findLast(x=>x.method==='send').status,'cancelled');assert.equal(rows.findLast(x=>x.method==='cancel').status,'success');r.dispose()
+})
+
 test('事件循环在 64 步停止，错误方法和参数在运行前拒绝', async () => {
   const f = fixture()
   f.scene.connections.push({ id: 'loop', source: 'day', event: 'changed', target: 'day', method: 'add', args: { amount: 1 } })

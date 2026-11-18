@@ -147,6 +147,8 @@ importers:
 
   applications/narrative/plugins/sound: {}
 
+  applications/narrative/plugins/story-data: {}
+
   applications/narrative/plugins/story-editor: {}
 
   applications/narrative/plugins/story-flow: {}

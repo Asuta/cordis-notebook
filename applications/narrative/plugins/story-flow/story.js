@@ -1,5 +1,3 @@
-// The story uses the existing project/runtime envelope, so save slots capture it
-// together with scene objects. No player progress is written into author data.
 export function conditionMatches(condition, variables) {
   if (!condition) return true
   if ((condition.type || "variable") !== "variable") return false
@@ -20,48 +18,23 @@ export function choiceResult(project, runtime, choice) {
   if (!target || !["story", "ending"].includes(target.type)) throw Error("选项没有连接到有效的剧情或结局")
   return variables
 }
-export function installStory(owner, engine) {
-  let locked = false, disposed = false
-  owner.effect(() => () => { disposed = true })
-  const valid = () => !disposed && engine.mode === "play" && engine.runtime && ["story", "ending"].includes(engine.scene().type)
-  const choices = () => engine.scene().choices.filter(c => conditionMatches(c.condition, engine.runtime?.variables || {}))
-  function line(node, index) {
-    const text = node.lines[index] || {speaker:"", text:""}
-    engine.transact(r => {
-      r.lineIndex = index; r.text = {...text}; r.story = {awaiting: !node.lines.length && node.choices.length > 0}
-      if (text.text) r.transcript = [...r.transcript, {id:crypto.randomUUID(), role:text.speaker ? "assistant" : "narrator", name:engine.project.characters.find(c => c.id === text.speaker)?.name || "旁白", text:text.text}].slice(-1000)
-    })
-  }
-  async function exclusive(task) {
-    if (locked || !valid()) return false
-    locked = true
-    try { return await task() } finally { locked = false }
-  }
-  async function advance() {
-    return exclusive(async () => {
-      const n = engine.scene(), r = engine.runtime
-      if (r.ended) return false
-      if (r.lineIndex + 1 < n.lines.length) { line(n, r.lineIndex + 1); return true }
-      if (n.choices.length) {
-        if (!choices().length) throw Error("没有满足条件的选项，请检查分支条件")
-        engine.transact(r => { r.story = {awaiting:true} }); return true
-      }
-      if (n.type === "ending" || !n.next) { engine.transact(r => { r.ended = true }); return true }
-      const next = engine.project.nodes.find(x => x.id === n.next)
-      if (!next || !["story", "ending"].includes(next.type)) throw Error("后续剧情不存在或类型不支持")
-      await engine.go(next.id); return true
-    })
-  }
-  async function choose(id) {
-    return exclusive(async () => {
-      if (!engine.runtime.story?.awaiting || engine.runtime.ended) throw Error("请先读完当前对白")
-      const choice = choices().find(c => c.id === id)
-      if (!choice) throw Error("这个选项当前不可用")
-      const variables = choiceResult(engine.project, engine.runtime, choice)
-      engine.transact(r => { r.variables = variables; r.story = {awaiting:false}; r.transcript = [...r.transcript, {id:crypto.randomUUID(),role:"user",name:"我",text:choice.text}].slice(-1000) })
-      await engine.go(choice.target); return true
-    })
-  }
-  for (const [type,label] of [["story","预写剧情"],["ending","故事结局"]]) engine.registerNode(owner, {type,label,color:"#d2b88b",enter:n => line(n,0),advance})
-  return {advance,choose,choices}
+export function boundedHistory(rows){const result=[];let length=0;for(const row of [...rows].reverse()){length+=JSON.stringify(row).length;if(result.length>=250||length>160000)break;result.unshift(row)}return result}
+export function initialStory(source, nodeId = source.startNodeId) {
+  const node = source.nodes.find(n=>n.id===nodeId)
+  if(!node || !['story','ending'].includes(node.type))throw Error('剧情起点不存在或类型不支持')
+  return {storyId:source.id,started:false,nodeId,lineIndex:0,variables:Object.fromEntries(source.variables.map(v=>[v.id,v.initial])),stage:structuredClone(node.stage),text:{speaker:'',text:''},transcript:[],story:{awaiting:false},ended:false}
+}
+export function enterLine(source, state, nodeId, index, characters) {
+  const node=source.nodes.find(n=>n.id===nodeId)
+  if(!node || !['story','ending'].includes(node.type))throw Error('后续剧情不存在或类型不支持')
+  const text=node.lines[index]||{speaker:'',text:''}
+  return {...state,started:true,nodeId,lineIndex:index,lineVisit:crypto.randomUUID(),stage:structuredClone(node.stage),text:{...text},ended:false,story:{awaiting:!node.lines.length&&node.choices.length>0},
+    transcript:boundedHistory(text.text?[...state.transcript,{id:crypto.randomUUID(),role:text.speaker?'assistant':'narrator',name:characters.find(c=>c.id===text.speaker)?.name||'旁白',text:text.text}]:state.transcript)}
+}
+export function restoreStory(state,source) {
+  const n=source.nodes.find(n=>n.id===state.nodeId)
+  if(state.storyId!==source.id||!n||!['story','ending'].includes(n.type)||!Number.isInteger(state.lineIndex)||state.lineIndex<0||state.lineIndex>=Math.max(1,n.lines.length)||typeof state.started!=='boolean'||typeof state.ended!=='boolean'||typeof state.story?.awaiting!=='boolean'||state.story.awaiting&&state.lineIndex!==Math.max(0,n.lines.length-1))throw Error('剧情实例存档位置无效')
+  if(!state.variables||source.variables.some(v=>!Number.isFinite(state.variables[v.id])||state.variables[v.id]<v.min||state.variables[v.id]>v.max))throw Error('剧情实例存档变量无效')
+  if(!Array.isArray(state.transcript)||state.transcript.length>1000||state.transcript.some(m=>typeof m?.name!=='string'||typeof m?.text!=='string'||m.text.length>8000)||typeof state.text?.text!=='string'||typeof state.text?.speaker!=='string')throw Error('剧情实例存档对白无效')
+  return {...state,stage:structuredClone(n.stage),transcript:boundedHistory(state.transcript)}
 }

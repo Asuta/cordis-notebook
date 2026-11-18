@@ -6,11 +6,10 @@ import { setupScene } from '../../scene-runtime/test/helpers.js'
 
 test('会客厅模板仍可独立运行，旧模板入口保持关闭', async t => {
   validateProject(templateProject())
-  validateProject(templateProject('last-train'))
-  for (const id of ['hybrid', 'galgame', 'tavern']) assert.throws(() => templateProject(id), /请选择七日会客厅或末班车之前/)
-  const f = await setupScene(t)
+  for (const id of ['hybrid', 'galgame', 'tavern']) assert.throws(() => templateProject(id), /请选择已启用的作品模板/)
+  const f = await setupScene(t,{stories:false})
   assert.deepEqual(f.scene.validate(), [])
-  assert.deepEqual(f.engine.nodeTypes(), [], '场景玩法不需要旧剧情插件注册处理器')
+  assert.equal(f.engine.project.stories, undefined, '场景玩法不需要剧情资源')
   await f.engine.play()
   assert.equal(f.engine.runtime.error, '')
   await f.scene.call('lin-session', 'send', {text:'你好'})

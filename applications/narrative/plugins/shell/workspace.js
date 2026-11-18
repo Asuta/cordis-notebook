@@ -1,5 +1,7 @@
 // The scene editor owns the one game viewport. Other plugins open on demand.
 export function mountWorkspace(ctx, sdk, engine, { projectPanel, showLibrary, download }) {
+  const inspectors=new Map(),inspectorObservers=new Set()
+  const inspectorNotify=()=>{for(const fn of inspectorObservers)fn()}
   const panels = new Map([['project', projectPanel]]), surfaces = new Map(), tools = new Map(), mounted = new Map()
   const el = (tag, cls, text) => { const n = document.createElement(tag); n.className = cls || ''; if (text != null) n.textContent = text; return n }
   const run = fn => Promise.resolve().then(fn).catch(e => sdk.toast(e.message))
@@ -33,7 +35,7 @@ export function mountWorkspace(ctx, sdk, engine, { projectPanel, showLibrary, do
     const content = el('div', 'ne-stack'); body.append(content)
     try { panelDispose = p.render(content) } catch (e) { content.append(el('p', 'ne-empty', e.message)) }
     // Most plugin panels author project data. Saves must remain interactive in play.
-    content.inert = engine.mode === 'play' && active !== 'saves'
+    content.inert = engine.mode === 'play' && active !== 'saves' && !p.readOnly
     if (content.inert) body.prepend(el('p', 'ne-muted', '正在试玩，停止试玩后可修改设置。'))
   }
   async function navigate(id) {
@@ -77,7 +79,11 @@ export function mountWorkspace(ctx, sdk, engine, { projectPanel, showLibrary, do
     map.set(descriptor.id, descriptor); refresh()
     owner.effect(() => () => { map.delete(descriptor.id); if (active === descriptor.id) closePanel(); if (!disposed) refresh() })
   }
-  const ui = { mountEditorToolbar(node) { editorTools.replaceChildren(node); return () => node.remove() }, registerPanel: (o, d) => register(panels, o, d), registerSurface: (o, d) => register(surfaces, o, d), registerToolbar: (o, d) => register(tools, o, d), navigate, refresh }
+  const ui = {
+    registerInspector(owner,d){if(inspectors.has(d.id))throw Error('属性编辑入口重复：'+d.id);inspectors.set(d.id,d);inspectorNotify();owner.effect(()=>()=>{inspectors.delete(d.id);inspectorNotify()})},
+    inspectors:type=>[...inspectors.values()].filter(d=>d.types.includes(type)),
+    observeInspectors(owner,fn){inspectorObservers.add(fn);const off=()=>inspectorObservers.delete(fn);owner.effect(()=>off);return off},
+mountEditorToolbar(node) { editorTools.replaceChildren(node); return () => node.remove() }, registerPanel: (o, d) => register(panels, o, d), registerSurface: (o, d) => register(surfaces, o, d), registerToolbar: (o, d) => register(tools, o, d), navigate, refresh }
   sdk.provide('narrativeUI', ui)
   engine.observe(ctx, event => {
     renderState()

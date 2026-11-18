@@ -1,17 +1,26 @@
 export default function(ctx,sdk) {
   const engine=ctx.narrative,ui=ctx.narrativeUI
   const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n}
-  let timer,latest,dialog
+  let timer,latest,dialog,lastAutoError
   const key=(slot)=>'save:'+engine.project.id+':'+slot
   const read=slot=>{try{return JSON.parse(sdk.storage.local.getItem(key(slot))||'null')}catch{return null}}
   const button=(text,action,cls='ne-button')=>{const b=el('button',cls,text);b.type='button';b.addEventListener('click',()=>Promise.resolve().then(action).catch(e=>sdk.toast(e.message)));return b}
   function capture(){
     if(!engine.runtime||engine.runtime.busy||Object.values(engine.runtime.objects?.states||{}).some(s=>s.busy===true))return null
     const sceneId=engine.runtime.objects?.sceneId,scene=engine.composition.scenes.find(s=>s.id===sceneId)
-    const label=scene&&!engine.expandScene(sceneId).objects.some(o=>o.type==='story-flow')?scene.name:engine.scene().title
+    const label=scene?.name||engine.project.title
     return{projectId:engine.project.id,revision:engine.project.revision,label,updatedAt:new Date().toISOString(),runtime:structuredClone(engine.runtime)}
   }
-  function save(slot){const value=capture();if(!value)throw Error('请先试玩作品，等待当前对话结束后存档');sdk.storage.local.setItem(key(slot),JSON.stringify(value));sdk.toast('进度已保存');return value}
+  function write(entry){
+    engine.validateSave(entry.value.runtime,entry.project)
+    try{sdk.storage.local.setItem(entry.key,JSON.stringify(entry.value))}catch{throw Error('请检查浏览器存储空间')}
+  }
+  function flushAuto(){
+    if(!latest)return
+    const entry=latest;latest=null
+    try{write(entry);lastAutoError=undefined}catch(e){if(lastAutoError!==e.message){lastAutoError=e.message;sdk.toast('自动进度保存失败：'+e.message)}}
+  }
+  function save(slot){const value=capture();if(!value)throw Error('请先试玩作品，等待当前对话结束后存档');write({key:key(slot),value,project:engine.project});sdk.toast('进度已保存');return value}
   function load(slot){const value=read(slot);if(!value)throw Error('这个位置还没有存档');if(value.revision!==engine.project.revision)throw Error('作品已编辑，旧存档不再匹配。请重新试玩当前版本');engine.restoreRuntime(value.runtime);if(dialog)dialog.close();else return ui.navigate?.('scene.editor')}
   function renderSlots(container){
     container.replaceChildren()
@@ -33,8 +42,9 @@ export default function(ctx,sdk) {
   engine.observe(ctx,event=>{
     if(event.type==='runtime'&&engine.mode==='play'){
       const value=capture();if(!value)return
-      latest={key:key('auto'),value};clearTimeout(timer);timer=setTimeout(()=>{try{sdk.storage.local.setItem(latest.key,JSON.stringify(latest.value))}catch{sdk.toast('自动进度保存失败，请检查浏览器存储空间')}},250)
+      const saveKey=key('auto');if(latest&&latest.key!==saveKey)flushAuto()
+      latest={key:saveKey,value,project:engine.project};clearTimeout(timer);timer=setTimeout(flushAuto,250)
     }
   })
-  ctx.effect(()=>()=>{clearTimeout(timer);if(latest)try{sdk.storage.local.setItem(latest.key,JSON.stringify(latest.value))}catch{};dialog?.remove()})
+  ctx.effect(()=>()=>{clearTimeout(timer);flushAuto();dialog?.remove()})
 }

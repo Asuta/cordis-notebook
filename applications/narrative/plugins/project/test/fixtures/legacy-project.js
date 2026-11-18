@@ -1,4 +1,5 @@
-import { defaultComposition } from '../../composition.js'
+import { legacyComposition } from '../../../story-data/model.js'
+import { compositionTools } from '../../model.js'
 const asset = (id,name,file) => ({ id,name,kind:'image',url:'/builtin/project/assets/' + file + '.png' })
 const stage = (background = 'observatory', characterId = 'lin') => ({ background,characterId,expression:'neutral',position:62,scale:100 })
 const line = (speaker,text) => ({ speaker,text })
@@ -25,7 +26,7 @@ export function templateProject(template = 'hybrid', title, id = crypto.randomUU
   }
   if (template === 'galgame') { p.nodes = p.nodes.filter(n => n.id !== 'talk'); for (const n of p.nodes) for (const c of n.choices) if (c.target === 'talk') c.target = 'gift'; p.description = '选择、相遇与分支结局。一个可以立即改写的视觉小说模板。' }
   if (template === 'tavern') { const n = p.nodes.find(n => n.id === 'talk'); n.title = '01 · 今晚，聊点什么'; n.chat.maxTurns = 20; n.chat.label = '向她道晚安'; n.chat.next = 'quiet'; p.startNodeId = 'talk'; p.nodes = [n,p.nodes.find(n => n.id === 'quiet')]; p.rules = []; p.settings.dialogueStyle = 'chat'; p.description = '设定角色与世界，让每次对话成为新的故事。' }
-  p.composition = defaultComposition(p)
+  p.composition = legacyComposition(p,compositionTools)
   if (template === 'salon') {
     p.title = title || '七日会客厅'; p.description = '两个独立角色会话、天数推进与关系变化。打开场景搭建，自由重组窗口和事件。'
     p.composition.scenes[0] = {id:'main',name:'会客厅',objects:[

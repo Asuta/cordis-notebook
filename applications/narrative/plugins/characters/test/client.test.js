@@ -2,6 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
 import charactersPlugin from '../client.js'
+import {removeCharacter} from '../model.js'
+
+test('剧情插件停用时保留角色与剧情；无剧情作品仍能删除角色',()=>{
+  const p={characters:[{id:'lin'}],stories:[{nodes:[{stage:{characterId:'lin'},lines:[{speaker:'lin'}]}]}]}
+  const before=structuredClone(p);assert.throws(()=>removeCharacter(p,'lin',false),/启用剧情/);assert.deepEqual(p,before)
+  p.stories=[];removeCharacter(p,'lin',false);assert.deepEqual(p.characters,[])
+})
 import { MAX_IMAGE_BYTES, readImageFile } from '../image.js'
 
 test('编辑角色不丢焦点，删除时保留台词与素材并清空全部契约引用，停用清理面板', async t => {
@@ -17,6 +24,7 @@ test('编辑角色不丢焦点，删除时保留台词与素材并清空全部�
   const notify = type => { for (const callback of [...observers]) callback({ type }) }
   let panel
   const engine = {
+    hasProjectFormat(id) { return id === 'stories' },
     get project() { return project }, mode: 'edit', held: false, selection: { characterId: 'lin' },
     asset(id) { return project.assets.find(asset => asset.id === id)?.url || '' },
     update(mutator, options) { assert.equal(options.render, false); const next = structuredClone(project); mutator(next); project = next; notify('project') },

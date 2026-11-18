@@ -29,12 +29,13 @@ export function validateFields(fields = {}, value = {}) {
     if(field.options&&!field.options.some(option=>(Array.isArray(option)?option[0]:option)===v))throw Error('参数选项无效：'+field.label)
   }
 }
-export function validateScene(scene, types, { allowMissing = false } = {}) {
+export function validateScene(scene, types, { allowMissing = false, project } = {}) {
   const byId = new Map(scene.objects.map(o => [o.id, o]))
   for (const o of scene.objects) {
     const d = types.get(o.type)
     if (!d) { if (allowMissing) continue; throw Error('缺少对象类型插件：' + o.type) }
     validateFields(d.fields, o.props || {})
+    if(!allowMissing)d.validate?.(o.props||{},project)
     if (d.singleton && scene.objects.filter(x => x.type === o.type).length > 1) throw Error(d.label + ' 在一个场景中只能放置一份')
     for (const [slot, requirement] of Object.entries(d.refs || {})) {
       const target = byId.get(o.refs?.[slot])
@@ -53,15 +54,15 @@ export function validateScene(scene, types, { allowMissing = false } = {}) {
   }
 }
 export class ObjectRuntime {
-  constructor({ scene, types, snapshot, changed = () => {}, services = {} }) {
-    validateScene(scene, types)
-    this.scene=copy(scene);this.types=types;this.services=services;this.changed=changed;this.scopes=new Map();this.listeners=new Set();this.dead=false
+  constructor({ scene, types, snapshot, project, changed = () => {}, services = {}, trace = () => {} }) {
+    validateScene(scene, types,{project})
+    this.trace=trace;this.scene=copy(scene);this.types=types;this.services=services;this.changed=changed;this.scopes=new Map();this.listeners=new Set();this.dead=false
     this.states=copy(snapshot?.states||{});this.flags=copy(snapshot?.flags||{});this.pending=0
     for(const o of this.scene.objects){
       const d=types.get(o.type),key=this.key(o.id)
       if(d){validateFields(d.fields,o.props||{});
-        const initial=d.initial?.(copy(o.props||{}))||{}
-        this.states[key]=d.restore?d.restore(copy(this.states[key]??initial)):copy(this.states[key]??initial)
+        const initial=d.initial?.(copy(o.props||{}),project)||{}
+        this.states[key]=d.restore?d.restore(copy(this.states[key]??initial),copy(o.props||{}),project):copy(this.states[key]??initial)
       }
       this.scopes.set(o.id,new AbortController())
     }
@@ -95,7 +96,16 @@ export class ObjectRuntime {
     for(const o of this.scene.objects){const status=this.status(o.id);if(!status.enabled||status.paused){this.scopes.get(o.id)?.abort();this.scopes.set(o.id,new AbortController());const interrupt=this.types.get(o.type)?.interrupt;if(interrupt)this.states[this.key(o.id)]=interrupt(copy(this.states[this.key(o.id)]||{}))}}
     this.notify(id)
   }
-  async invoke(id,method,args={},chain={steps:0}){
+  async invoke(id,method,args={},chain={steps:0},origin={}){
+    const row={id:crypto.randomUUID(),sceneId:this.scene.id,target:id,method,...origin,args:JSON.stringify(args)?.slice(0,4000)||'{}',time:Date.now(),status:'pending'}
+    this.trace(row)
+    const invocation={signal:this.scopes.get(id)?.signal,cancelledSelf:false}
+    const cancelled=()=>this.dead || (invocation.signal?.aborted && !invocation.cancelledSelf)
+    try{const result=await this.runInvocation(id,method,args,chain,invocation);row.status=cancelled()?'cancelled':'success';return result}
+    catch(error){row.status=cancelled()?'cancelled':'error';if(row.status==='error')row.error=error.message;throw error}
+    finally{row.duration=Date.now()-row.time;this.trace(row)}
+  }
+  async runInvocation(id,method,args,chain,invocation){
     if(this.dead)throw Error('场景已卸载')
     const o=this.object(id),d=this.descriptor(id),status=this.status(id)
     if(!status.enabled||status.paused)throw Error('对象已停用或暂停')
@@ -104,12 +114,12 @@ export class ObjectRuntime {
     validateFields(action.fields,args)
     const scope=this.scopes.get(id),signal=scope.signal
     const current=()=>!this.dead&&!signal.aborted&&this.scopes.get(id)===scope
-    const api={id,props:frozen(copy(o.props||{})),signal,services:this.services,
+    const api={id,props:frozen(copy(o.props||{})),signal,chainId:chain.id??=Symbol(),services:this.services,
       get state(){return frozen(copy(thisRuntime.states[thisRuntime.key(id)]||{}))},
       set:next=>{if(!current())return;const value=typeof next==='function'?next(copy(this.states[this.key(id)]||{})):next;if(!plain(value)||JSON.stringify(value).length>500000)throw Error('对象状态无效或过大');this.states[this.key(id)]=copy(value);this.notify(id)},
       emit:(event,payload={})=>current()?this.emit(id,event,payload,chain):Promise.resolve(),
-      call:(ref,name,input={})=>{if(!current())throw Error('对象调用已取消');const target=o.refs?.[ref];if(!target)throw Error('对象引用不存在：'+ref);return this.invoke(target,name,input,chain)},
-      flags:patch=>{if(current())this.setFlags(id,patch)},cancel:()=>{if(current())this.cancel(id)},current}
+      call:(ref,name,input={})=>{if(!current())throw Error('对象调用已取消');const target=o.refs?.[ref];if(!target)throw Error('对象引用不存在：'+ref);return this.invoke(target,name,input,chain,{source:id,event:'call:'+ref})},
+      flags:patch=>{if(current())this.setFlags(id,patch)},cancel:()=>{if(current()){invocation.cancelledSelf=true;this.cancel(id)}},current}
     const thisRuntime=this
     this.pending++
     try{return await action.run(api,copy(args))}finally{this.pending--}
@@ -120,7 +130,7 @@ export class ObjectRuntime {
     for(const c of this.scene.connections.filter(c=>c.source===id&&c.event===event)){
       if(this.dead||scope?.signal.aborted)return
       const args={...copy(c.args||{}),...(c.argument?{[c.argument]:copy(payload)}:{})}
-      await this.invoke(c.target,c.method,args,chain)
+      await this.invoke(c.target,c.method,args,chain,{source:id,event,connectionId:c.id})
     }
   }
   dispose(){if(this.dead)return;this.dead=true;for(const scope of this.scopes.values())scope.abort();this.scopes.clear();this.listeners.clear()}

@@ -1,4 +1,3 @@
-import { storyComposition } from './story-composition.js'
 // The project owns the serialized document. Runtime descriptors live in plugins.
 const clone = value => structuredClone(value)
 const record = v => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -87,7 +86,6 @@ export function defaultComposition(project) {
     {id:'session',type:'conversation',name:'独立会话',props:{characterId,source:'ai',prompt:'自然地回应来访者。',script:'欢迎来到这里。\n愿意和我聊聊今天发生的事吗？'}},
     {id:'window',type:'chat-window',name:'聊天窗口',props:{title:'角色对话'},refs:{session:'session'},layout:{grow:1}}
   ],connections:[]}
-  if(project.nodes?.length){const doc=storyComposition(project.title||'故事舞台',project.nodes[0].stage,project.nodes[0].lines?.[0]);doc.prefabs.push(chatPrefab);return doc}
   return {schemaVersion:1,startSceneId:'main',dependencies:[{id:'scene-runtime',version:'1.0.0'},{id:'scene-ui',version:'1.0.0'}],prefabs:[chatPrefab],scenes:[
     {id:'main',name:'故事舞台',objects:[{id:'layout',type:'container',name:'画面布局',props:{},layout:{grow:1}}],connections:[]}
   ]}
@@ -119,6 +117,7 @@ export function editComposition(input, command, createId = () => 'o-' + crypto.r
     for(const o of rows){if(!ids.has(o.parent))o.parent=null;for(const[key,ref]of Object.entries(o.refs||{}))if(!ids.has(ref)){bindings[ref]=ref;o.refs[key]='@'+ref}}
     const id=command.prefabId||createId(),version=Math.max(0,...doc.prefabs.filter(p=>p.id===id).map(p=>p.version))+1
     doc.prefabs.push({id,version,name:command.name||object().name||'预制体',bindings,objects:rows,connections:clone(scene.connections.filter(c=>ids.has(c.source)&&ids.has(c.target)))})
+  } else if(op==='add-prefab'){doc.prefabs.push(clone(command.prefab))
   } else if(op==='instantiate'){
     const prefab=doc.prefabs.find(p=>p.id===command.prefabId&&p.version===command.prefabVersion);if(!prefab)fail('预制体版本不存在')
     scene.objects.push({id:command.id||createId(),prefab:{id:prefab.id,version:prefab.version},name:command.name||prefab.name,parent:command.parent||null,layout:clone(command.layout||{}),refs:{...clone(prefab.bindings||{}),...clone(command.refs||{})},overrides:clone(command.overrides||{})})

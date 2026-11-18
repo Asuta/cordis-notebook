@@ -2,16 +2,25 @@ const text = (label,defaultValue='',extra={}) => ({kind:'string',label,default:d
 const number = (label,value,min=0,max=1000000) => ({kind:'number',label,default:value,min,max})
 const copy = v => structuredClone(v)
 const validMessages = rows => Array.isArray(rows)&&rows.length<=200&&rows.every(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string'&&m.content.length<=8000)
+async function setCounter(a,value){
+  const max=a.props.max??100,previous=a.state.value
+  value=Math.min(max,Math.max(a.props.min??0,value))
+  a.set({value});await a.emit('changed',value)
+  if(previous<max&&value===max)await a.emit('reachedMax',value)
+}
 export function builtinTypes(){return[
   {type:'container',label:'布局容器',container:true,fields:{title:text('标题')},methods:{},events:[]},
-  {type:'text',label:'文字',fields:{text:text('文字内容','一段新的文字',{multiline:true}),size:number('字号',18,10,72)},methods:{setText:{label:'替换文字',fields:{text:text('文字','',{required:true})},run(a,v){a.set({text:v.text});return a.emit('changed',v.text)}}},events:['changed'],initial:p=>({text:p.text||'一段新的文字'})},
+  {type:'text',label:'文字',fields:{text:text('文字内容','一段新的文字',{multiline:true}),size:number('字号',18,10,72),color:text('文字颜色','#2d2938',{maxLength:30}),background:text('文字底色（空为透明）','',{maxLength:30})},methods:{setText:{label:'替换文字',fields:{text:text('文字','',{required:true})},run(a,v){a.set({text:v.text});return a.emit('changed',v.text)}}},events:['changed'],initial:p=>({text:p.text||'一段新的文字'})},
   {type:'image',label:'图片',fields:{asset:{kind:'asset',label:'图片素材',default:''},fit:{...text('填充方式','cover'),options:[['cover','裁切填充'],['contain','完整显示']]}},methods:{},events:[]},
-  {type:'button',label:'按钮',fields:{text:text('按钮文字','点击这里')},events:['clicked'],methods:{click:{label:'点击',fields:{},run:a=>a.emit('clicked')}}},
+  {type:'button',label:'按钮',fields:{text:text('按钮文字','点击这里'),unlocked:{kind:'boolean',label:'初始可点击',default:true}},events:['clicked'],initial:p=>({unlocked:p.unlocked!==false}),methods:{
+    click:{label:'点击',fields:{},run:a=>a.state.unlocked===false?false:a.emit('clicked')},
+    unlock:{label:'解锁按钮',fields:{},run:a=>a.set({unlocked:true})},
+  }},
   {type:'counter',label:'数值状态',visual:false,fields:{label:text('数值名称','数值'),initial:number('初始值',0,-1000000),min:number('最小值',0,-1000000),max:number('最大值',100,-1000000)},
     initial:p=>{const min=p.min??0,max=p.max??100;if(min>max)throw Error('最小值不能大于最大值');return{value:Math.min(max,Math.max(min,p.initial??0))}},
-    restore:s=>{if(!Number.isFinite(s.value))throw Error('数值存档无效');return{value:s.value}},events:['changed'],methods:{
-      add:{label:'增减数值',fields:{amount:number('变化量',1,-1000000)},async run(a,v){a.set({value:Math.min(a.props.max??100,Math.max(a.props.min??0,a.state.value+(v.amount??1)))});await a.emit('changed',a.state.value)}},
-      set:{label:'设置数值',fields:{value:number('目标值',0,-1000000)},async run(a,v){a.set({value:Math.min(a.props.max??100,Math.max(a.props.min??0,v.value??0))});await a.emit('changed',a.state.value)}}
+    restore:s=>{if(!Number.isFinite(s.value))throw Error('数值存档无效');return{value:s.value}},events:['changed','reachedMax'],methods:{
+      add:{label:'增减数值',fields:{amount:number('变化量',1,-1000000)},run:(a,v)=>setCounter(a,a.state.value+(v.amount??1))},
+      set:{label:'设置数值',fields:{value:number('目标值',0,-1000000)},run:(a,v)=>setCounter(a,v.value??0)}
     }},
   {type:'value',label:'数值显示',fields:{label:text('显示名称','数值')},refs:{value:'counter'},methods:{},events:[]},
   {type:'conversation',label:'角色会话',visual:false,fields:{characterId:{kind:'character',label:'角色',default:''},source:{...text('内容来源','script'),options:[['script','预写文本'],['ai','AI 生成']]},script:text('预写回复（每行一轮）','你好，很高兴见到你。\n明天也来聊聊吧。',{multiline:true}),prompt:text('会话提示','',{multiline:true})},

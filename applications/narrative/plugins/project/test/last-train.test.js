@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, stat } from 'node:fs/promises'
-import { lastTrainProject } from '../last-train.js'
-import { diagnose, initialRuntime, validateProject, validateRuntime } from '../model.js'
+import { lastTrainProject } from '../../story-data/last-train.js'
+import { diagnose, initialRuntime, validateProject, validateRuntime } from './fixtures/story-model.js'
 import { expandScene } from '../composition.js'
 
 const project = () => lastTrainProject(undefined, 'last-train-test')
@@ -56,7 +56,7 @@ function routes(value) {
       visit(choice.target, next, path, [...decisions, { node: id, choice: choice.id, before: { ...variables }, after: next }])
     }
   }
-  visit(value.startNodeId, initialRuntime(value).variables)
+  visit(value.startNodeId, Object.fromEntries(value.variables.map(v=>[v.id,v.initial])))
   return completed
 }
 
@@ -64,6 +64,8 @@ test('末班车模板可校验、可序列化且诊断无缺失引用', () => {
   const value = project()
   assert.equal(validateProject(value), value)
   assert.deepEqual(diagnose(value), [])
+  assert.equal(value.nodes,undefined);assert.equal(value.stories.length,1)
+  assert.equal(value.composition.scenes[0].objects.find(o=>o.type==='story-flow').props.storyId,value.stories[0].id)
   assert.equal(value.template, 'last-train')
   assert.equal(value.title, '末班车之前')
   assert.equal(value.id, 'last-train-test')
@@ -108,7 +110,7 @@ test('只使用已公开且真实存在的四项内置素材，角色明确成�
 })
 
 test('每个节点独立配置舞台，台词仅用林栀或空 speaker 且不依赖自由聊天', () => {
-  const value = project()
+  const value = project().stories[0]
   assert.deepEqual(new Set(value.nodes.map(node => node.stage.background)), new Set(['station', 'observatory']))
   assert.deepEqual(new Set(value.nodes.map(node => node.stage.characterId)), new Set(['lin', '']))
   for (const node of value.nodes) {
@@ -129,7 +131,7 @@ test('每个节点独立配置舞台，台词仅用林栀或空 speaker 且不�
 })
 
 test('带变量状态穷举八条完整路线，全部节点和选项可达，每条恰有三次选择', () => {
-  const value = project(), paths = routes(value)
+  const value = project().stories[0], paths = routes(value)
   assert.equal(paths.length, 8)
   assert.equal(value.nodes.filter(node => node.choices.length).length, 3)
   assert.deepEqual(new Set(paths.flatMap(route => route.path)), new Set(value.nodes.map(node => node.id)))
@@ -144,7 +146,7 @@ test('带变量状态穷举八条完整路线，全部节点和选项可达，�
 })
 
 test('前两次选择改变实际对白，第三次选择尊重累计信任及主动告别', () => {
-  const value = project(), paths = routes(value)
+  const value = project().stories[0], paths = routes(value)
   const byId = new Map(value.nodes.map(node => [node.id, node]))
   for (const id of ['arrival', 'observatory']) {
     const choices = byId.get(id).choices
@@ -171,7 +173,7 @@ test('前两次选择改变实际对白，第三次选择尊重累计信任及�
 })
 
 test('全稿与每条实际路线均至少七十五句，阅读量不以不可见分支凑数', t => {
-  const value = project(), paths = routes(value)
+  const value = project().stories[0], paths = routes(value)
   const allLines = value.nodes.flatMap(node => node.lines)
   assert.ok(allLines.length >= 75)
   assert.equal(new Set(allLines.map(line => line.text)).size, allLines.length, '不重复填充台词')
@@ -187,14 +189,14 @@ test('全稿与每条实际路线均至少七十五句，阅读量不以不可�
 
 test('作品实例不共享台词、舞台、变量、动作、角色或场景的可变数据', () => {
   const first = project(), second = project(), baseline = structuredClone(second)
-  first.nodes[0].lines[0].text = '修改台词'
-  first.nodes[0].stage.background = 'observatory'
-  first.nodes[0].choices[0].actions[0].value = 99
-  first.nodes.find(node => node.id === 'platform').choices[0].condition.value = 99
-  first.variables[0].initial = 2
+  first.stories[0].nodes[0].lines[0].text = '修改台词'
+  first.stories[0].nodes[0].stage.background = 'observatory'
+  first.stories[0].nodes[0].choices[0].actions[0].value = 99
+  first.stories[0].nodes.find(node => node.id === 'platform').choices[0].condition.value = 99
+  first.stories[0].variables[0].initial = 2
   first.characters[0].expressions.happy = 'changed'
   first.assets[0].url = 'changed'
   first.composition.scenes[0].objects[0].props.title = '修改标题'
   assert.deepEqual(second, baseline)
-  assert.notEqual(first.nodes[0].stage, first.nodes[1].stage)
+  assert.notEqual(first.stories[0].nodes[0].stage, first.stories[0].nodes[1].stage)
 })

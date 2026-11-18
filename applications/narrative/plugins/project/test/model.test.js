@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { templateProject } from './fixtures/legacy-project.js'
-import { diagnose, initialRuntime, validateProject, validateRuntime } from '../model.js'
+import { diagnose, initialRuntime, validateProject, validateRuntime } from './fixtures/story-model.js'
 
 const project = () => templateProject('hybrid', '测试作品', 'test-project')
 const invalid = (run, message) => assert.throws(run, error => error.status === 400 && message.test(error.message))

@@ -2,8 +2,8 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {setupScene} from '../../scene-runtime/test/helpers.js'
 import {owner,settle} from '../../project/test/helpers.js'
-import {lastTrainProject} from '../../project/last-train.js'
-import {validateProject} from '../../project/model.js'
+import {lastTrainProject} from '../../story-data/last-train.js'
+import {validateProject,migrateStoryResources} from '../../project/test/fixtures/story-model.js'
 import {mountScene} from '../../scene-ui/renderer.js'
 import {ObjectRuntime,validateScene,validateFields} from '../../scene-runtime/runtime.js'
 import flow from '../client.js'
@@ -20,20 +20,20 @@ async function setup(t){
  const f=await setupScene(t),ctx=owner();Object.assign(ctx,{narrative:f.engine,sceneRuntime:f.scene,narrativeUI:{navigate:async()=>{}}})
  for(const plugin of [flow,background,character,dialogue,choices,history,auto,controls])plugin(ctx)
  f.ctx.effect(()=>()=>ctx.dispose())
- f.engine.update(p=>Object.assign(p,lastTrainProject(undefined,p.id),{revision:p.revision}));f.engine.select({nodeId:'arrival'})
+ f.engine.update(p=>Object.assign(p,migrateStoryResources(lastTrainProject(undefined,p.id)),{revision:p.revision}));f.engine.select({nodeId:'arrival'})
  return {...f,ctx}
 }
 test('独立对象通过事件完成8条路线，读档恢复不重复对白及变量',async t=>{
  const f=await setup(t);await f.engine.play();await flush();assert.deepEqual(f.scene.validate(),[])
- assert.equal(f.scene.runtime.state('novel-dialogue').text,f.engine.runtime.text.text)
+ assert.equal(f.scene.runtime.state('novel-dialogue').text,f.scene.runtime.state('novel-flow').text.text)
  const results=[]
  async function walk(decisions=0){for(let i=0;i<300;i++){
   await flush()
-  if(f.engine.runtime.ended){results.push([f.engine.runtime.nodeId,decisions]);return}
-  if(f.engine.runtime.story.awaiting){
+  if(f.scene.runtime.state('novel-flow').ended){results.push([f.scene.runtime.state('novel-flow').nodeId,decisions]);return}
+  if(f.scene.runtime.state('novel-flow').story.awaiting){
    const snapshot=structuredClone(f.engine.runtime),items=f.scene.runtime.state('novel-choices').items
    assert.equal(items.length,2)
-   for(const c of items){f.engine.restoreRuntime(snapshot);await flush();assert.equal(f.engine.runtime.transcript.length,snapshot.transcript.length);await f.scene.call('novel-choices','choose',{id:c.id});await walk(decisions+1)}return
+   for(const c of items){f.engine.restoreRuntime(snapshot);await flush();assert.equal(f.scene.runtime.state('novel-flow').transcript.length,snapshot.objects.states['main/novel-flow'].transcript.length);await f.scene.call('novel-choices','choose',{id:c.id});await walk(decisions+1)}return
   }
   await f.scene.call('novel-dialogue','advance');await flush();await f.scene.call('novel-dialogue','advance')
  }assert.fail('未结束')}
@@ -49,8 +49,8 @@ test('真实渲染器中逐字、回看、全屏及卸载不残留推进',async 
  const f=await setup(t),host=document.createElement('main');host.className='ne-app';document.body.append(host)
  const canvas=document.createElement("div");host.append(canvas);const view=mountScene(canvas,{scene:f.scene,engine:f.engine,ui:f.ctx.narrativeUI,design:()=>!f.scene.playing});t.after(()=>view.dispose())
  await f.engine.play();await flush();assert.ok(host.querySelector('[data-object-id="novel-character"]'))
- host.querySelector('.dialogue-next').click();await flush();assert.equal(host.querySelector('.dialogue-text').textContent,f.engine.runtime.text.text)
- host.querySelector('.dialogue-next').click();await flush();assert.equal(f.engine.runtime.lineIndex,1)
+ host.querySelector('.dialogue-next').click();await flush();assert.equal(host.querySelector('.dialogue-text').textContent,f.scene.runtime.state('novel-flow').text.text)
+ host.querySelector('.dialogue-next').click();await flush();assert.equal(f.scene.runtime.state('novel-flow').lineIndex,1)
  host.querySelector('.history-view>button').click();await flush();assert.ok(host.querySelector('.history-dialog').open);assert.match(host.querySelector('.history-dialog').textContent,/雨刚停/)
  host.querySelector('.history-dialog>button').click();await flush()
  const fullscreen=[...host.querySelectorAll('.playback-controls button')].find(b=>b.textContent==='全屏');fullscreen.click();await flush();assert.ok(host.querySelector('.playback-focus[open]'));fullscreen.click();await flush();assert.equal(host.querySelector('.playback-focus'),null)
@@ -63,26 +63,42 @@ test('能力引用兼容不同类型，缺少目标允许编辑但禁止运行�
 })
 test('旧舞台迁移保留ID，迁移幂等',()=>{
  const p=lastTrainProject(undefined,'legacy');p.composition.scenes[0].objects=[{id:'novel',type:'story-player',props:{title:'旧作'},layout:{grow:1}}];p.composition.scenes[0].connections=[];p.composition.dependencies=[{id:'visual-novel',version:'1.0.0'}]
- validateProject(p);const once=structuredClone(p);validateProject(p);assert.deepEqual(p,once);assert.equal(p.composition.scenes[0].objects[0].id,'novel');assert.ok(p.composition.scenes[0].objects.some(o=>o.type==='dialogue-view'))
+ migrateStoryResources(p);const once=structuredClone(p);validateProject(p);assert.deepEqual(p,once);assert.equal(p.composition.scenes[0].objects[0].id,'novel');assert.ok(p.composition.scenes[0].objects.some(o=>o.type==='dialogue-view'))
 })
 
 test('空白章节及空白结局通过画面继续，空白分支仍显示选项',async t=>{
  const f=await setup(t)
- f.engine.update(p=>{const n=p.nodes[0];n.lines=[];n.choices=[];n.next='promise';p.nodes.find(n=>n.id==='promise').lines=[]})
+ f.engine.update(p=>{const n=p.stories[0].nodes[0];n.lines=[];n.choices=[];n.next='promise';p.stories[0].nodes.find(n=>n.id==='promise').lines=[]})
  const host=document.createElement('main');host.className='ne-app';document.body.append(host)
  const view=mountScene(host,{scene:f.scene,engine:f.engine,ui:f.ctx.narrativeUI});t.after(()=>view.dispose())
  await f.engine.play();await flush()
- assert.equal(f.engine.runtime.story.awaiting,false)
+ assert.equal(f.scene.runtime.state('novel-flow').story.awaiting,false)
  assert.equal(host.querySelector('.dialogue-box').hidden,false)
  host.querySelector('.dialogue-next').click();await flush()
- assert.equal(f.engine.runtime.nodeId,'promise');assert.equal(f.engine.runtime.ended,false)
+ assert.equal(f.scene.runtime.state('novel-flow').nodeId,'promise');assert.equal(f.scene.runtime.state('novel-flow').ended,false)
  host.querySelector('.dialogue-next').click();await flush()
- assert.equal(f.engine.runtime.ended,true);assert.match(host.querySelector('.playback-controls').textContent,/THE END/)
- f.engine.stop();f.engine.update(p=>{p.nodes[0].choices=[{id:'end',text:'结束',target:'promise',actions:[]}]})
+ assert.equal(f.scene.runtime.state('novel-flow').ended,true);assert.match(host.querySelector('.playback-controls').textContent,/THE END/)
+ f.engine.stop();f.engine.update(p=>{p.stories[0].nodes[0].choices=[{id:'end',text:'结束',target:'promise',actions:[]}]})
  await f.engine.play();await flush()
- assert.equal(f.engine.runtime.story.awaiting,true);assert.equal(host.querySelector('.dialogue-box').hidden,true)
- host.querySelector('.choice-list button').click();await flush();assert.equal(f.engine.runtime.nodeId,'promise')
+ assert.equal(f.scene.runtime.state('novel-flow').story.awaiting,true);assert.equal(host.querySelector('.dialogue-box').hidden,true)
+ host.querySelector('.choice-list button').click();await flush();assert.equal(f.scene.runtime.state('novel-flow').nodeId,'promise')
  assert.deepEqual(f.toasts,[])
+})
+
+test('从同一章节重开后首句重新就绪并自动推进',async t=>{
+ const f=await setup(t),host=document.createElement('main');host.className='ne-app';document.body.append(host)
+ const view=mountScene(host,{scene:f.scene,engine:f.engine,ui:f.ctx.narrativeUI});t.after(()=>view.dispose())
+ const state=id=>f.scene.runtime.state('novel-'+id)
+ await f.engine.play();await flush()
+ await f.scene.call('novel-dialogue','reveal');const key=state('dialogue').key,snapshot=structuredClone(f.engine.runtime)
+ assert.equal(state('auto').ready,true)
+ await f.scene.call('novel-auto','toggle');await f.scene.call('novel-flow','start',{nodeId:state('flow').nodeId});await flush()
+ assert.equal(state('flow').lineIndex,0);assert.notEqual(state('dialogue').key,key)
+ assert.equal(state('dialogue').revealed,false);assert.equal(state('auto').ready,false)
+ await f.scene.call('novel-dialogue','reveal');assert.equal(state('auto').ready,true)
+ t.mock.timers.tick(1800);await flush();assert.equal(state('flow').lineIndex,1)
+ f.engine.restoreRuntime(snapshot);await flush();await f.scene.call('novel-flow','sync')
+ assert.equal(state('dialogue').key,key);assert.equal(state('dialogue').revealed,true)
 })
 
 test('实际声音插件在重开、读档和迟到播放完成后与按钮状态一致',async t=>{
@@ -105,4 +121,23 @@ test('实际声音插件在重开、读档和迟到播放完成后与按钮状�
  music().click();await flush();const pending=audios.at(-1)
  await f.engine.play();await flush();pending.ready.resolve();await flush()
  assert.equal(pending.paused,true);assert.equal(music().textContent,'♫ 音乐');assert.deepEqual(f.toasts,[])
+})
+
+import {investigationProject} from '../../project/investigation.js'
+test('雨站调查没有剧情资源或流程插件：三处线索只计一次，读档恢复已调查状态',async t=>{
+ const f=await setupScene(t),ctx=owner();Object.assign(ctx,{narrative:f.engine,sceneRuntime:f.scene});for(const p of [background,dialogue,choices])p(ctx);f.ctx.effect(()=>()=>ctx.dispose())
+ f.engine.update(p=>{for(const key of Object.keys(p))delete p[key];Object.assign(p,investigationProject(undefined,'first'))})
+ assert.equal(f.scene.descriptor('story-flow'),undefined);assert.equal(f.engine.project.stories,undefined)
+ await f.engine.play();assert.deepEqual(f.scene.validate(),[])
+ for(const id of ['bench','ticket','desk']){
+   const before=f.scene.runtime.state('dialogue').text
+   assert.equal(await f.scene.call('conclusion','click'),false);assert.equal(f.scene.runtime.state('dialogue').text,before)
+   await f.scene.call(id,'choose',{id});await f.scene.call(id,'choose',{id})
+ }
+ assert.equal(f.scene.runtime.state('count').value,3)
+ const snapshot=structuredClone(f.engine.runtime);f.engine.stop();f.engine.restoreRuntime(snapshot)
+ assert.deepEqual(f.scene.runtime.state('bench').items,[]);assert.equal(f.scene.runtime.state('count').value,3)
+ await f.scene.call('conclusion','click');assert.match(f.scene.runtime.state('dialogue').text,/相机没有失窃/)
+ await f.scene.call('bench','choose',{id:'bench'});assert.equal(f.scene.runtime.state('dialogue').key,'solved')
+ assert.equal(f.engine.runtime.nodeId,undefined);assert.deepEqual(f.toasts,[])
 })

@@ -22,7 +22,6 @@ export function lastTrainProject(title, id = crypto.randomUUID()) {
   return {
     schemaVersion: 1, id, revision: 0, title: name, template: 'last-train',
     description: '雨停之后，和成年研究员林栀走一段通往星空的山路。约 10–15 分钟的预写轻恋爱故事，三次选择，两个温柔的结局。',
-    startNodeId: 'arrival',
     assets: [
       { id: 'station', name: '雨后车站', kind: 'image', url: '/builtin/project/assets/station.png' },
       { id: 'observatory', name: '山顶观测站', kind: 'image', url: '/builtin/project/assets/observatory.png' },
@@ -35,14 +34,14 @@ export function lastTrainProject(title, id = crypto.randomUUID()) {
       personality: '温柔认真，有一点不动声色的幽默；珍惜倾听，也尊重安静和告别。',
       portrait: 'lin', expressions: { neutral: 'lin', happy: 'lin', sad: 'lin' }, color: '#c6b7f4',
     }],
-    variables: [{ id: 'trust', name: '靠近的勇气', initial: 0, min: 0, max: 3 }],
-    rules: [],
     settings: {
       dialogueStyle: 'novel', accent: '#8c77cb', bgm: 'rain-theme', volume: 0.3,
       worldInfo: '初秋雨后的山间车站与步行十八分钟可达的山顶观测站。林栀是二十六岁的成年研究员，玩家也是成年旅人。相遇在二十点三十分，末班车二十一点四十八分发车；两人始终留有下山与乘车的时间。这是一段关于倾听、尊重和再次见面的温柔故事。',
     },
     composition: storyComposition(name,stage('station'),{speaker:'旁白',text:'雨刚停，站台边的水洼还留着细小的圆圈。电子钟跳到二十点三十分，远处的山只剩一圈柔软的轮廓。'}),
-    nodes: [
+    stories: [{ id:'main-story', name, startNodeId:'arrival', rules:[],
+      variables:[{id:'trust',name:'靠近的勇气',initial:0,min:0,max:3}],
+      nodes: [
       story('arrival', '01 · 雨停在时刻表上', stage('station'), [
         narration('雨刚停，站台边的水洼还留着细小的圆圈。电子钟跳到二十点三十分，远处的山只剩一圈柔软的轮廓。'),
         narration('我把回程车票从湿掉的口袋里取出来，放在掌心晾着。二十一点四十八分，今晚最后一班。'),
@@ -267,6 +266,7 @@ export function lastTrainProject(title, id = crypto.randomUUID()) {
         narration('车厢轻轻摇晃，疲倦终于安心地落下来。这一次，我没有把短暂的相遇误认成来不及完成的事。'),
         narration('有的夜晚不替人决定以后，只送人一颗可以带回家的星。今晚，已经足够明亮。'),
       ]),
-    ],
+      ],
+    }],
   }
 }

@@ -29,7 +29,7 @@ async function fixture(t, customize, ui) {
   host.className = 'ne-app'; document.body.append(host)
   const dispose = mountEditor(host, { engine: f.engine, sdk: f.sdk, ui })
   f.ctx.effect(() => dispose)
-  return { ...f, host, dispose, ...controls(host, f.window), node: () => f.engine.project.nodes.find(n => n.id === f.engine.selection.nodeId) }
+  return { ...f, host, dispose, ...controls(host, f.window), node: () => f.engine.project.stories[0].nodes.find(n => n.id === f.engine.selection.nodeId) }
 }
 
 test('普通字段以 render:false 保存，保留焦点、待点击章节和安全文本', async t => {
@@ -48,7 +48,22 @@ test('普通字段以 render:false 保存，保留焦点、待点击章节和安
   assert.equal(f.node().next, 'end'); assert.ok(events.length >= 8); assert.ok(events.every(e => e.render === false))
   chapter.click(); assert.equal(f.engine.selection.nodeId, 'end'); assert.equal(f.field('title').value, '重逢')
   f.engine.select({ nodeId: 'intro' }); assert.equal(f.field('title').value, '<img src=x onerror=alert(1)>')
-  await f.engine.save(); assert.equal(f.records.get('first').nodes[0].title, '<img src=x onerror=alert(1)>')
+  await f.engine.save(); assert.equal(f.records.get('first').stories[0].nodes[0].title, '<img src=x onerror=alert(1)>')
+})
+
+for(const scope of ['scene','prefab'])test(scope+' 按钮的跳转连接阻止删除目标章节',async t=>{
+ const f=await fixture(t,p=>{
+   const group=scope==='scene'?p.composition.scenes[0]:{id:'side',version:1,name:'支线',objects:[],connections:[]}
+   if(scope==='prefab')p.composition.prefabs.push(group)
+   group.objects.push({id:'jump',name:'章节按钮',type:'button'},{id:'reader',type:'story-flow',props:{storyId:'main-story'}})
+   group.connections.push({id:'jump-end',source:'jump',event:'clicked',target:'reader',method:'start',args:{nodeId:'end'}})
+ });f.engine.select({nodeId:'end'});await f.click('删除章节');assert.match(f.toasts.at(-1),/章节按钮/);assert.ok(!f.host.textContent.includes('确认删除章节'))
+})
+
+test('未实例化的预制体也能阻止删除其流程起始章节',async t=>{
+ const f=await fixture(t,p=>p.composition.prefabs.push({id:'reader',version:1,name:'支线预制体',objects:[{id:'read',name:'支线阅读',type:'story-flow',props:{storyId:'main-story',startNodeId:'end'}}],connections:[]}))
+ f.engine.select({nodeId:'end'});await f.click('删除章节')
+ assert.ok(f.toasts.some(s=>s.includes('支线预制体')&&s.includes('支线阅读')));assert.ok(!f.host.textContent.includes('确认删除章节'))
 })
 
 test('对白新增、说话者、上下移动和删除均通过真实模型保存', async t => {
@@ -81,17 +96,17 @@ test('选项目标、变量条件与增减/设值动作完整可编辑，可移�
 })
 
 test('新增章节、结局、起点和删除确认保持其他插件数据', async t => {
-  const f = await fixture(t), other = structuredClone(f.engine.project.nodes[2])
+  const f = await fixture(t), other = structuredClone(f.engine.project.stories[0].nodes[2])
   await f.click('删除章节'); assert.match(f.toasts.at(-1), /起始节点/)
   await f.click('新增章节'); const added = f.engine.selection.nodeId
   assert.equal(f.node().type, 'story'); assert.equal(f.field('title').value, '新的章节')
-  await f.click('设为起始节点'); assert.equal(f.engine.project.startNodeId, added)
+  await f.click('设为起始节点'); assert.equal(f.engine.project.stories[0].startNodeId, added)
   await f.click('新增结局'); const ending = f.engine.selection.nodeId
   assert.equal(f.node().type, 'ending')
-  await f.click('删除章节'); assert.ok(f.engine.project.nodes.some(n => n.id === ending))
-  await f.click('取消删除'); assert.ok(f.engine.project.nodes.some(n => n.id === ending))
+  await f.click('删除章节'); assert.ok(f.engine.project.stories[0].nodes.some(n => n.id === ending))
+  await f.click('取消删除'); assert.ok(f.engine.project.stories[0].nodes.some(n => n.id === ending))
   await f.click('删除章节'); await f.click('确认删除章节')
-  assert.ok(!f.engine.project.nodes.some(n => n.id === ending)); assert.deepEqual(f.engine.project.nodes.find(n => n.id === 'other'), other)
+  assert.ok(!f.engine.project.stories[0].nodes.some(n => n.id === ending)); assert.deepEqual(f.engine.project.stories[0].nodes.find(n => n.id === 'other'), other)
   validateProject(f.engine.project)
 })
 
@@ -106,9 +121,9 @@ test('删除检查覆盖 next、选项目标、聊天、goto 动作及规则节�
     p => { p.rules = [{ id: 'rule', name: '跳转规则', event: 'node.enter', once: false, actions: [{ type: 'goto', target: 'end' }] }] },
   ]
   for (const configure of cases) {
-    f.engine.update(p => { p.nodes[0].next = ''; p.nodes[0].choices = []; delete p.nodes[2].chat; p.rules = []; configure(p) })
+    f.engine.update(root => { const p=root.stories[0]; p.nodes[0].next = ''; p.nodes[0].choices = []; delete p.nodes[2].chat; p.rules = []; configure(p) })
     f.engine.select({ nodeId: 'end' }); await f.click('删除章节')
-    assert.match(f.toasts.at(-1), /仍被引用/); assert.ok(f.engine.project.nodes.some(n => n.id === 'end'))
+    assert.match(f.toasts.at(-1), /仍被引用/); assert.ok(f.engine.project.stories[0].nodes.some(n => n.id === 'end'))
     assert.equal(f.host.querySelector('.vn-editor-confirm'), null)
   }
 })
@@ -123,7 +138,7 @@ test('校验错误与保存异常保留输入和模型，阻止结构操作丢�
   const realUpdate = f.engine.update; f.engine.update = () => { throw Error('模拟更新失败') }
   const title = f.change('title', '失败但保留的文字')
   assert.equal(title.value, '失败但保留的文字'); assert.equal(f.node().title, '相遇'); assert.match(f.toasts.at(-1), /模拟更新失败/)
-  await f.click('新增结局'); assert.equal(f.engine.project.nodes.length, 3)
+  await f.click('新增结局'); assert.equal(f.engine.project.stories[0].nodes.length, 3)
   f.engine.update = realUpdate; title.dispatchEvent(new f.window.Event('change', { bubbles: true }))
   assert.equal(f.node().title, '失败但保留的文字')
   const long = f.change('lines.0.text', '字'.repeat(8001)); assert.equal(long.value.length, 8001); assert.equal(f.node().lines[0].text, '第一句')
@@ -145,7 +160,7 @@ test('模型集合上限禁用新增，且没有变量时不创建无效条件�
   })
   for (const label of ['新增章节', '新增结局', '新增对白', '新增选项', '为选项 1 添加变量动作']) assert.equal(f.button(label).disabled, true, label)
   const version = f.engine.version; await f.click('新增章节'); assert.equal(f.engine.version, version)
-  f.engine.update(p => { p.variables = []; p.nodes[0].choices = [{ id: 'one', text: '', target: '', actions: [] }] })
+  f.engine.update(root => { const p=root.stories[0]; p.variables = []; p.nodes[0].choices = [{ id: 'one', text: '', target: '', actions: [] }] })
   assert.equal(f.button('为选项 1 添加变量条件').disabled, true); assert.equal(f.button('为选项 1 添加变量动作').disabled, true)
 })
 
@@ -166,9 +181,9 @@ test('未知类型和丢失引用可见且不被默认选择静默覆盖', async
 test('试读关闭设置后以所选节点调用 play，关闭引发卸载也不取消试读', async t => {
   const order = []; let f
   f = await fixture(t, undefined, { async navigate(id) { order.push('navigate:' + id); f.dispose() } })
-  const play = f.engine.play; f.engine.play = id => { order.push('play:' + id); return play(id) }
+  const play = f.engine.play; f.engine.play = id => { order.push('play:' + id.nodeId);assert.equal(id.objectId,'novel-flow');assert.equal(id.storyId,'main-story'); return play(id) }
   f.engine.select({ nodeId: 'end' }); await f.click('从此段试读')
-  assert.deepEqual(order, ['navigate:scene.editor', 'play:end']); assert.equal(f.engine.mode, 'play'); assert.equal(f.engine.runtime.nodeId, 'end')
+  assert.deepEqual(order, ['navigate:scene.editor', 'play:end']); assert.equal(f.engine.mode, 'play'); assert.equal(f.engine.runtime.nodeId, undefined)
   assert.equal(f.host.children.length, 0)
 })
 
@@ -176,8 +191,8 @@ test('卸载清理订阅和事件，脱离 DOM 的旧控件无法再修改模型
   const f = await fixture(t), title = f.field('title'), add = f.button('新增章节')
   f.dispose(); f.dispose(); const version = f.engine.version
   title.value = '过期编辑'; title.dispatchEvent(new f.window.Event('change', { bubbles: true })); add.click()
-  f.engine.select({ nodeId: 'end' }); f.engine.update(p => { p.nodes[1].title = '外部修改' })
-  assert.equal(f.engine.version, version + 1); assert.equal(f.engine.project.nodes[0].title, '相遇'); assert.equal(f.host.children.length, 0)
+  f.engine.select({ nodeId: 'end' }); f.engine.update(root => { const p=root.stories[0]; p.nodes[1].title = '外部修改' })
+  assert.equal(f.engine.version, version + 1); assert.equal(f.engine.project.stories[0].nodes[0].title, '相遇'); assert.equal(f.host.children.length, 0)
 })
 
 test('真实 shell 普通字段不重挂，结构变化重挂后仍可编辑且无重复订阅', async t => {
@@ -194,7 +209,17 @@ test('真实 shell 普通字段不重挂，结构变化重挂后仍可编辑且�
   const c = controls(workspaceHost, f.window), input = c.field('title'); input.focus(); c.change('title', '面板保持挂载')
   await settle(); assert.equal(mounts, 1); assert.equal(c.field('title'), input); assert.equal(document.activeElement, input)
   await c.click('新增对白'); assert.equal(mounts, 2); assert.equal(disposals, 1)
-  c.change('lines.2.text', '重挂后编辑'); assert.equal(f.engine.project.nodes[0].lines[2].text, '重挂后编辑')
+  c.change('lines.2.text', '重挂后编辑'); assert.equal(f.engine.project.stories[0].nodes[0].lines[2].text, '重挂后编辑')
   f.engine.select({ nodeId: 'end' }); assert.equal(c.field('title').value, '重逢')
   await shell.ui.navigate('scene.editor'); assert.equal(disposals, 2); assert.equal(workspaceHost.querySelector('.vn-editor'), null)
+})
+
+test('切换剧情资源只修改对应剧本，重复章节ID不串写，非法草稿阻止切换',async t=>{
+  const f=await fixture(t)
+  f.engine.update(p=>{const second=structuredClone(p.stories[0]);second.id='second-story';second.name='另一个剧本';second.nodes[0].title='另一个开场';p.stories.push(second)})
+  f.change('storyId','second-story');assert.equal(f.field('title').value,'另一个开场')
+  f.change('lines.0.text','只属于第二份剧本');assert.equal(f.engine.project.stories[1].nodes[0].lines[0].text,'只属于第二份剧本');assert.equal(f.engine.project.stories[0].nodes[0].lines[0].text,'第一句')
+  f.field('stage.position').value='999';f.change('storyId','main-story')
+  assert.equal(f.engine.selection.storyId,'second-story');assert.equal(f.field('storyId').value,'second-story');assert.match(f.toasts.at(-1),/须为/)
+  f.change('stage.position','50');f.change('storyId','main-story');assert.equal(f.field('lines.0.text').value,'第一句')
 })

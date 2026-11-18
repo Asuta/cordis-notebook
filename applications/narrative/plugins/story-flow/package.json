@@ -17,6 +17,7 @@
     "requires": {
       "client": [
         "narrative",
+        "storyData",
         "sceneRuntime"
       ],
       "server": []

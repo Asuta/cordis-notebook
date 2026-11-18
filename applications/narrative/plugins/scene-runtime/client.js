@@ -1,33 +1,42 @@
 import { ObjectRuntime, describeType, validateScene } from './runtime.js'
 export default function(ctx,sdk){
   const engine=ctx.narrative,types=new Map(),observers=new Set(),services=new Map()
+  const prepared=new WeakMap(), traces=[],traceObservers=new Set();let tracing=true
+  const traceNotify=()=>{for(const fn of traceObservers)fn()}
+  const trace=row=>{if(disposed)return;const index=traces.findIndex(r=>r.id===row.id);if(index<0){if(!tracing||row.status!=='pending')return;traces.push(structuredClone(row));if(traces.length>200)traces.shift()}else traces[index]=structuredClone(row);traceNotify()}
   let runtime=null,selected=engine.composition.startSceneId,editScene=selected,wasPlaying=false,savedRef=null,projectId=engine.project.id,disposed=false,syncing=false,failedRef=Symbol(),failure='',scheduled=false
-  const notify=()=>{for(const fn of [...observers])fn()}
+  const notify=event=>{for(const fn of [...observers])fn(event)}
   const persist=snapshot=>{if(engine.mode!=='play'||disposed)return;savedRef=snapshot;engine.transact(r=>{r.objects=snapshot})}
   const document=()=>engine.composition
   function validateTypes(doc){
     engine.validateComposition(doc)
     for(const s of doc.scenes)validateScene(engine.expandScene(s.id,doc),types,{allowMissing:true})
   }
-  function start(snapshot){
-    const id=snapshot?.sceneId||document().startSceneId
-    const next=new ObjectRuntime({scene:engine.expandScene(id),types,snapshot,changed:persist,services:{engine,service:name=>services.get(name)}})
-    runtime?.dispose();runtime=next;selected=id;persist(runtime.snapshot());notify()
+  function build(snapshot,project=engine.project,doc=document()){
+    const id=snapshot?.sceneId||doc.startSceneId
+    return new ObjectRuntime({scene:engine.expandScene(id,doc),types,snapshot,project,changed:persist,trace,services:{engine,service:name=>services.get(name)}})
+  }
+  function start(snapshot,event,candidate){
+    const next=candidate||build(snapshot)
+    runtime?.dispose();runtime=next;selected=next.scene.id;persist(runtime.snapshot());notify(event)
   }
   function sync(event){
     if(disposed||syncing)return
     syncing=true
     try{
-    if(projectId!==engine.project.id){projectId=engine.project.id;selected=document().startSceneId;editScene=selected}
+    if(projectId!==engine.project.id){traces.length=0;traceNotify();projectId=engine.project.id;selected=document().startSceneId;editScene=selected}
     if(engine.mode==='play'&&!wasPlaying)editScene=selected
     if(engine.mode!=='play'&&wasPlaying)selected=editScene
     wasPlaying=engine.mode==='play'
-    if(engine.mode==='play'){if((!runtime||engine.runtime.objects!==savedRef)&&engine.runtime.objects!==failedRef){try{start(engine.runtime.objects);failedRef=Symbol();if(failure&&engine.runtime.error===failure)engine.transact(r=>{r.error=''});failure=''}catch(error){failedRef=engine.runtime.objects;failure=error.message;runtime?.dispose();runtime=null;engine.error(error.message)}}}
+    if(engine.mode==='play'){if((!runtime||engine.runtime.objects!==savedRef)&&engine.runtime.objects!==failedRef){try{const candidate=prepared.get(engine.runtime);prepared.delete(engine.runtime);start(engine.runtime.objects,event,candidate);failedRef=Symbol();if(failure&&engine.runtime.error===failure)engine.transact(r=>{r.error=''});failure=''}catch(error){failedRef=engine.runtime.objects;failure=error.message;runtime?.dispose();runtime=null;engine.error(error.message)}}}
     else {runtime?.dispose();runtime=null;savedRef=null;failedRef=Symbol();failure='';if(!document().scenes.some(s=>s.id===selected))selected=document().startSceneId}
     if(event?.type!=='status')notify()
     }finally{syncing=false}
   }
   const api={
+    traces:()=>structuredClone(traces),clearTraces(){traces.length=0;traceNotify()},
+    get tracing(){return tracing},setTracing(value){tracing=!!value;traceNotify()},
+    observeTraces(owner,fn){traceObservers.add(fn);const off=()=>traceObservers.delete(fn);owner.effect(()=>off);return off},
     get runtime(){return runtime},get selected(){return selected},get document(){return document()},get playing(){return engine.mode==='play'},
     types:()=>[...types.values()].map(describeType),descriptor:type=>types.get(type),
     register(owner,d){
@@ -46,14 +55,22 @@ export default function(ctx,sdk){
     undo(){engine.sceneUndo();notify()},redo(){engine.sceneRedo();notify()},
     async call(id,method,args){if(!runtime)throw Error('请先开始试玩');return runtime.invoke(id,method,args)},
     validate(){const issues=[];for(const s of document().scenes){let expanded;try{expanded=engine.expandScene(s.id)}catch(e){issues.push(e.message);continue}
-      try{validateScene(expanded,types)}catch(e){issues.push(s.name+'：'+e.message)}}
+      try{validateScene(expanded,types,{project:engine.project})}catch(e){issues.push(s.name+'：'+e.message)}}
       return issues},
   }
   sdk.provide('sceneRuntime',api)
+  engine.registerRuntimeValidator?.(ctx,{id:'scene-objects',validate(snapshot,{project,composition:doc,restoring}){
+    const candidate=build(snapshot.objects,project,doc)
+    try{
+      if(snapshot.objects)for(const s of doc.scenes){if(s.id===candidate.scene.id)continue;const objects=engine.expandScene(s.id,doc).objects;for(const o of objects){const state=snapshot.objects.states[s.id+'/'+o.id],d=types.get(o.type);if(state!==undefined){if(!d)throw Error('存档所需插件未启用：'+o.type);d.restore?.(structuredClone(state),structuredClone(o.props||{}),project)}}}
+      if(restoring)prepared.set(snapshot,candidate)
+    }finally{if(!prepared.has(snapshot))candidate.dispose()}
+  }})
+  sdk.agent?.register({name:'narrative_scene_trace',description:'只读获取最近200条事件和方法调用，含参数摘要、错误与耗时。',inputSchema:{type:'object',properties:{}}},()=>({recording:tracing,entries:api.traces()}))
   engine.observe(ctx,sync)
   const read=()=>({projectId:engine.project.id,version:engine.version,mode:engine.mode,selectedSceneId:selected,document:document(),types:api.types(),issues:api.validate(),runtime:runtime?.snapshot()||null})
   sdk.agent?.register({name:'narrative_scene_read',description:'读取场景、预制体、公开对象类型/字段/方法/事件、版本和诊断。场景对象与剧情节点不同。',inputSchema:{type:'object',properties:{}}},read)
   sdk.agent?.register({name:'narrative_scene_edit',description:'用与属性面板相同的操作修改场景。先 read；支持 add/patch/move/remove/clone/connect/disconnect/save-prefab/instantiate/unpack/add-scene/start-scene/rename-scene。所有操作整体校验，成功后保存。',inputSchema:{type:'object',properties:{version:{type:'integer'},command:{type:'object'}},required:['version','command']}},async input=>{api.edit(input.command,input.version);await engine.save();return read()})
   sdk.agent?.register({name:'narrative_scene_call',description:'仅在试玩中调用对象声明的方法。方法和参数来自 narrative_scene_read.types。',inputSchema:{type:'object',properties:{id:{type:'string'},method:{type:'string'},args:{type:'object'}},required:['id','method']}},async input=>{await api.call(input.id,input.method,input.args||{});return read()})
-  ctx.effect(()=>()=>{disposed=true;runtime?.dispose();observers.clear();services.clear();types.clear()})
+  ctx.effect(()=>()=>{disposed=true;runtime?.dispose();observers.clear();services.clear();types.clear();traces.length=0;traceObservers.clear()})
 }

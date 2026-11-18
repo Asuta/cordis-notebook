@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
 import client from '../client.js'
+import storyData from '../../story-data/client.js'
 import { templateProject as salonProject } from '../demo.js'
 import { templateProject as legacyProject } from './fixtures/legacy-project.js'
 const templateProject = (template,...args) => template === 'salon' ? salonProject(template,...args) : legacyProject(template,...args)
@@ -24,7 +25,7 @@ export function owner() {
 }
 
 // Only the transport and owner lifecycle are faked; the narrative service is real.
-export async function setup(t, { template = 'hybrid', draft, preferred } = {}) {
+export async function setup(t, { template = 'hybrid', draft, preferred, stories=true } = {}) {
   const window = new Window({ url: 'http://localhost/' })
   const previous = new Map(['window', 'document'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
   Object.defineProperty(globalThis, 'window', { value: window, configurable: true, writable: true })
@@ -84,5 +85,8 @@ export async function setup(t, { template = 'hybrid', draft, preferred } = {}) {
     }
   })
   await client(ctx, sdk)
-  return { engine, ctx, sdk, window, records, requests, toasts, tools, control, puts: () => requests.filter(request => request.method === 'PUT') }
+  const formatOwner=owner(); formatOwner.narrative=engine
+  if(stories)storyData(formatOwner,{provide(){}})
+  ctx.effect(()=>()=>formatOwner.dispose())
+  return { formatOwner, engine, ctx, sdk, window, records, requests, toasts, tools, control, puts: () => requests.filter(request => request.method === 'PUT') }
 }

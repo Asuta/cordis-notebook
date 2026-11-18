@@ -1,17 +1,14 @@
+import { investigationProject } from './investigation.js'
 import { defaultComposition } from './composition.js'
-import { lastTrainProject } from './last-train.js'
 const asset = (id,name,file) => ({ id,name,kind:'image',url:'/builtin/project/assets/' + file + '.png' })
 export function templateProject(template = 'salon', title, id = crypto.randomUUID()) {
-  if (template === 'last-train') return lastTrainProject(title,id)
-  if (template !== 'salon') throw Object.assign(Error('请选择七日会客厅或末班车之前模板'), {status:400})
+  if(template==='investigation')return investigationProject(title,id)
+  if (template !== 'salon') throw Object.assign(Error('请选择已启用的作品模板'), {status:400})
   const p = {
     schemaVersion:1,id,revision:0,title:title || '七日会客厅',template,
-    description:'两个独立角色会话、天数推进与关系变化。打开场景搭建，自由重组窗口和事件。',startNodeId:'main',
+    description:'两个独立角色会话、天数推进与关系变化。打开场景搭建，自由重组窗口和事件。',
     assets:[asset('observatory','山顶观测站','observatory'),asset('station','雨后车站','station'),asset('lin','林栀 · 默认立绘','lin'),asset('yao','遥 · 默认立绘','yao'),{id:'rain-theme',name:'星夜 · 循环音乐',kind:'audio',url:'/builtin/project/assets/rain-theme.wav'}],
     characters:[{id:'lin',name:'林栀',description:'山顶观测站的年轻研究员，喜欢星空和旧唱片。',personality:'温柔、好奇，偶尔有一点笨拙；会认真倾听别人的故事。',portrait:'lin',expressions:{neutral:'lin',happy:'lin',sad:'lin'},color:'#c6b7f4'},{id:'yao',name:'遥',description:'总是带着相机的旅人。',personality:'开朗、直率，善于发现生活里的小事。',portrait:'yao',expressions:{neutral:'yao',happy:'yao',sad:'yao'},color:'#e7bb94'}],
-    variables:[],rules:[],
-    // Schema v1 keeps a minimal runtime envelope; scene objects own gameplay.
-    nodes:[{id:'main',type:'scene',title:'会客厅',stage:{background:'',characterId:'',expression:'neutral',position:50,scale:100},lines:[],choices:[]}],
     settings:{dialogueStyle:'chat',accent:'#8c77cb',bgm:'rain-theme',volume:.35,worldInfo:'故事发生在七日会客厅。林栀喜欢星空和旧唱片，遥热爱摄影与旅行。角色只知道玩家在交谈中分享的经历。'}
   }
   p.composition = defaultComposition(p)

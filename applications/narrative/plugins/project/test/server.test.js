@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHost } from '../../../../../server/server.js'
-import { diagnose, validateProject } from '../model.js'
+import { diagnose, validateProject } from './fixtures/story-model.js'
 
 // The plugin runner builds first. These tests use actual runtime discovery and
 // built plugin artifacts, never substitute routes or start a concurrent build.
@@ -42,7 +42,7 @@ test('真实宿主 HTTP：模板、并发修订、独立导入、私有设置隔
   const original = (await request('/api/narrative/projects/' + listed.result[0].id)).result
   validateProject(original); assert.deepEqual(diagnose(original), [])
   assert.equal(original.revision, 0)
-  for (const template of ['salon']) {
+  for (const template of ['salon','last-train','investigation']) {
     const created = await request('/api/narrative/projects', 'POST', { template, title: '  新建 ' + template + '  ' })
     assert.equal(created.status, 200)
     validateProject(created.result); assert.deepEqual(diagnose(created.result), [])
@@ -95,7 +95,7 @@ test('真实宿主 HTTP：模板、并发修订、独立导入、私有设置隔
   assert.equal(changedImport.status, 200)
   assert.equal((await request('/api/narrative/projects/' + original.id)).result.title, original.title)
   const all = (await request('/api/narrative/projects')).result
-  assert.equal(all.length, 3)
+  assert.equal(all.length, 5)
   assert.equal(new Set(all.map(value => value.id)).size, all.length)
   assert.equal(all.find(value => value.id === original.id).revision, 1)
 
@@ -122,7 +122,7 @@ test('真实宿主 HTTP：模板、并发修订、独立导入、私有设置隔
   await f.restart()
   assert.deepEqual((await request('/api/narrative/projects/' + original.id)).result, saved)
   assert.deepEqual((await request('/api/narrative/projects/' + imported.result.id)).result, changedImport.result)
-  assert.equal((await request('/api/narrative/projects')).result.length, 3)
+  assert.equal((await request('/api/narrative/projects')).result.length, 5)
   const restoredSettings = (await request('/api/narrative/ai/settings')).result
   assert.equal(restoredSettings.hasApiKey, true)
   assert.equal(restoredSettings.protocol, 'responses')
@@ -140,7 +140,8 @@ test('真实宿主 HTTP：拒绝坏 JSON、无效模板及导入，失败后作�
   for (const input of [null, { ...original, id: '../outside' }, { ...original, nodes: [] }, { ...original, assets: [...original.assets, { id: 'unsafe', name: '恶意素材', kind: 'image', url: 'javascript:alert(1)' }] }]) {
     assert.equal((await request('/api/narrative/import', 'POST', input)).status, 400)
   }
-  const invalid = structuredClone(original); invalid.nodes[0].stage.scale = 0
+  const invalid = structuredClone(original)
+  invalid.composition.scenes[0].objects[0].parent = invalid.composition.scenes[0].objects[0].id
   assert.equal((await request('/api/narrative/projects/' + original.id, 'PUT', invalid)).status, 400)
   assert.equal((await request('/api/narrative/projects/missing')).status, 404)
   assert.equal((await request('/api/narrative/projects/missing', 'PUT', original)).status, 404)
@@ -163,4 +164,21 @@ test('真实宿主 HTTP：并发创建在作品上限处串行检查，满额导
   assert.equal(imported.status, 400); assert.match(imported.result.error, /50/)
   assert.equal((await request('/api/narrative/projects')).result.length, 50)
   assert.deepEqual((await request('/api/narrative/projects/' + original.id)).result, original)
+})
+
+test('停用剧情插件后仍可保存、导出和重开原作品，重新启用即恢复剧情校验',async t=>{
+  const {request}=await setup(t)
+  const created=(await request('/api/narrative/projects','POST',{template:'last-train'})).result
+  const path='/api/narrative/projects/'+created.id
+  const toggle=async(id,enabled)=>{const res=await request('/api/plugins/'+id+'/toggle','POST',{enabled});assert.equal(res.status,200,res.result.error)}
+  for(const id of ['story-editor','story-flow','story-data'])await toggle(id,false)
+  assert.equal((await request('/api/narrative/projects','POST',{template:'last-train'})).status,400)
+  const saved=await request(path,'PUT',{...created,title:'保留剧情'})
+  assert.equal(saved.status,200);assert.deepEqual(saved.result.stories,created.stories)
+  assert.deepEqual((await request(path)).result.stories,created.stories)
+  await toggle('story-data',true)
+  const reopened=(await request(path)).result
+  assert.deepEqual(reopened.stories,created.stories)
+  reopened.stories[0].startNodeId='missing'
+  assert.equal((await request(path,'PUT',reopened)).status,400)
 })

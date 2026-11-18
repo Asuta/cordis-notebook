@@ -4,6 +4,7 @@ const el = (tag, cls, text) => { const n = document.createElement(tag); n.classN
 export function resourceReferences(engine, scene, resource) {
   const rows = []
   for (const s of scene.document.scenes) for (const o of scene.expanded(s.id).objects) {
+    if (resource.kind==='story'&&o.type==='story-flow'&&o.props?.storyId===resource.id)rows.push({sceneId:s.id,objectId:o.id,label:s.name+' / '+(o.name||o.id)})
     if (resource.kind === 'type' && o.type === resource.id) rows.push({ sceneId: s.id, objectId: o.id, label: s.name + ' / ' + (o.name || o.id) })
     const fields = scene.descriptor(o.type)?.fields || {}
     for (const [key, f] of Object.entries(fields)) if ((resource.kind === 'asset' && f.kind === 'asset' || resource.kind === 'character' && f.kind === 'character') && o.props?.[key] === resource.id) rows.push({ sceneId: s.id, objectId: o.id, label: s.name + ' / ' + (o.name || o.id) + ' · ' + f.label })
@@ -52,11 +53,14 @@ export function mountResources(host, { engine, scene, ui, run, button, field, in
     if (disposed || id !== engine.project.id || scene.playing) throw Error('作品状态已变化，请重新导入素材')
     engine.update(p => { p.assets.push(...assets) }); choose({ kind: 'asset', id: assets[0].id })
   }))
-  for (const [id, label] of [['all', '全部'], ['image', '图片'], ['audio', '音频'], ['type', '对象类型'], ['prefab', '预制体'], ['character', '人物资料']]) { const b = button(label, () => { category = id; renderCards() }, 'scene-resource-tab'); b.dataset.category = id; tabs.append(b) }
+  for (const [id, label] of [['all', '全部'], ['image', '图片'], ['audio', '音频'], ['type', '对象类型'], ['prefab', '预制体'], ['character', '人物资料'], ['story','剧情资源'], ['preset','组合']]) { const b = button(label, () => { category = id; renderCards() }, 'scene-resource-tab'); b.dataset.category = id; tabs.append(b) }
   head.append(el('strong', '', '资源库'), tabs, search, zoom, importButton, upload); host.append(head, cards)
   function choose(value) { selected = value; select(value); mark() }
   function entries() {
     return [
+      ...(engine.prefabPresets?.()||[]).map(p=>({kind:'preset',id:p.id,category:'preset',label:p.name,detail:'组合 · 可展开修改',icon:'▣'})),
+      ...(engine.hasProjectFormat('stories')?(engine.project.stories||[]):[]).map(s=>({kind:'story',id:s.id,category:'story',label:s.name,detail:s.nodes.length+' 个章节',icon:'✎'})),
+      ...(!engine.hasProjectFormat('stories') && (engine.project.stories || engine.project.nodes) ? [{kind:'unavailable',id:'stories',category:'story',label:'剧情插件未启用',detail:'剧情数据已保留',icon:'✎'}] : []),
       ...engine.project.assets.map(a => ({ kind: 'asset', id: a.id, category: a.kind, label: a.name, image: a.kind === 'image' ? a.url : '', detail: a.kind === 'image' ? '图片素材' : '音频素材', icon: a.kind === 'image' ? '▧' : '♫' })),
       ...scene.types().map(d => ({ kind: 'type', id: d.type, category: 'type', label: d.label, detail: d.visual === false ? '逻辑对象' : '界面对象', icon: d.visual === false ? '◇' : '▦' })),
       ...scene.document.prefabs.map(p => ({ kind: 'prefab', id: p.id, version: p.version, category: 'prefab', label: p.name, detail: '预制体 v' + p.version, icon: '▣' })),
@@ -70,12 +74,12 @@ export function mountResources(host, { engine, scene, ui, run, button, field, in
     for (const tab of tabs.children) tab.setAttribute('aria-pressed', String(tab.dataset.category === category))
     for (const r of entries().filter(r => (category === 'all' || r.category === category) && (r.label + r.detail).toLowerCase().includes(query))) {
       const value = { kind: r.kind, id: r.id, ...(r.version ? { version: r.version } : {}) }
-      const card = button('', () => choose(value), 'scene-resource-card'); card.title = r.label; card.dataset.resource = key(r); card.draggable = !scene.playing
+      const card = button('', () => choose(value), 'scene-resource-card'); card.title = r.label; card.dataset.resource = key(r); card.draggable = !scene.playing && r.kind!=='unavailable'
       const art = el('div', 'scene-resource-art', r.icon)
       if (r.image) { const img = el('img'); img.src = r.image; img.alt = ''; img.draggable = false; art.replaceChildren(img) }
       card.append(art, el('strong', '', r.label), el('small', '', r.detail))
       card.addEventListener('dragstart', e => { if (scene.playing) { e.preventDefault(); return } e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData(RESOURCE_MIME, JSON.stringify(value)) })
-      card.addEventListener('dblclick', () => { if (!scene.playing) run(() => place(value)) }); cards.append(card)
+      card.addEventListener('dblclick', () => { if (card.draggable) run(() => place(value)) }); cards.append(card)
     }
     if (!cards.children.length) cards.append(el('p', 'scene-help', '没有匹配的资源。可导入图片和音频，或换一个分类。'))
     mark()
@@ -83,6 +87,7 @@ export function mountResources(host, { engine, scene, ui, run, button, field, in
   function renderInspector(resource, container) {
     const entry = entries().find(r => key(r) === key(resource)); if (!entry) { container.append(el('p', 'scene-help', '此资源已移除。')); return }
     container.append(el('h3', '', entry.label), el('p', 'scene-help', entry.detail))
+    if (resource.kind==='unavailable') return
     if (entry.image) { const img = el('img', 'scene-resource-preview'); img.src = entry.image; img.alt = entry.label; container.append(img) }
     if (resource.kind === 'asset') {
       const a = engine.project.assets.find(a => a.id === resource.id)
@@ -92,6 +97,7 @@ export function mountResources(host, { engine, scene, ui, run, button, field, in
     }
     if (resource.kind === 'type') { const d = scene.descriptor(resource.id); container.append(el('p', 'scene-help', '提供插件：' + (d.plugin || '已注册插件')), el('p', 'scene-help', '可调参数：' + (Object.values(d.fields || {}).map(f => f.label).join('、') || '无'))) }
     if (resource.kind === 'prefab') { const p = scene.document.prefabs.find(p => p.id === resource.id && p.version === resource.version); container.append(el('p', 'scene-help', p.objects.length + ' 个对象 · ' + p.connections.length + ' 条事件连接。放入场景后可单独编辑实例。')) }
+    if(resource.kind==='story')container.append(button('编辑剧情资源',()=>{const s=engine.project.stories.find(s=>s.id===resource.id);engine.select({storyId:s.id,nodeId:s.startNodeId});return ui.navigate('novel.editor')}))
     if (resource.kind === 'character') {
       const c = engine.project.characters.find(c => c.id === resource.id)
       container.append(el('p', 'scene-help', c.description), el('p', 'scene-help', c.personality), button('编辑人物档案', () => { engine.select({ characterId: c.id }); return ui.navigate('characters') }))
@@ -102,7 +108,7 @@ export function mountResources(host, { engine, scene, ui, run, button, field, in
     for (const ref of refs) container.append(button(ref.label, () => jump(ref), 'scene-reference-link'))
     if (!refs.length) container.append(el('p', 'scene-help', '当前没有引用此资源。'))
   }
-  function refresh() { const stamp = JSON.stringify([engine.project.assets, engine.project.characters, scene.document.prefabs, scene.types(), scene.playing]); if (stamp !== signature) { signature = stamp; renderCards() } importButton.disabled = scene.playing }
+  function refresh() { const stamp = JSON.stringify([engine.hasProjectFormat('stories'), engine.project.assets, engine.project.characters, engine.project.stories, scene.document.prefabs, scene.types(), scene.playing]); if (stamp !== signature) { signature = stamp; renderCards() } importButton.disabled = scene.playing }
   refresh()
   return { refresh, renderInspector, clearSelection() { selected = null; mark() }, dispose() { disposed = true; host.removeEventListener('wheel', wheel); host.replaceChildren() } }
 }
